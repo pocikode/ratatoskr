@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -62,7 +64,7 @@ func TestLoad(t *testing.T) {
 		{
 			name:    "defaults",
 			wantDir: "default",
-			want:    Config{Listen: DefaultListen},
+			want:    Config{Listen: []string{DefaultListen}},
 		},
 		{
 			name: "flags",
@@ -76,13 +78,33 @@ func TestLoad(t *testing.T) {
 				"--allow-guests",
 			},
 			want: Config{
-				Listen:      "127.0.0.1:9000",
+				Listen:      []string{"127.0.0.1:9000"},
 				UIListen:    "127.0.0.1:9001",
 				NoOpen:      true,
 				AuthToken:   "s3cret",
 				Debug:       true,
 				AllowGuests: true,
 			},
+		},
+		{
+			name: "repeated listen flag",
+			args: []string{
+				"--listen", "127.0.0.1:9000",
+				"--listen", "127.0.0.1:9001",
+				"--data-dir", "$DIR",
+			},
+			want: Config{Listen: []string{"127.0.0.1:9000", "127.0.0.1:9001"}},
+		},
+		{
+			name:    "repeated listen flag replaces the default",
+			args:    []string{"--listen", "127.0.0.1:9000", "--data-dir", "$DIR"},
+			want:    Config{Listen: []string{"127.0.0.1:9000"}},
+			wantDir: "$DIR",
+		},
+		{
+			name:    "listen flag with a bad address among several",
+			args:    []string{"--listen", "127.0.0.1:9000", "--listen", "nope", "--data-dir", "$DIR"},
+			wantErr: "listen",
 		},
 		{
 			name: "environment",
@@ -96,13 +118,21 @@ func TestLoad(t *testing.T) {
 				"RATATOSKR_ALLOW_GUESTS": "true",
 			},
 			want: Config{
-				Listen:      "127.0.0.1:9000",
+				Listen:      []string{"127.0.0.1:9000"},
 				UIListen:    "127.0.0.1:9001",
 				NoOpen:      true,
 				AuthToken:   "s3cret",
 				Debug:       true,
 				AllowGuests: true,
 			},
+		},
+		{
+			name: "environment listen is a comma-separated list",
+			env: map[string]string{
+				"RATATOSKR_LISTEN":   "127.0.0.1:9000, 127.0.0.1:9001",
+				"RATATOSKR_DATA_DIR": "$DIR",
+			},
+			want: Config{Listen: []string{"127.0.0.1:9000", "127.0.0.1:9001"}},
 		},
 		{
 			name: "config file",
@@ -116,7 +146,7 @@ debug = true
 allow-guests = true
 `},
 			want: Config{
-				Listen:      "127.0.0.1:9000",
+				Listen:      []string{"127.0.0.1:9000"},
 				UIListen:    "127.0.0.1:9001",
 				NoOpen:      true,
 				AuthToken:   "s3cret",
@@ -125,36 +155,42 @@ allow-guests = true
 			},
 		},
 		{
+			name:  "config file listen is an array",
+			args:  []string{"--data-dir", "$DIR"},
+			files: map[string]string{ConfigFileName: "listen = [\"127.0.0.1:9000\", \"127.0.0.1:9001\"]\n"},
+			want:  Config{Listen: []string{"127.0.0.1:9000", "127.0.0.1:9001"}},
+		},
+		{
 			name:  "config file accepts underscores",
 			args:  []string{"--data-dir", "$DIR"},
 			files: map[string]string{ConfigFileName: "ui_listen = \"127.0.0.1:9001\"\nno_open = true\n"},
-			want:  Config{Listen: DefaultListen, UIListen: "127.0.0.1:9001", NoOpen: true},
+			want:  Config{Listen: []string{DefaultListen}, UIListen: "127.0.0.1:9001", NoOpen: true},
 		},
 		{
 			name:  "flag beats environment",
 			args:  []string{"--listen", "127.0.0.1:9002", "--data-dir", "$DIR"},
 			env:   map[string]string{"RATATOSKR_LISTEN": "127.0.0.1:9000"},
 			files: map[string]string{ConfigFileName: `listen = "127.0.0.1:9001"` + "\n"},
-			want:  Config{Listen: "127.0.0.1:9002"},
+			want:  Config{Listen: []string{"127.0.0.1:9002"}},
 		},
 		{
 			name:  "environment beats config file",
 			args:  []string{"--data-dir", "$DIR"},
 			env:   map[string]string{"RATATOSKR_LISTEN": "127.0.0.1:9000"},
 			files: map[string]string{ConfigFileName: `listen = "127.0.0.1:9001"` + "\n"},
-			want:  Config{Listen: "127.0.0.1:9000"},
+			want:  Config{Listen: []string{"127.0.0.1:9000"}},
 		},
 		{
 			name:  "config file beats defaults",
 			args:  []string{"--data-dir", "$DIR"},
 			files: map[string]string{ConfigFileName: `listen = "127.0.0.1:9001"` + "\n"},
-			want:  Config{Listen: "127.0.0.1:9001"},
+			want:  Config{Listen: []string{"127.0.0.1:9001"}},
 		},
 		{
 			name: "explicit false flag beats environment",
 			args: []string{"--debug=false", "--data-dir", "$DIR"},
 			env:  map[string]string{"RATATOSKR_DEBUG": "true"},
-			want: Config{Listen: DefaultListen},
+			want: Config{Listen: []string{DefaultListen}},
 		},
 		{
 			name: "config file may not relocate the data dir",
@@ -168,7 +204,7 @@ allow-guests = true
 		{
 			name:    "data dir flag is cleaned",
 			args:    []string{"--data-dir", "$DIR/./"},
-			want:    Config{Listen: DefaultListen},
+			want:    Config{Listen: []string{DefaultListen}},
 			wantDir: "$DIR",
 		},
 		{
@@ -198,8 +234,8 @@ allow-guests = true
 			wantErr: "port",
 		},
 		{
-			name:    "ui listen equal to listen",
-			args:    []string{"--listen", "127.0.0.1:9000", "--ui-listen", "127.0.0.1:9000", "--data-dir", "$DIR"},
+			name:    "ui listen equal to a repeated listen",
+			args:    []string{"--listen", "127.0.0.1:9000", "--listen", "127.0.0.1:9001", "--ui-listen", "127.0.0.1:9001", "--data-dir", "$DIR"},
 			wantErr: "ui_listen must differ",
 		},
 		{
@@ -260,8 +296,8 @@ allow-guests = true
 			}
 
 			want := tt.want
-			if want.Listen == "" {
-				want.Listen = DefaultListen
+			if len(want.Listen) == 0 {
+				want.Listen = []string{DefaultListen}
 			}
 
 			switch tt.wantDir {
@@ -277,7 +313,7 @@ allow-guests = true
 				want.DataDir = expand(tt.wantDir, dir)
 			}
 
-			if *got != want {
+			if !reflect.DeepEqual(*got, want) {
 				t.Errorf("Load(%q) =\n %+v\nwant\n %+v", args, *got, want)
 			}
 		})
@@ -293,19 +329,131 @@ func TestLoadHelp(t *testing.T) {
 	}
 }
 
+// TestLoadWithoutHome checks that an explicit data dir starts the binary on a
+// host without $HOME (containers, systemd units, CI), where looking up the
+// default data dir fails.
+func TestLoadWithoutHome(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	dir := t.TempDir()
+
+	t.Run("no data dir at all", func(t *testing.T) {
+		_, err := Load(nil)
+		if err == nil || !strings.Contains(err.Error(), "user config dir") {
+			t.Fatalf("Load() error = %v, want the user config dir lookup to fail", err)
+		}
+	})
+
+	t.Run("help", func(t *testing.T) {
+		_, err := Load([]string{"--help"})
+		if !errors.Is(err, ff.ErrHelp) {
+			t.Fatalf("Load(--help) error = %v, want ff.ErrHelp", err)
+		}
+	})
+
+	t.Run("flag", func(t *testing.T) {
+		cfg, err := Load([]string{"--data-dir", dir})
+		if err != nil {
+			t.Fatalf("Load with --data-dir and no $HOME: %v", err)
+		}
+
+		if cfg.DataDir != dir {
+			t.Errorf("DataDir = %q, want %q", cfg.DataDir, dir)
+		}
+	})
+
+	t.Run("environment", func(t *testing.T) {
+		t.Setenv("RATATOSKR_DATA_DIR", dir)
+
+		cfg, err := Load(nil)
+		if err != nil {
+			t.Fatalf("Load with RATATOSKR_DATA_DIR and no $HOME: %v", err)
+		}
+
+		if cfg.DataDir != dir {
+			t.Errorf("DataDir = %q, want %q", cfg.DataDir, dir)
+		}
+	})
+}
+
+// TestLoadConfigFileThroughRoot checks that config.toml is read through the data
+// dir's os.Root, so a file that points outside the dir is refused.
+func TestLoadConfigFileThroughRoot(t *testing.T) {
+	clearEnv(t)
+
+	outside := filepath.Join(t.TempDir(), "outside.toml")
+	if err := os.WriteFile(outside, []byte("debug = true\n"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, ConfigFileName)); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+
+	_, err := Load([]string{"--data-dir", dir})
+	if err == nil {
+		t.Fatal("Load with an escaping config.toml symlink = nil error, want a refusal")
+	}
+}
+
+func TestListenValueReset(t *testing.T) {
+	addrs := []string{DefaultListen}
+	v := &listenValue{addrs: &addrs, defaults: []string{DefaultListen}}
+
+	if err := v.Set("127.0.0.1:9000,127.0.0.1:9001"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	if want := []string{"127.0.0.1:9000", "127.0.0.1:9001"}; !slices.Equal(addrs, want) {
+		t.Fatalf("addrs = %v, want %v", addrs, want)
+	}
+
+	if err := v.Reset(); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+
+	if want := []string{DefaultListen}; !slices.Equal(addrs, want) {
+		t.Fatalf("addrs after Reset = %v, want %v", addrs, want)
+	}
+
+	// The flag replaces the default again after a reset.
+	if err := v.Set("127.0.0.1:9002"); err != nil {
+		t.Fatalf("Set after Reset: %v", err)
+	}
+
+	if want := []string{"127.0.0.1:9002"}; !slices.Equal(addrs, want) {
+		t.Fatalf("addrs = %v, want %v", addrs, want)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
 		cfg     Config
 		wantErr string
 	}{
-		{name: "valid", cfg: Config{Listen: DefaultListen, DataDir: "/tmp/x"}},
-		{name: "empty listen", cfg: Config{DataDir: "/tmp/x"}, wantErr: "listen must not be empty"},
-		{name: "empty data dir", cfg: Config{Listen: DefaultListen}, wantErr: "data_dir must not be empty"},
-		{name: "ui listen only", cfg: Config{Listen: DefaultListen, UIListen: ":9001", DataDir: "/tmp/x"}},
+		{name: "valid", cfg: Config{Listen: []string{DefaultListen}, DataDir: "/tmp/x"}},
+		{
+			name: "several listeners",
+			cfg:  Config{Listen: []string{"127.0.0.1:9000", "[::1]:9001"}, DataDir: "/tmp/x"},
+		},
+		{name: "no listen", cfg: Config{DataDir: "/tmp/x"}, wantErr: "listen must not be empty"},
+		{
+			name:    "one bad listener",
+			cfg:     Config{Listen: []string{DefaultListen, "127.0.0.1"}, DataDir: "/tmp/x"},
+			wantErr: "listen",
+		},
+		{name: "empty data dir", cfg: Config{Listen: []string{DefaultListen}}, wantErr: "data_dir must not be empty"},
+		{
+			name: "ui listen only",
+			cfg:  Config{Listen: []string{DefaultListen}, UIListen: ":9001", DataDir: "/tmp/x"},
+		},
 		{
 			name:    "ui listen without port",
-			cfg:     Config{Listen: DefaultListen, UIListen: "localhost", DataDir: "/tmp/x"},
+			cfg:     Config{Listen: []string{DefaultListen}, UIListen: "localhost", DataDir: "/tmp/x"},
 			wantErr: "ui_listen",
 		},
 	}
@@ -330,7 +478,7 @@ func TestValidate(t *testing.T) {
 }
 
 func TestLogValueRedactsAuthToken(t *testing.T) {
-	cfg := Config{Listen: DefaultListen, DataDir: "/tmp/x", AuthToken: "s3cret"}
+	cfg := Config{Listen: []string{DefaultListen}, DataDir: "/tmp/x", AuthToken: "s3cret"}
 
 	got := cfg.LogValue().String()
 	if strings.Contains(got, "s3cret") {
@@ -355,7 +503,11 @@ func TestUsage(t *testing.T) {
 
 	usage := buf.String()
 
-	for _, want := range []string{"ratatoskr", "--listen", "--ui-listen", "--data-dir", "--no-open", "--auth-token", "--debug", "--allow-guests"} {
+	for _, want := range []string{
+		"ratatoskr", "--listen", "--ui-listen", "--data-dir", "--no-open", "--auth-token", "--debug", "--allow-guests",
+		// The repeatable flag still advertises its default.
+		DefaultListen,
+	} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("Usage() does not mention %q:\n%s", want, usage)
 		}

@@ -27,7 +27,7 @@ func newTestApp(t *testing.T, handler http.Handler) (*App, *bytes.Buffer) {
 	var logs bytes.Buffer
 
 	a, err := New(Options{
-		Config: config.Config{Listen: "127.0.0.1:0", DataDir: dataDir(t)},
+		Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dataDir(t)},
 		Logger: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
 	if err != nil {
@@ -74,8 +74,12 @@ func TestNewRejectsUnimplementedOptions(t *testing.T) {
 		name string
 		cfg  config.Config
 	}{
-		{name: "auth token", cfg: config.Config{Listen: "127.0.0.1:0", AuthToken: "s3cret"}},
-		{name: "separate ui listener", cfg: config.Config{Listen: "127.0.0.1:0", UIListen: "127.0.0.1:9001"}},
+		{name: "auth token", cfg: config.Config{Listen: []string{"127.0.0.1:0"}, AuthToken: "s3cret"}},
+		{name: "separate ui listener", cfg: config.Config{Listen: []string{"127.0.0.1:0"}, UIListen: "127.0.0.1:9001"}},
+		{
+			name: "several listeners",
+			cfg:  config.Config{Listen: []string{"127.0.0.1:0", "127.0.0.1:9001"}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -106,7 +110,7 @@ func TestNewCreatesDataDir(t *testing.T) {
 
 	dir := t.TempDir() + "/nested/data"
 
-	a, err := New(Options{Config: config.Config{Listen: "127.0.0.1:0", DataDir: dir}})
+	a, err := New(Options{Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dir}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -161,7 +165,7 @@ func TestNewWarnsOnWideDataDirPermissions(t *testing.T) {
 	var logs bytes.Buffer
 
 	a, err := New(Options{
-		Config: config.Config{Listen: "127.0.0.1:0", DataDir: dir},
+		Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dir},
 		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
 	})
 	if err != nil {
@@ -181,20 +185,29 @@ func TestHandler(t *testing.T) {
 	tests := []struct {
 		name       string
 		debug      bool
+		method     string
 		path       string
 		wantStatus []int
 		wantBody   string
-		notBody    string
+		notBody    []string
 	}{
 		// The SPA is only built by `make build`, so an unbuilt tree answers 503
 		// instead of 200; both prove the request reached the UI handler.
 		{name: "spa is mounted", path: "/", wantStatus: []int{http.StatusOK, http.StatusServiceUnavailable}},
 		{name: "spa fallback route", path: "/history", wantStatus: []int{http.StatusOK, http.StatusServiceUnavailable}},
-		// Without --debug the pprof path falls through to the SPA.
-		{name: "pprof is off by default", path: "/debug/pprof/", wantStatus: []int{http.StatusOK, http.StatusServiceUnavailable}, notBody: "goroutineleak"},
+		// Without --debug the pprof path falls through to the SPA, so the body
+		// must be neither a profile list nor any other pprof output.
+		{
+			name:       "pprof is off by default",
+			path:       "/debug/pprof/",
+			wantStatus: []int{http.StatusOK, http.StatusServiceUnavailable},
+			notBody:    []string{"goroutineleak", "Types of profiles available"},
+		},
 		{name: "pprof index", debug: true, path: "/debug/pprof/", wantStatus: []int{http.StatusOK}, wantBody: "goroutineleak"},
 		{name: "pprof goroutineleak", debug: true, path: "/debug/pprof/goroutineleak?debug=1", wantStatus: []int{http.StatusOK}, wantBody: "goroutineleak"},
 		{name: "pprof symbol", debug: true, path: "/debug/pprof/symbol", wantStatus: []int{http.StatusOK}},
+		// go tool pprof resolves addresses with POST /debug/pprof/symbol.
+		{name: "pprof symbol accepts POST", debug: true, method: http.MethodPost, path: "/debug/pprof/symbol", wantStatus: []int{http.StatusOK}},
 	}
 
 	for _, tt := range tests {
@@ -202,7 +215,7 @@ func TestHandler(t *testing.T) {
 			t.Parallel()
 
 			a, err := New(Options{Config: config.Config{
-				Listen:  "127.0.0.1:0",
+				Listen:  []string{"127.0.0.1:0"},
 				DataDir: dataDir(t),
 				Debug:   tt.debug,
 			}})
@@ -213,7 +226,13 @@ func TestHandler(t *testing.T) {
 			t.Cleanup(func() { _ = a.Close() })
 
 			rec := httptest.NewRecorder()
-			a.handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+			method := tt.method
+			if method == "" {
+				method = http.MethodGet
+			}
+
+			a.handler.ServeHTTP(rec, httptest.NewRequest(method, tt.path, nil))
 
 			if !slices.Contains(tt.wantStatus, rec.Code) {
 				t.Fatalf("status = %d, want one of %v", rec.Code, tt.wantStatus)
@@ -223,8 +242,10 @@ func TestHandler(t *testing.T) {
 				t.Errorf("body %q does not contain %q", rec.Body.String(), tt.wantBody)
 			}
 
-			if tt.notBody != "" && strings.Contains(rec.Body.String(), tt.notBody) {
-				t.Errorf("body %q contains %q, want it absent", rec.Body.String(), tt.notBody)
+			for _, notBody := range tt.notBody {
+				if strings.Contains(rec.Body.String(), notBody) {
+					t.Errorf("body %q contains %q, want it absent", rec.Body.String(), notBody)
+				}
 			}
 		})
 	}
@@ -356,7 +377,7 @@ func TestLogs(t *testing.T) {
 	ring := logging.NewRing(logging.Options{Capacity: 4, Level: slog.LevelDebug})
 
 	a, err := New(Options{
-		Config: config.Config{Listen: "127.0.0.1:0", DataDir: dataDir(t)},
+		Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dataDir(t)},
 		Logs:   ring,
 	})
 	if err != nil {

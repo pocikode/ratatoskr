@@ -69,8 +69,8 @@ func New(opts Options) (*App, error) {
 
 	// Options that need machinery from later tasks fail loudly (docs/03-architecture.md §8):
 	// --auth-token without auth would serve the UI unprotected while the
-	// operator believes it is protected, and --ui-listen needs the proxy
-	// listener multiplexer.
+	// operator believes it is protected, and --ui-listen and further --listen
+	// addresses need the proxy listener multiplexer.
 	//
 	// --no-open and --allow-guests need no gate: no browser is opened yet, and
 	// without auth every client is a guest, which is exactly what they ask for.
@@ -79,6 +79,9 @@ func New(opts Options) (*App, error) {
 		return nil, fmt.Errorf("app: --auth-token: %w (the auth middleware lands with T-007)", ErrNotImplemented)
 	case cfg.UIListen != "":
 		return nil, fmt.Errorf("app: --ui-listen: %w (the proxy listener multiplexer lands with T-011)", ErrNotImplemented)
+	case len(cfg.Listen) > 1:
+		return nil, fmt.Errorf("app: %d --listen addresses: %w (the proxy listener multiplexer lands with T-011)",
+			len(cfg.Listen), ErrNotImplemented)
 	}
 
 	logger := opts.Logger
@@ -111,9 +114,12 @@ func New(opts Options) (*App, error) {
 
 // Run listens on the configured address and serves until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
-	ln, err := net.Listen("tcp", a.cfg.Listen)
+	// New guarantees exactly one address until the multiplexer lands.
+	addr := a.cfg.Listen[0]
+
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("app: listen on %q: %w", a.cfg.Listen, err)
+		return fmt.Errorf("app: listen on %q: %w", addr, err)
 	}
 
 	return a.Serve(ctx, ln)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,6 +147,19 @@ func TestRunRejectsUnimplementedAuthToken(t *testing.T) {
 	}
 }
 
+func TestRunRejectsSeveralListeners(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	err := run(t.Context(),
+		[]string{"--listen", "127.0.0.1:0", "--listen", "127.0.0.1:0", "--data-dir", dir},
+		&bytes.Buffer{}, &bytes.Buffer{})
+	if !errors.Is(err, app.ErrNotImplemented) {
+		t.Fatalf("run(two --listen) error = %v, want ErrNotImplemented", err)
+	}
+}
+
 func TestRunServesAndStopsOnContextCancel(t *testing.T) {
 	clearEnv(t)
 
@@ -179,6 +193,16 @@ func TestRunServesAndStopsOnContextCancel(t *testing.T) {
 
 	if got := info.Mode().Perm(); got != 0o700 {
 		t.Errorf("data dir mode = %o, want 700", got)
+	}
+
+	// The logger has to be the process default, so records from the stdlib and
+	// from later packages reach the ring the Logs page reads.
+	previous := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	slog.Default().Info("after run")
+	if !strings.Contains(stderr.String(), "after run") {
+		t.Errorf("stderr = %q, want the record logged through slog.Default", stderr.String())
 	}
 }
 

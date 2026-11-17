@@ -7,7 +7,7 @@
 // same name, upper-cased and prefixed with RATATOSKR_ (--data-dir is
 // RATATOSKR_DATA_DIR), and a config file key with the same name. Config keys also
 // accept an underscore in place of a dash, so data_dir and data-dir are the same
-// key.
+// key. The repeatable --listen takes a comma-separated list from the environment.
 //
 // The data dir is the one exception: config.toml lives inside it, so it has to be
 // resolved from --data-dir, RATATOSKR_DATA_DIR or the default before any file is
@@ -19,10 +19,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -51,8 +53,10 @@ var errEmptyDataDir = errors.New("config: data_dir must not be empty")
 
 // Config is the validated configuration of one Ratatoskr instance.
 type Config struct {
-	// Listen is the address of the shared proxy and UI/API listener.
-	Listen string
+	// Listen holds the addresses of the shared proxy and UI/API listeners. One
+	// instance may front several proxy ports, so --listen is repeatable
+	// (docs/01-feature-spec.md §I). It always holds at least one address.
+	Listen []string
 	// UIListen optionally binds the UI/API to its own address instead of sharing
 	// the proxy listener.
 	UIListen string
@@ -82,6 +86,18 @@ func Load(args []string) (*Config, error) {
 		return nil, err
 	}
 
+	// The file is read through an os.Root, never through a bare path
+	// (docs/05-go-conventions.md §1). A data dir that does not exist yet simply
+	// has no config file: app.New creates it.
+	root, err := openConfigRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	if root != nil {
+		defer func() { _ = root.Close() }()
+	}
+
 	cfg := &Config{}
 
 	var sawDataDir bool
@@ -91,7 +107,7 @@ func Load(args []string) (*Config, error) {
 		return nil, err
 	}
 
-	if err := ff.Parse(fs, args, parseOptions(dir, &sawDataDir)...); err != nil {
+	if err := ff.Parse(fs, args, parseOptions(root, &sawDataDir)...); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 
@@ -119,21 +135,24 @@ func Load(args []string) (*Config, error) {
 
 // resolveDataDir resolves the data dir from flags, environment and the default,
 // without reading any config file.
+//
+// The default is only computed when neither the flag nor the environment names a
+// dir: looking up the user config dir fails without $HOME, and a container or a
+// systemd unit that passes --data-dir must start anyway.
 func resolveDataDir(args []string) (string, error) {
-	dir, err := defaultDataDir()
-	if err != nil {
-		return "", err
-	}
-
 	cfg := &Config{}
 
-	fs, err := newFlagSet(cfg, dir)
+	fs, err := newFlagSet(cfg, "")
 	if err != nil {
 		return "", err
 	}
 
 	if err := ff.Parse(fs, args, ff.WithEnvVarPrefix(envPrefix)); err != nil {
 		return "", fmt.Errorf("config: %w", err)
+	}
+
+	if !isSet(fs, "data-dir") {
+		return defaultDataDir()
 	}
 
 	if cfg.DataDir == "" {
@@ -143,14 +162,28 @@ func resolveDataDir(args []string) (string, error) {
 	return filepath.Clean(cfg.DataDir), nil
 }
 
+// isSet reports whether name was provided on the command line or in the
+// environment by the parse that just ran.
+func isSet(fs *ff.FlagSet, name string) bool {
+	flag, ok := fs.GetFlag(name)
+
+	return ok && flag.IsSet()
+}
+
 // Validate reports whether the configuration is usable as-is.
 func (c *Config) Validate() error {
 	if c.DataDir == "" {
 		return errEmptyDataDir
 	}
 
-	if err := validateAddr("listen", c.Listen); err != nil {
-		return err
+	if len(c.Listen) == 0 {
+		return errors.New("config: listen must not be empty")
+	}
+
+	for _, addr := range c.Listen {
+		if err := validateAddr("listen", addr); err != nil {
+			return err
+		}
 	}
 
 	if c.UIListen != "" {
@@ -158,7 +191,7 @@ func (c *Config) Validate() error {
 			return err
 		}
 
-		if c.UIListen == c.Listen {
+		if slices.Contains(c.Listen, c.UIListen) {
 			return errors.New("config: ui_listen must differ from listen")
 		}
 	}
@@ -170,7 +203,7 @@ func (c *Config) Validate() error {
 // struct can be logged without leaking a secret.
 func (c Config) LogValue() slog.Value {
 	attrs := []slog.Attr{
-		slog.String("listen", c.Listen),
+		slog.String("listen", strings.Join(c.Listen, ", ")),
 		slog.String("data_dir", c.DataDir),
 		slog.Bool("no_open", c.NoOpen),
 		slog.Bool("debug", c.Debug),
@@ -215,16 +248,23 @@ func Usage(w io.Writer) error {
 }
 
 // newFlagSet defines the flags of the root command on cfg. dataDir is the
-// --data-dir default: the dir whose config.toml is being read.
+// --data-dir default shown in the help text; Load passes the already resolved
+// dir and resolveDataDir passes "", so an explicit dir needs no default lookup.
 func newFlagSet(cfg *Config, dataDir string) (*ff.FlagSet, error) {
+	if len(cfg.Listen) == 0 {
+		cfg.Listen = []string{DefaultListen}
+	}
+
+	listen := &listenValue{addrs: &cfg.Listen, defaults: slices.Clone(cfg.Listen)}
+
 	fs := ff.NewFlagSet("ratatoskr")
 
 	flags := []ff.FlagConfig{
 		{
 			LongName:    "listen",
 			Placeholder: "addr",
-			Usage:       "address of the shared proxy and UI/API listener (host:port)",
-			Value:       ffval.NewValueDefault(&cfg.Listen, DefaultListen),
+			Usage:       "address of a shared proxy and UI/API listener; repeat the flag (or comma-separate it in the environment)",
+			Value:       listen,
 		},
 		{
 			LongName:    "ui-listen",
@@ -270,15 +310,73 @@ func newFlagSet(cfg *Config, dataDir string) (*ff.FlagSet, error) {
 	return fs, nil
 }
 
-// parseOptions wires environment variables and the config file into a parse.
-// sawDataDir is set when the config file tries to set the data dir.
-func parseOptions(dir string, sawDataDir *bool) []ff.Option {
-	return []ff.Option{
-		ff.WithEnvVarPrefix(envPrefix),
-		ff.WithConfigFile(filepath.Join(dir, ConfigFileName)),
-		ff.WithConfigAllowMissingFile(),
-		ff.WithConfigFileParser(parseTOML(sawDataDir)),
+// listenValue is the value of the repeatable --listen flag. The first value
+// replaces the default instead of appending to it, and one value may hold a
+// comma-separated list, which is how a single environment variable names several
+// addresses (docs/01-feature-spec.md §I).
+type listenValue struct {
+	addrs    *[]string
+	defaults []string
+	set      bool
+}
+
+// String implements [flag.Value]. ff captures it as the help text's default, so
+// it has to report the addresses the flag holds right now.
+func (v *listenValue) String() string {
+	return strings.Join(*v.addrs, ", ")
+}
+
+// Set implements [flag.Value].
+func (v *listenValue) Set(s string) error {
+	addrs := make([]string, 0, 1)
+
+	for part := range strings.SplitSeq(s, ",") {
+		addr := strings.TrimSpace(part)
+		if err := validateAddr("listen", addr); err != nil {
+			return err
+		}
+
+		addrs = append(addrs, addr)
 	}
+
+	if !v.set {
+		*v.addrs = addrs
+		v.set = true
+
+		return nil
+	}
+
+	*v.addrs = append(*v.addrs, addrs...)
+
+	return nil
+}
+
+// Reset implements [ff.Resetter]: the flag goes back to its defaults. Without
+// it, ff would Set the default string, which appends to the addresses instead of
+// replacing them.
+func (v *listenValue) Reset() error {
+	*v.addrs = slices.Clone(v.defaults)
+	v.set = false
+
+	return nil
+}
+
+// parseOptions wires environment variables and the config file into a parse. A
+// nil root means the data dir does not exist yet, so there is no file to read.
+// sawDataDir is set when the config file tries to set the data dir.
+func parseOptions(root *os.Root, sawDataDir *bool) []ff.Option {
+	opts := []ff.Option{ff.WithEnvVarPrefix(envPrefix)}
+
+	if root == nil {
+		return opts
+	}
+
+	return append(opts,
+		ff.WithConfigFile(ConfigFileName),
+		ff.WithConfigAllowMissingFile(),
+		ff.WithFilesystem(root.FS()),
+		ff.WithConfigFileParser(parseTOML(sawDataDir)),
+	)
 }
 
 // parseTOML returns a parser for a TOML config file. Keys may use underscores
@@ -294,6 +392,22 @@ func parseTOML(sawDataDir *bool) ff.ConfigFileParseFunc {
 			return set(name, value)
 		})
 	}
+}
+
+// openConfigRoot opens the data dir so config.toml is read through an [os.Root]
+// (docs/05-go-conventions.md §1). It returns a nil root when the dir does not
+// exist yet: the first start has no config file and uses the defaults.
+func openConfigRoot(dir string) (*os.Root, error) {
+	root, err := os.OpenRoot(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("config: open data dir %q: %w", dir, err)
+	}
+
+	return root, nil
 }
 
 // defaultDataDir is the per-user data dir, <user config dir>/ratatoskr.
