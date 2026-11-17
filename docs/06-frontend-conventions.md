@@ -15,7 +15,7 @@
 | Virtualized tables | `@tanstack/svelte-virtual` (or in-house `VirtualList` if it lags Svelte 5 — decide in T-012) |
 | Node graph (workflows) | `@xyflow/svelte` |
 | Icons | `@lucide/svelte` |
-| GraphQL client | `@urql/svelte` + `graphql-ws`; types via `@graphql-codegen/cli` client preset (`bun run codegen`) |
+| GraphQL client | `@urql/core` (+ `graphql` peer) + `graphql-ws`; types via `@graphql-codegen/cli` client preset (`bun run codegen`). Not `@urql/svelte`: its API is built on `svelte/store`, which §3 rules out; state classes call the shared client from `$lib/api` directly (T-007). |
 | Markdown | `marked` + `DOMPurify` (findings, assistant) |
 | Tests | `vitest` + `@testing-library/svelte` (unit/component), `@playwright/test` (E2E against a real `ratatoskr` binary) |
 | Lint/format | `eslint` + `eslint-plugin-svelte` + `typescript-eslint`, `prettier` + `prettier-plugin-svelte` + `prettier-plugin-tailwindcss` |
@@ -70,6 +70,8 @@ web/
 
 ## 4. Data flow
 - **Server is the source of truth.** Pages query via urql; live updates via subscriptions merge into page state.
+- One client (`$lib/api/client.ts`): HTTP to `/api/graphql` with `X-Ratatoskr: 1`, subscriptions over `graphql-ws` on
+  `/api/graphql/ws` (auto-reconnect). Connection state is exposed by `$lib/api/connection.svelte.ts` and shown in the status bar.
 - No REST calls except files/exports/backups/CA/preview (`lib/api/rest.ts`).
 - Every GraphQL operation lives in a `.graphql` file next to the page (`pages/replay/replay.graphql`), codegen produces typed documents.
 - Optimistic UI only for cheap toggles (row colour, rule enabled). Errors → toast with `extensions.code` mapped to human text.

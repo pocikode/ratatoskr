@@ -1,56 +1,31 @@
-# Where are all the schema files located? globs are supported eg  src/**/*.graphqls
+# gqlgen configuration (docs/03-architecture.md §6). Run with `make gen`.
+# Resolvers are hand-written in internal/api/graphql/resolvers, so there is no
+# `resolver:` section: gqlgen only generates the executor and the models.
 schema:
-  - pkg/api/schema.graphql
+  - internal/api/graphql/schema/*.graphqls
 
-# Where should the generated server code go?
 exec:
-  filename: pkg/api/generated.go
-  package: api
+  filename: internal/api/graphql/generated/exec.go
+  package: generated
 
-# Uncomment to enable federation
-# federation:
-#   filename: graph/generated/federation.go
-#   package: generated
-
-# Where should any generated models go?
 model:
-  filename: pkg/api/models_gen.go
-  package: api
+  filename: internal/api/graphql/generated/models.go
+  package: generated
 
-# Where should the resolver implementations go?
-resolver:
-  layout: single-file
-  filename: pkg/api/resolvers.go
-  dir: pkg/api
-  package: api
-
-# Optional: turn on use `gqlgen:"fieldName"` tags in your models
-# struct_tag: json
-
-# Optional: turn on to use []Thing instead of []*Thing
 omit_slice_element_pointers: true
-# Optional: set to speed up generation time by not performing a final validation pass.
-# skip_validation: true
+omit_getters: true
+skip_mod_tidy: true
 
-# gqlgen will search for any type names in the schema in these go packages
-# if they match it will use them, otherwise it will generate them.
-# autobind:
-#   - "github.com/pocikode/ratatoskr/graph/model"
-
-# This section declares type mapping between the GraphQL and go type systems
-#
-# The first line in each type will be used as defaults for resolver arguments and
-# modelgen, the others will be allowed when binding to fields. Configure them to
-# your liking
 models:
   ID:
     model:
-      - github.com/pocikode/ratatoskr/pkg/api.ULID
-  URL:
+      - github.com/99designs/gqlgen/graphql.ID
+  Time:
     model:
-      - github.com/pocikode/ratatoskr/pkg/api.URL
-#   Int:
-#     model:
-#       - github.com/99designs/gqlgen/graphql.Int
-#       - github.com/99designs/gqlgen/graphql.Int64
-#       - github.com/99designs/gqlgen/graphql.Int32
+      - github.com/pocikode/ratatoskr/internal/api/graphql/scalars.Time
+  Bytes:
+    model:
+      - github.com/pocikode/ratatoskr/internal/api/graphql/scalars.Bytes
+  Int64:
+    model:
+      - github.com/pocikode/ratatoskr/internal/api/graphql/scalars.Int64

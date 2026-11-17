@@ -14,8 +14,12 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"runtime"
 	"time"
 
+	"github.com/pocikode/ratatoskr/internal/api"
+	"github.com/pocikode/ratatoskr/internal/api/graphql/resolvers"
+	"github.com/pocikode/ratatoskr/internal/api/middleware"
 	"github.com/pocikode/ratatoskr/internal/api/static"
 	"github.com/pocikode/ratatoskr/internal/config"
 	"github.com/pocikode/ratatoskr/internal/logging"
@@ -44,6 +48,10 @@ type Options struct {
 	Logger *slog.Logger
 	// Logs is the ring buffer behind Logger, exposed to the Logs page. Optional.
 	Logs *logging.Ring
+	// Version and Commit describe the binary for the serverInfo query.
+	// Empty values are reported as "dev" and "unknown".
+	Version string
+	Commit  string
 }
 
 // App is one configured Ratatoskr instance. Create it with [New], run it with
@@ -67,16 +75,10 @@ func New(opts Options) (*App, error) {
 		return nil, err
 	}
 
-	// Options that need machinery from later tasks fail loudly (docs/03-architecture.md §8):
-	// --auth-token without auth would serve the UI unprotected while the
-	// operator believes it is protected, and --ui-listen and further --listen
-	// addresses need the proxy listener multiplexer.
-	//
-	// --no-open and --allow-guests need no gate: no browser is opened yet, and
-	// without auth every client is a guest, which is exactly what they ask for.
+	// Options that need machinery from later tasks fail loudly: --ui-listen and
+	// further --listen addresses need the proxy listener multiplexer.
+	// --no-open needs no gate: no browser is opened yet.
 	switch {
-	case cfg.AuthToken != "":
-		return nil, fmt.Errorf("app: --auth-token: %w (the auth middleware lands with T-007)", ErrNotImplemented)
 	case cfg.UIListen != "":
 		return nil, fmt.Errorf("app: --ui-listen: %w (the proxy listener multiplexer lands with T-011)", ErrNotImplemented)
 	case len(cfg.Listen) > 1:
@@ -107,7 +109,7 @@ func New(opts Options) (*App, error) {
 			"data_dir", cfg.DataDir, "perm", info.Mode().Perm().String())
 	}
 
-	a.handler = a.buildHandler()
+	a.handler = a.buildHandler(buildInfo(opts.Version, opts.Commit))
 
 	return a, nil
 }
@@ -208,17 +210,38 @@ func (a *App) Logs() *logging.Ring {
 	return a.logs
 }
 
-// buildHandler mounts the UI/API handler: the embedded SPA, plus /debug/pprof on
-// the same server when --debug is set (docs/03-architecture.md §9).
-func (a *App) buildHandler() http.Handler {
+// buildHandler mounts the UI/API handler: the API under /api/, the embedded SPA,
+// plus /debug/pprof on the same server when --debug is set
+// (docs/03-architecture.md §6, §9).
+func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
+	auth := middleware.Auth{Token: a.cfg.AuthToken, AllowGuests: a.cfg.AllowGuests}
+
 	mux := http.NewServeMux()
 	if a.cfg.Debug {
-		mountDebug(mux)
+		mountDebug(mux, auth)
 	}
 
+	mux.Handle("/api/", api.NewHandler(api.Options{
+		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now()},
+		Auth:      auth,
+		Logger:    a.log,
+	}))
 	mux.Handle("/", static.Handler())
 
 	return mux
+}
+
+// buildInfo fills in the defaults for an unstamped binary.
+func buildInfo(version, commit string) resolvers.BuildInfo {
+	if version == "" {
+		version = "dev"
+	}
+
+	if commit == "" {
+		commit = "unknown"
+	}
+
+	return resolvers.BuildInfo{Version: version, Commit: commit, GoVersion: runtime.Version()}
 }
 
 // openDataRoot creates dir with 0700 (if needed) and opens it as an [os.Root], so
@@ -252,12 +275,12 @@ func isLoopback(addr string) bool {
 	return err == nil && ip.IsLoopback()
 }
 
-// warnIfExposed logs the "no authentication yet" warning when addr is reachable
-// from the network (docs/03-architecture.md §8).
+// warnIfExposed warns when addr is reachable from the network without
+// --auth-token (docs/03-architecture.md §8).
 func (a *App) warnIfExposed(addr string) {
-	if isLoopback(addr) {
+	if isLoopback(addr) || a.cfg.AuthToken != "" {
 		return
 	}
 
-	a.log.Warn("UI/API is reachable from the network and has no authentication yet", "addr", addr)
+	a.log.Warn("UI/API is reachable from the network without authentication; set --auth-token", "addr", addr)
 }

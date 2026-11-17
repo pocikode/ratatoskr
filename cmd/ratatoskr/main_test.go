@@ -134,16 +134,30 @@ func TestRunRejectsUnknownFlag(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnimplementedAuthToken(t *testing.T) {
+// --auth-token is implemented since T-007: the server starts with auth on and
+// never logs the token.
+func TestRunServesWithAuthToken(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
+	var stderr bytes.Buffer
 
-	err := run(t.Context(),
-		[]string{"--auth-token", "s3cret", "--data-dir", dir, "--listen", "127.0.0.1:0"},
-		&bytes.Buffer{}, &bytes.Buffer{})
-	if !errors.Is(err, app.ErrNotImplemented) {
-		t.Fatalf("run(--auth-token) error = %v, want ErrNotImplemented", err)
+	// Cancelled up front: run binds, wires the auth middleware and shuts down.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := run(ctx,
+		[]string{"--auth-token", "s3cret", "--data-dir", t.TempDir(), "--listen", "127.0.0.1:0"},
+		&bytes.Buffer{}, &stderr)
+	if err != nil {
+		t.Fatalf("run(--auth-token): %v (stderr: %s)", err, stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "ratatoskr stopped") {
+		t.Errorf("stderr = %q, want the stopped record", stderr.String())
+	}
+
+	if strings.Contains(stderr.String(), "s3cret") {
+		t.Errorf("stderr leaks the token: %q", stderr.String())
 	}
 }
 

@@ -1,0 +1,88 @@
+# Base schema: scalars, shared interfaces, error codes and server-level fields.
+# Owned by the lead (AGENTS.md rule 5). Conventions: docs/03-architecture.md §6.
+
+"""
+An instant in time, serialized as an RFC 3339 string with nanoseconds in UTC,
+e.g. `2026-11-18T09:30:00.123456789Z`. Inputs accept any RFC 3339 offset.
+"""
+scalar Time
+
+"""
+Raw bytes, serialized as standard base64 with padding (RFC 4648 §4). Used for
+message bytes so that nothing is lost to text decoding.
+"""
+scalar Bytes
+
+"""
+A signed 64-bit integer serialized as a JSON string of its decimal form
+(`"9007199254740993"`), because JSON numbers lose precision above 2^53 in
+JavaScript. Inputs accept the string form or a JSON integer.
+"""
+scalar Int64
+
+"""
+An object with a stable identifier. IDs are opaque strings, unique per type;
+clients must not parse them.
+"""
+interface Node {
+  "Opaque identifier, stable for the object's lifetime."
+  id: ID!
+}
+
+"""
+Values of `extensions.code` on GraphQL errors. Errors produced by the server's
+GraphQL layer itself use `GRAPHQL_PARSE_FAILED` or `GRAPHQL_VALIDATION_FAILED`
+instead. `BAD_QUERY` errors also carry `extensions.span = {start, end}`: byte
+offsets (end exclusive) into the HTTPQL/StreamQL text that failed.
+"""
+enum ErrorCode {
+  "An HTTPQL/StreamQL query failed to parse or type-check; see `extensions.span`."
+  BAD_QUERY
+  "An argument failed validation, e.g. an empty name."
+  BAD_INPUT
+  "The referenced object does not exist (any more)."
+  NOT_FOUND
+  "The operation conflicts with the current state."
+  CONFLICT
+  "Authentication is required and no valid token was presented."
+  UNAUTHENTICATED
+  "The field is part of the contract but its feature has not landed yet."
+  NOT_IMPLEMENTED
+  "Unexpected server failure. The message is generic; details are in the server log."
+  INTERNAL
+}
+
+"Build and runtime facts about the running instance."
+type ServerInfo {
+  "Release version, or `dev` for local builds."
+  version: String!
+  "VCS revision the binary was built from (12 hex chars, `-dirty` suffix when modified), or `unknown`."
+  commit: String!
+  "Go toolchain the binary was built with, e.g. `go1.27.4`."
+  goVersion: String!
+  "When this instance started."
+  startedAt: Time!
+  "Whether the UI/API requires a token (`--auth-token`)."
+  authRequired: Boolean!
+}
+
+"One tick of the `ping` subscription."
+type Ping {
+  "Tick number, starting at 1 for each subscription."
+  seq: Int64!
+  "Server time of the tick."
+  at: Time!
+}
+
+type Query {
+  "Facts about the running instance; also used by the UI as a liveness probe."
+  serverInfo: ServerInfo!
+}
+
+type Subscription {
+  """
+  Emits one `Ping` per second until the client unsubscribes. The UI uses it to
+  show whether the live connection is up.
+  """
+  ping: Ping!
+}

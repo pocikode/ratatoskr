@@ -7,6 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/99designs/gqlgen v0.17.98
 	github.com/chromedp/chromedp v0.7.8
+	github.com/coder/websocket v1.8.15
 	github.com/gorilla/mux v1.7.4
 	github.com/oklog/ulid v1.3.1
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
@@ -19,7 +20,6 @@ require (
 	github.com/agnivade/levenshtein v1.2.2 // indirect
 	github.com/chromedp/cdproto v0.0.0-20220217222649-d8c14a5c6edf // indirect
 	github.com/chromedp/sysutil v1.0.0 // indirect
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect

@@ -140,7 +140,27 @@ Indexes: `requests(host)`, `(created_at)`, `(source)`, `(method)`, `responses(co
   - Pagination: cursor connections (`first/after`, `last/before`) + `totalCount` (cached per query).
   - Subscriptions via `graphql-transport-ws` protocol on `/api/graphql/ws`: `requestAdded(query)`, `requestUpdated`,
     `interceptQueueChanged`, `wsMessageAdded(streamId)`, `automateProgress(attackId)`, `taskProgress`, `findingAdded`, `logLine`.
-  - Errors: GraphQL errors with `extensions.code` (`BAD_QUERY`, `NOT_FOUND`, `CONFLICT`, `INTERNAL`) + `extensions.span` for query errors.
+  - Errors: GraphQL errors with `extensions.code` + `extensions.span` (`{start, end}` byte offsets, end exclusive) for query errors.
+    Codes (enum `ErrorCode` in `base.graphqls`): `BAD_QUERY` (HTTPQL/StreamQL parse or type error, always with `span`),
+    `BAD_INPUT` (argument fails validation, e.g. empty name), `NOT_FOUND`, `CONFLICT`, `UNAUTHENTICATED`,
+    `NOT_IMPLEMENTED` (contract stub, feature not landed yet), `INTERNAL` (anything unclassified; message replaced by
+    "internal error" and the cause logged). gqlgen's own `GRAPHQL_PARSE_FAILED` / `GRAPHQL_VALIDATION_FAILED` pass through.
+  - Services signal codes by returning `*apperr.Error` (`internal/apperr`: `Code`, message, wrapped cause, optional `Span`),
+    usually via `apperr.New(apperr.NotFound, "project %d not found", id)` (`apperr.Query(span, …)` for `BAD_QUERY`) or by
+    wrapping a sentinel; the API layer finds it with `errors.AsType`. Services never import `internal/api/**`.
+  - Classification goes by the error's cause, not by gqlgen's wrapper (gqlgen wraps every resolver error in a
+    `*gqlerror.Error`): an `*apperr.Error` in the chain decides; errors gqlgen already coded pass through; a gqlerror with
+    no cause (a message gqlgen built about the request) is `BAD_INPUT`; everything else, including plain resolver errors
+    and panics, is `INTERNAL`. Custom scalar unmarshalers return `BAD_INPUT` apperr errors.
+  - Request size: `POST /api/graphql` bodies are capped at 32 MiB (`api.MaxGraphQLRequestBytes`, room for base64
+    Replay/Automate bodies); a larger declared `Content-Length` gets 413. WS messages are capped by gqlgen (1 MiB).
+  - Layout: `gqlgen.yml` (repo root) → generated executor + models in `internal/api/graphql/generated` (never hand-edited);
+    resolvers are hand-written in `internal/api/graphql/resolvers`, one file per domain (`project.go`, `history.go`, …);
+    contract stubs return `apperr.ErrNotImplemented`.
+  - Scalars: `Time` (RFC 3339 with nanoseconds, UTC), `Bytes` (standard base64 with padding), `Int64` (JSON string of a
+    decimal int64, because JS numbers lose precision above 2^53). IDs are opaque strings.
+  - `serverInfo` query (version, commit, Go version, auth state) and `ping` subscription (one tick per second) exist for
+    the status bar's connection indicator.
 - **REST** (`/api/rest/…`): `POST /files` (multipart), `GET /files/{id}`, `GET /exports/{id}/download`, `GET /backups/{id}/download`,
   `GET /ca.crt|ca.der`, `GET /preview/{requestId}` (sandboxed response render), `GET /plugins/{id}/assets/*`.
 - **Contract-first rule**: schema changes land in their own PR by the lead (see `07-agent-workflow.md`).
@@ -154,11 +174,26 @@ Indexes: `requests(host)`, `(created_at)`, `(source)`, `(method)`, `responses(co
 
 ## 8. Security of the tool itself
 - UI/API bound to 127.0.0.1 by default; warn loudly when bound to non-loopback without `--auth-token`.
-- CSRF: API requires `Content-Type: application/json` + custom header `X-Ratatoskr: 1`; WS requires token in `connection_init` when auth on.
+- CSRF: every `/api/**` request passes `http.CrossOriginProtection`; `POST /api/graphql` additionally requires
+  `Content-Type: application/json` and header `X-Ratatoskr: 1` (415 / 403 otherwise; GET queries are not served). The WS
+  endpoint `/api/graphql/ws` cannot carry custom headers, so it relies on the WebSocket origin check (Origin host must equal
+  Host) and, when auth is on, the token.
+- Auth (`--auth-token`, F-WSP-4): HTTP requests present `Authorization: Bearer <token>` or the `ratatoskr_token` cookie
+  (set by the login page, T-024); WS clients send `{"token": "<token>"}` in the `connection_init` payload. Tokens are
+  compared in constant time; the `Bearer` scheme is matched case-insensitively. With `--allow-guests`, clients
+  connecting from a loopback address need no token. Failures are 401 (HTTP) or a WS close with 4401. Only
+  `GET /api/graphql/ws` accepts a WebSocket upgrade without HTTP credentials (the token then must arrive in
+  `connection_init`); every other `/api/**` route and `/debug/pprof/**` (with `--debug`) need credentials on the request.
+  The SPA's static files are always served (they hold no data).
+- Guests are decided by the TCP peer address. A reverse proxy on the same host makes every client it forwards a loopback
+  peer, so `--allow-guests` must not be combined with one (documented in `--help`; no `X-Forwarded-For` trust).
+- DNS rebinding: when the UI listener is bound to a loopback address, requests whose `Host` (port stripped) is not
+  `localhost`, a loopback IP literal or the configured listen host are rejected with 421 before CSRF/auth (T-027).
+  `CrossOriginProtection` and the WS origin check cannot catch rebinding, because the attacker's origin equals `Host`.
 - Response preview served from a separate origin-like path with `Content-Security-Policy: sandbox`.
 - Secrets (AI keys, secret env vars, CA key) encrypted at rest with XChaCha20-Poly1305 using a key file `secret.key` (0600).
 - Shell node & plugins run with user privileges: show a one-time warning and a global "allow shell nodes" setting (default on, like Caido).
 
 ## 9. Observability
 `log/slog` JSON/text handler; `slog.NewMultiHandler` fans out to stderr + in-memory ring buffer (for Logs page, 10k lines).
-`/debug/pprof` (incl. `goroutineleak`) only when `--debug`.
+`/debug/pprof` (incl. `goroutineleak`) only when `--debug`, behind the same token auth as the API (§8).

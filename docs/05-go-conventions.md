@@ -51,7 +51,7 @@ Verify any API you are unsure of with `go doc <pkg>.<Symbol>` — **never guess 
 | Purpose | Module |
 |---|---|
 | SQLite | `modernc.org/sqlite` |
-| GraphQL server | `github.com/99designs/gqlgen` (latest), `github.com/vektah/gqlparser/v2` |
+| GraphQL server | `github.com/99designs/gqlgen` (latest), `github.com/vektah/gqlparser/v2`, `github.com/coder/websocket` (gqlgen's WS implementation; also used directly by API tests as the WS client) |
 | JS runtime | `github.com/dop251/goja` (+ `goja_nodejs/eventloop`, `console`) — behind `internal/jsrt` interface |
 | TS → JS transpile | `github.com/evanw/esbuild/pkg/api` (Transform only) |
 | HTTP/2 framing, SOCKS5 | `golang.org/x/net/http2`, `golang.org/x/net/http2/hpack`, `golang.org/x/net/proxy` |
