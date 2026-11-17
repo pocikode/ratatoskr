@@ -1,0 +1,18 @@
+# Operations behind the status bar's connection indicator (T-007).
+
+query ServerInfo {
+  serverInfo {
+    version
+    commit
+    goVersion
+    startedAt
+    authRequired
+  }
+}
+
+subscription Ping {
+  ping {
+    seq
+    at
+  }
+}

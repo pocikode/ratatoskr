@@ -22,7 +22,8 @@ export default defineConfig({
   plugins: [tailwindcss(), svelte(), svelteTesting(), keepDist()],
   resolve: { alias: { $lib: fileURLToPath(new URL('./src/lib', import.meta.url)) } },
   build: { outDir, emptyOutDir: true, target: 'es2022' },
-  server: { proxy: { '/api': 'http://127.0.0.1:8080' } },
+  // ws: true carries the graphql-transport-ws socket (/api/graphql/ws) through the dev proxy.
+  server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', ws: true } } },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
