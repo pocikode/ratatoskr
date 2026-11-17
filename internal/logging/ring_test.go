@@ -2,6 +2,7 @@ package logging
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -150,6 +151,151 @@ func TestRingAttrsAndGroups(t *testing.T) {
 
 	if attrs := entries[1].Attrs; len(attrs) != 1 || attrs[0].Key != "conn.host" {
 		t.Errorf("attrs = %v, want conn.host", attrs)
+	}
+}
+
+// attrsOf turns the attrs of e into a key→value map.
+func attrsOf(e Entry) map[string]string {
+	attrs := make(map[string]string, len(e.Attrs))
+	for _, a := range e.Attrs {
+		attrs[a.Key] = a.Value.String()
+	}
+
+	return attrs
+}
+
+func TestRingFlattensGroups(t *testing.T) {
+	t.Parallel()
+
+	ring := NewRing(Options{Capacity: 8, Level: slog.LevelDebug})
+	logger := slog.New(ring.Handler())
+
+	logger.Info("request",
+		slog.Group("req",
+			slog.String("method", "GET"),
+			slog.Group("hdr", slog.String("host", "example.com")),
+		),
+		// A group without a key is inlined without a prefix, an empty group
+		// contributes nothing and a zero attr is dropped.
+		slog.Group("", slog.String("inline", "yes")),
+		slog.Group("empty"),
+		slog.Attr{},
+		slog.String("plain", "value"),
+	)
+
+	slog.New(ring.Handler()).WithGroup("conn").
+		Info("dial", slog.Group("tls", slog.String("sni", "example.com")), "host", "example.com")
+
+	entries := ring.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("kept %d entries, want 2", len(entries))
+	}
+
+	want := map[string]map[string]string{
+		"request": {
+			"req.method":   "GET",
+			"req.hdr.host": "example.com",
+			"inline":       "yes",
+			"plain":        "value",
+		},
+		"dial": {
+			"conn.tls.sni": "example.com",
+			"conn.host":    "example.com",
+		},
+	}
+
+	for _, e := range entries {
+		got := attrsOf(e)
+
+		if len(got) != len(want[e.Message]) {
+			t.Errorf("%s: attrs = %v, want %v", e.Message, got, want[e.Message])
+		}
+
+		for key, value := range want[e.Message] {
+			if got[key] != value {
+				t.Errorf("%s: attr %q = %q, want %q (all: %v)", e.Message, key, got[key], value, got)
+			}
+		}
+	}
+}
+
+// groupValuer is a slog.LogValuer that expands to a group, like config.Config.
+type groupValuer struct{ secret string }
+
+func (v groupValuer) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("data_dir", "/tmp/x"),
+		slog.String("auth_token", v.secret),
+	)
+}
+
+func TestRingFlattensLogValuer(t *testing.T) {
+	t.Parallel()
+
+	ring := NewRing(Options{Capacity: 4, Level: slog.LevelDebug})
+	logger := slog.New(ring.Handler())
+
+	logger.Info("starting", "config", groupValuer{secret: "[redacted]"})
+
+	got := attrsOf(ring.Entries()[0])
+	want := map[string]string{"config.data_dir": "/tmp/x", "config.auth_token": "[redacted]"}
+
+	if len(got) != len(want) {
+		t.Fatalf("attrs = %v, want %v", got, want)
+	}
+
+	for key, value := range want {
+		if got[key] != value {
+			t.Errorf("attr %q = %q, want %q (all: %v)", key, got[key], value, got)
+		}
+	}
+}
+
+// TestRingSnapshotsValues checks that the ring renders a value when the record
+// is handled instead of keeping a reference the caller may still be changing,
+// which would also make the byte budget a lie.
+func TestRingSnapshotsValues(t *testing.T) {
+	t.Parallel()
+
+	type record struct {
+		Name string
+		Body []byte
+	}
+
+	ring := NewRing(Options{Capacity: 4, Level: slog.LevelDebug})
+	logger := slog.New(ring.Handler())
+
+	rec := &record{Name: "before", Body: []byte("before")}
+
+	// The string the value has at Handle time, rendered the way the stdlib
+	// renders a KindAny value.
+	want := fmt.Sprint(rec)
+
+	logger.Info("snapshot", "rec", rec, slog.Group("g", "rec", rec))
+
+	rec.Name = "after"
+	rec.Body[0] = 'X'
+
+	e := ring.Entries()[0]
+	got := attrsOf(e)
+
+	if got["rec"] != want {
+		t.Errorf("attr rec = %q, want the value at log time %q", got["rec"], want)
+	}
+
+	if got["g.rec"] != want {
+		t.Errorf("attr g.rec = %q, want the value at log time %q", got["g.rec"], want)
+	}
+
+	for _, a := range e.Attrs {
+		if a.Value.Kind() == slog.KindAny {
+			t.Errorf("attr %q kept a KindAny value, want a snapshot", a.Key)
+		}
+	}
+
+	// The byte budget counts the snapshot, not the object behind it.
+	if e.size > maxEntryBytes {
+		t.Errorf("size = %d, want at most %d", e.size, maxEntryBytes)
 	}
 }
 

@@ -21,8 +21,10 @@ const (
 	maxEntryBytes = 4 << 10
 )
 
-// Entry is one captured log record. Attrs are resolved and flattened: a record
-// logged through WithGroup("g") has keys like "g.key".
+// Entry is one captured log record. Attrs are resolved, flattened and
+// snapshotted when the record is handled: a record logged through WithGroup("g")
+// has keys like "g.key", and a value the caller could still mutate is stored as
+// the string it had at that moment, never as a reference to it.
 type Entry struct {
 	Time    time.Time
 	Level   slog.Level
@@ -155,10 +157,10 @@ func (h *handler) Enabled(_ context.Context, level slog.Level) bool {
 // Handle implements [slog.Handler].
 func (h *handler) Handle(_ context.Context, rec slog.Record) error {
 	attrs := make([]slog.Attr, 0, len(h.attrs)+rec.NumAttrs())
-	attrs = append(attrs, h.attrs...) // already qualified by WithAttrs
+	attrs = append(attrs, h.attrs...) // already flattened by WithAttrs
 
 	rec.Attrs(func(a slog.Attr) bool {
-		attrs = append(attrs, qualify(h.groups, a))
+		attrs = flatten(attrs, h.groups, a)
 		return true
 	})
 
@@ -183,9 +185,9 @@ func (h *handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		return h
 	}
 
-	qualified := make([]slog.Attr, len(attrs))
-	for i, a := range attrs {
-		qualified[i] = qualify(h.groups, a)
+	qualified := make([]slog.Attr, 0, len(attrs))
+	for _, a := range attrs {
+		qualified = flatten(qualified, h.groups, a)
 	}
 
 	c := *h
@@ -206,17 +208,49 @@ func (h *handler) WithGroup(name string) slog.Handler {
 	return &c
 }
 
-// qualify resolves a's value and prefixes its key with groups.
-func qualify(groups []string, a slog.Attr) slog.Attr {
+// flatten appends a to dst, resolved, flattened and snapshotted.
+//
+// Groups are inlined with their keys prefixed by the active groups (so a record
+// logged through WithGroup("g") yields "g.key"), which is the shape the text
+// handler prints. A group with an empty key is inlined without a prefix and a
+// zero attr is dropped, as the [slog.Handler] rules ask.
+//
+// Every value is rendered here rather than later, when the Logs page reads the
+// ring: an attr of [slog.KindAny] keeps whatever the caller passed (a struct
+// pointer, a byte slice), which the caller may still be changing. Rendering at
+// Handle time also keeps the ring's byte budget honest, because the stored value
+// is exactly what attrSize accounts for.
+func flatten(dst []slog.Attr, groups []string, a slog.Attr) []slog.Attr {
 	a.Value = a.Value.Resolve()
 
-	if len(groups) == 0 || a.Key == "" {
-		return a
+	if a.Key == "" && a.Value.Kind() == slog.KindAny && a.Value.Any() == nil {
+		return dst // the zero attr carries nothing
 	}
 
-	a.Key = strings.Join(groups, ".") + "." + a.Key
+	if a.Value.Kind() == slog.KindGroup {
+		inner := groups
+		if a.Key != "" {
+			// Clip, so appending a nested key never writes into the caller's
+			// slice (WithGroup shares it across records).
+			inner = append(slices.Clip(groups), a.Key)
+		}
 
-	return a
+		for _, ga := range a.Value.Group() {
+			dst = flatten(dst, inner, ga)
+		}
+
+		return dst
+	}
+
+	if a.Value.Kind() == slog.KindAny {
+		a.Value = slog.StringValue(a.Value.String())
+	}
+
+	if len(groups) > 0 && a.Key != "" {
+		a.Key = strings.Join(groups, ".") + "." + a.Key
+	}
+
+	return append(dst, a)
 }
 
 // fit trims msg and attrs to maxEntryBytes. The message is kept first; attrs are
