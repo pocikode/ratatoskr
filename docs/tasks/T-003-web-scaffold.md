@@ -3,9 +3,9 @@ id: T-003
 title: Svelte 5 + Vite + Bun scaffold with app shell, router and embedding
 milestone: M0
 role: frontend
-status: todo
+status: in_progress
 depends_on: [T-001]
-owner: ""
+owner: claude-sonnet-5-5
 branch: task/T-003-web-scaffold
 paths:
   - web/**
@@ -35,6 +35,12 @@ a hash router with lazy pages, design tokens (dark/light), and the Go package `i
 - [ ] First-load JS ≤ 150 KB gzip at this stage.
 
 ## Plan (implementer, ≤15 lines)
+- Hand-scaffold web/ (Vite+svelte-ts, Tailwind v4, bits-ui, lucide, self-hosted fonts via @fontsource), scripts per docs/06 §8.
+- Vite outDir = `internal/api/static/dist` (go:embed cannot reach `../web/dist`); committed `.gitkeep` keeps the embed valid before a build.
+- `lib/router` hash router (routes table, `navigate`, `route` rune state, lazy page imports) + one placeholder page per sidebar item.
+- `lib/commands` registry (+ "Go to <page>" commands, theme, palette), CommandPalette (Ctrl/⌘K), theme store, tokens.css (dark default).
+- Shell: TopBar, Sidebar (collapsible), StatusBar. Tests: router, registry, palette, sidebar nav (Testing Library).
+- Go `internal/api/static`: `Handler()` + `NewHandler(fs.FS)`, SPA fallback, `/api/` → 404; tests with MapFS.
 
 ## Out-of-scope change needed (if any)
 
