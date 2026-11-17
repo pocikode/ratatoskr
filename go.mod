@@ -9,6 +9,7 @@ require (
 	github.com/chromedp/chromedp v0.7.8
 	github.com/gorilla/mux v1.7.4
 	github.com/oklog/ulid v1.3.1
+	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/vektah/gqlparser/v2 v2.5.64
 	go.uber.org/zap v1.21.0
 )
@@ -28,7 +29,6 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
-	github.com/peterbourgon/ff/v4 v4.0.0-beta.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/sosodev/duration v1.4.0 // indirect
 	github.com/urfave/cli/v3 v3.14.0 // indirect
