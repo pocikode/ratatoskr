@@ -3,7 +3,7 @@ id: T-004
 title: Config, CLI flags/env/TOML, app wiring, structured logging
 milestone: M0
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-002]
 owner: "opencode/deepseek-v4.1-flash-1017"
 branch: task/T-004-config-cli
@@ -113,3 +113,74 @@ Tests: `TestLoad` (precedence table, 20 cases), `TestValidate`, `TestLogValueRed
   `internal/legacy` (not T-004).
 
 ## Review (reviewer)
+
+**Reviewer:** claude-code/reviewer · 2026-11-18 · commits `4f3a8b5..ccff323`
+
+**Scope:** every changed file is inside `paths` (cmd/ratatoskr, internal/{config,app,logging}, go.mod/go.sum, the task file).
+`ff/v4` is on the approved list (docs/05 §2); `pelletier/go-toml/v2` comes in as its indirect TOML parser. No schema/generated
+files touched. No Caido material. Nothing goes through `net/http` on the proxy path (only the UI server uses it, which is allowed).
+
+**`make check`:** green. go fix diff is empty, vet passes, golangci-lint reports `0 issues.`, `go test -race ./...` passes
+(config, app, logging, cmd/ratatoskr), svelte-check/eslint/prettier report 0 errors, vitest 37/37 passed.
+`make test-int` not run: proxy/store/rawhttp are untouched.
+
+**Manual probes:**
+- `--listen 127.0.0.1:0 --listen 127.0.0.1:0` starts without complaint and the last value wins. See the first major below.
+- `env -u HOME -u XDG_CONFIG_HOME ratatoskr --data-dir <dir>` (and even `--help`) fails with
+  `config: locate user config dir: neither $XDG_CONFIG_HOME nor $HOME are defined`.
+- `debug = "yes"` in config.toml returns a clear parse error. Good.
+
+### Findings
+- [ ] [major] internal/config/config.go:224-228 — F-CLI says `ratatoskr [--listen addr]…`, so the flag can be repeated
+  (docs/01 §I). Here it is one `string`, and a second `--listen` silently replaces the first. That breaks the AC
+  "unimplemented ones return a clear 'not implemented yet' error" and hard rule 2 (no silent product behaviour). → Turn
+  `Listen` into `[]string` (`ffval.NewList`, default `[DefaultListen]`, the env/TOML list forms) and validate each entry.
+  Then do one of two things: gate `len(cfg.Listen) > 1` in `app.New` with `ErrNotImplemented` ("multiple listeners land
+  with T-011"), or serve one `http.Server` per listener. Either way, add a precedence/validation case for the repeated
+  flag. If you think the spec doesn't mean repeatable, set `blocked` and ask the lead instead of picking one.
+- [ ] [major] internal/logging/ring.go:156-174, 210-212 — `Handle` keeps `slog.Value`s of `KindAny` (and the `LogValuer`
+  results) **by reference** inside the ring until they are evicted (possibly 10k records later). This causes two problems:
+  (a) the 8 MiB budget isn't really enforced, because `attrSize` counts `len(Value.String())` while the ring keeps the
+  whole object graph alive (a struct pointer, a `[]byte` alias, a request record); (b) when the Logs page (T-007) reads
+  `Entries()` and formats them, it reads objects that callers may still be changing. That is a data race the current
+  tests can't catch, because they only log strings and ints. → Take a snapshot at `Handle` time: for
+  `KindAny`/`KindGroup`, store `slog.StringValue(v.String())` (or recursively flatten groups, see the next finding). Then
+  compute the size once from the stored value. Add a test that logs a mutable `*struct`/`[]byte`, changes it after the
+  call, and checks the stored entry hasn't changed (run with `-race`).
+- [ ] [minor] internal/logging/ring.go:24-25, 209-220 — The `Entry` doc says attrs are "resolved and flattened" (`g.key`),
+  but group-valued attrs aren't flattened. `slog.Group(...)` and `Config.LogValue()` (logged as `"config"` at
+  cmd/ratatoskr/main.go:76 and app.go:128) end up as one `KindGroup` attr. The slog handler rules also aren't followed:
+  an empty `Attr{}` should be dropped, and a group with an empty key should be inlined. → Flatten groups recursively in
+  `qualify` (prefix `config.listen`, … the same way the text handler already prints them), drop zero attrs, inline
+  empty-key groups. Extend `TestRingAttrsAndGroups` to cover these, or use `testing/slogtest` against the ring handler.
+- [ ] [minor] internal/config/config.go:122-126, 192-196 — `resolveDataDir` calls `os.UserConfigDir()` even when
+  `--data-dir`/`RATATOSKR_DATA_DIR` is set explicitly, so the binary can't start without `$HOME` (containers, systemd
+  units, CI) even when it's given a path. → Only use the default when the lookup fails *and* no explicit dir was given.
+  For example, use `""` as the flag default and fill in `defaultDataDir()` only when the parsed value is empty. Add a
+  test with `t.Setenv("HOME", "")`/`XDG_CONFIG_HOME=""`.
+- [ ] [minor] internal/config/config.go:278 — config.toml is read by ff through `os.Open(filepath.Join(dir, ...))`, not
+  through `os.Root`. That goes against AC "data dir … accessed via `os.Root`" and docs/05 §1 ("os.Root for every file
+  access under the data dir"). → Pass `ff.WithFilesystem(root.FS())` with `ff.WithConfigFile(ConfigFileName)`, opening
+  the root with `os.OpenRoot(dir)` (allow `ErrNotExist` for a missing dir). Or move the read into `app` after
+  `openDataRoot` and hand the bytes to `fftoml`.
+- [ ] [minor] cmd/ratatoskr/main.go:75-78 — The logger from `logging.New` isn't installed as `slog.SetDefault`. Anything
+  that logs via `slog.Default()` (stdlib, future packages, and `app.New`'s own nil-logger fallback) skips the ring, so the
+  Logs page won't see it. → `slog.SetDefault(logger)` right after `logging.New`.
+- [ ] [nit] internal/app/pprof.go:276 — `GET /debug/pprof/symbol` refuses `POST`, which `go tool pprof` uses to resolve
+  symbols. → Register it method-less (`/debug/pprof/symbol`), as `net/http/pprof` itself does.
+- [ ] [nit] internal/app/pprof.go:275 — `/debug/pprof/cmdline` will expose `--auth-token` from argv once T-007 un-gates
+  it, on a server that `--debug` can bind to a non-loopback address. → Add a `TODO(T-007)` saying auth must wrap
+  `/debug/pprof`, or leave out `cmdline`.
+- [ ] [nit] internal/app/app_test.go:194 — "pprof is off by default" accepts 200 because the SPA fallback serves
+  index.html, so the only check is `notBody: "goroutineleak"`. → Also assert that the body is *not* pprof output (for
+  example, that it lacks `Types of profiles available`), so an accidental mount can't slip through if the SPA ever
+  contains that word.
+
+### What's good
+Precedence table is thorough (20 cases incl. explicit-false-beats-env). Rejecting `data_dir` in config.toml is well
+reasoned and documented as a plan deviation. Gating `--auth-token` is the right security call. The shutdown path
+(`WithoutCancel` + grace + `Close` fallback) is correct and its tests are channel-driven, with no sleeps. The redacting
+`LogValue` is a nice touch. The ring's eviction and UTF-8-safe truncation are correct and race-tested.
+
+**Verdict: `changes_requested`.** Fix the two majors (repeatable `--listen`, ring retaining live references). The minors
+should go in the same pass, especially `os.Root` for config.toml, because it's part of an AC.
