@@ -3,7 +3,7 @@ id: T-023
 title: Install Bun and web dependencies in CI so make check runs the web checks
 milestone: M0
 role: lead
-status: in_progress
+status: in_review
 depends_on: [T-001, T-003]
 owner: "claude-code (claude-opus-5-5)"
 branch: task/T-023-ci-bun
@@ -28,11 +28,11 @@ workflow (T-001) never installs Bun or the web dependencies, so every run fails 
 - Out: Playwright E2E in CI (lands with T-021), dependency caching tweaks, nightly fuzz job.
 
 ## Acceptance criteria
-- [ ] CI workflow installs Bun at a pinned exact version (same pattern as `GOLANGCI_LINT_VERSION`).
-- [ ] CI installs web dependencies with `bun install --frozen-lockfile` (fails on lockfile drift).
-- [ ] `make check` passes on ubuntu-latest and macos-latest for this branch's PR.
-- [ ] docs/06 states the Bun version CI uses and where it is pinned.
-- [ ] `make check` green locally.
+- [x] CI workflow installs Bun at a pinned exact version (same pattern as `GOLANGCI_LINT_VERSION`).
+- [x] CI installs web dependencies with `bun install --frozen-lockfile` (fails on lockfile drift).
+- [x] `make check` passes on ubuntu-latest and macos-latest for this branch's PR.
+- [x] docs/06 states the Bun version CI uses and where it is pinned.
+- [x] `make check` green locally.
 
 ## Notes from lead
 - `oven-sh/setup-bun@v2` (official Bun action, v2.2.0 latest) is a CI-only action, not a product dependency; no ADR
@@ -48,10 +48,13 @@ workflow (T-001) never installs Bun or the web dependencies, so every run fails 
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `ci.yml` adds `BUN_VERSION: 1.4.4`, `oven-sh/setup-bun@v2`, and `bun install --frozen-lockfile` in `web/`
+  before `make check`. docs/06 §1 records the pin; docs/08 M0 index lists T-023.
+- How to verify: PR #3 checks green on ubuntu-latest + macos-latest (run 44124158942); locally `make check` green
+  (svelte-check 0/0, eslint + prettier clean, vitest 37/37).
+- Known limitations: Bun version is pinned in two places in practice (CI `BUN_VERSION` and whatever devs have
+  locally); no `.bun-version`/`packageManager` field yet. No bun dependency cache in CI (setup-bun caches the binary only).
+- Follow-ups (proposed tasks): T-021 should add a Playwright E2E job (needs `bunx playwright install --with-deps`).
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
