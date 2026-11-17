@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"database/sql/driver"
 	"fmt"
 	"regexp"
@@ -81,17 +80,12 @@ func containsFold(hay, needle []byte) bool {
 		return true
 	}
 	lo, up := lowerASCII(needle[0]), upperASCII(needle[0])
-	for i := 0; i+n <= len(hay); {
-		j := bytes.IndexByte(hay[i:len(hay)-n+1], lo)
-		if lo != up {
-			if k := bytes.IndexByte(hay[i:len(hay)-n+1], up); k >= 0 && (j < 0 || k < j) {
-				j = k
-			}
+	// Single pass: each haystack byte is inspected once for the first needle
+	// byte, so the scan stays linear on attacker-controlled bodies.
+	for i, last := 0, len(hay)-n; i <= last; i++ {
+		if c := hay[i]; c != lo && c != up {
+			continue
 		}
-		if j < 0 {
-			return false
-		}
-		i += j
 		m := 1
 		for ; m < n; m++ {
 			if lowerASCII(hay[i+m]) != lowerASCII(needle[m]) {
@@ -101,7 +95,6 @@ func containsFold(hay, needle []byte) bool {
 		if m == n {
 			return true
 		}
-		i++
 	}
 	return false
 }

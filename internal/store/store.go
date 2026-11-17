@@ -107,7 +107,8 @@ func dsn(path string, write bool) string {
 }
 
 // uriPath turns a slash-separated path into a file URI path; paths with a
-// Windows volume get a leading slash (file:///C:/x/project.db).
+// Windows volume get a leading slash (file:///C:/x/project.db). UNC paths
+// (\\srv\share) are not supported.
 func uriPath(p string, hasVolume bool) string {
 	if hasVolume {
 		return "/" + p

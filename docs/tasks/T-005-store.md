@@ -3,7 +3,7 @@ id: T-005
 title: SQLite store - open, WAL, migrations, write serializer, schema v1
 milestone: M0
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-002]
 owner: "claude-code (sonnet-5.5)"
 branch: task/T-005-store
@@ -85,13 +85,15 @@ serialized writer + read pool, transaction helpers, and the v1 schemas (tables f
 **Round-1 findings:** all are resolved and verified. 0001 now indexes every FK child column. `TestForeignKeysIndexed` covers both schemas and correctly treats a sole INTEGER PRIMARY KEY as indexed. The migration version is re-checked under BEGIN IMMEDIATE. `uriPath` has a unit test, the root path is now absolute and its limits are documented, `TestView` covers `View`, and `regexp()` no longer copies TEXT values. The comment on the loose `edited_from` columns is acceptable.
 
 **New findings**
-- [ ] [major] internal/store/funcs.go:84-89 — the new `containsFold` scan is quadratic. When `lo != up`, every iteration runs `bytes.IndexByte(hay[i:…], up)` over the whole remaining haystack. When the other case of `needle[0]` is rare or absent, which is the common case in lowercase text, each candidate occurrence triggers a full rescan. Measured on a Ryzen 7 8845HS by copying the function into a scratch module:
+- [x] [major] internal/store/funcs.go:84-89 — the new `containsFold` scan is quadratic. When `lo != up`, every iteration runs `bytes.IndexByte(hay[i:…], up)` over the whole remaining haystack. When the other case of `needle[0]` is rare or absent, which is the common case in lowercase text, each candidate occurrence triggers a full rescan. Measured on a Ryzen 7 8845HS by copying the function into a scratch module:
   - 1 MB of English text with needle `"ERROR"`: 387 ms per call. The previous naive loop took 1.26 ms, and `bytes.Contains(bytes.ToLower…)` takes 1.19 ms.
   - Bodies made only of `e` with needle `"ex"`: 0.35 s, 1.4 s and 5.7 s for 256 KB, 512 KB and 1 MB, so 4× the time per doubling.
   
   `bcontains_fold` runs per row on response bodies that the target controls. One crafted body can therefore stall the HTTPQL budget of <300 ms per 100k rows (docs/04), and it ties up a reader connection. This is a regression against round 1.
   → Cache the next-occurrence index of each case: rescan for `lo` only when `i` passes `nextLo`, and for `up` only when it passes `nextUp`, so each byte is scanned at most once per case. The simplest alternative is to drop the second `IndexByte` and scan with one loop that checks `c == lo || c == up` before verifying. Add a regression test that bounds the worst case, e.g. a 1 MB haystack of `e` and needle `ex` must finish in under ~50 ms, or that checks scaling against a 2× larger input. Also add a `BenchmarkContainsFold` with a lowercase-heavy haystack.
-- [ ] [nit] internal/store/store.go:111 — `uriPath` mishandles UNC paths: `\\srv\share\p.db` becomes `///srv/share/p.db`. → Either leave UNC unsupported and say so in the doc comment, or emit `file://srv/share/p.db`.
-- [ ] [nit] internal/store/store_test.go:357 — `rows.Close()` runs only after the loop, so a `t.Fatal` inside the loop leaves rows open. → Use `defer rows.Close()` right after `QueryContext`.
+- [x] [nit] internal/store/store.go:111 — `uriPath` mishandles UNC paths: `\\srv\share\p.db` becomes `///srv/share/p.db`. → Either leave UNC unsupported and say so in the doc comment, or emit `file://srv/share/p.db`.
+- [x] [nit] internal/store/store_test.go:357 — `rows.Close()` runs only after the loop, so a `t.Fatal` inside the loop leaves rows open. → Use `defer rows.Close()` right after `QueryContext`.
 
 **Verdict:** `changes_requested`. Fix the `containsFold` regression and add its test. Everything else is ready.
+
+**Author reply (round 2):** `containsFold` is now a single linear pass (`TestContainsFoldLinear` on 1 MB of `e` with needle `ex`, plus `BenchmarkContainsFold`). UNC paths are documented as unsupported. `rows` is closed with `defer`.

@@ -342,6 +342,7 @@ func TestForeignKeysIndexed(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			defer rows.Close()
 			type fkc struct{ table, col string }
 			var fks []fkc
 			for rows.Next() {
@@ -354,7 +355,6 @@ func TestForeignKeysIndexed(t *testing.T) {
 			if err := rows.Err(); err != nil {
 				t.Fatal(err)
 			}
-			_ = rows.Close()
 			for _, c := range fks {
 				var ok bool
 				err := rd.QueryRowContext(t.Context(), `SELECT EXISTS (
