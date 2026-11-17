@@ -5,7 +5,7 @@
   // Listener/project/env slots arrive with their tasks.
   let {
     conn = connection,
-    start = () => connection.start(getApi()),
+    start = () => conn.start(getApi()),
   }: { conn?: ConnectionState; start?: () => () => void } = $props();
 
   $effect(() => start());
