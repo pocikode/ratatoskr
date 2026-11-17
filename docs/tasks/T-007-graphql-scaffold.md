@@ -3,7 +3,7 @@ id: T-007
 title: GraphQL server scaffold, subscriptions, errors, auth/CSRF, codegen both sides
 milestone: M0
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-004, T-003]
 owner: "claude-code (claude-opus-5-5)"
 branch: task/T-007-graphql-scaffold
@@ -35,6 +35,11 @@ paths:
   - docs/08-roadmap.md
   - cmd/ratatoskr/main.go
   - cmd/ratatoskr/main_test.go
+  # added in review round 1 with operator approval:
+  - internal/api/*_test.go
+  - docs/05-go-conventions.md
+  - docs/tasks/T-026-*.md
+  - docs/tasks/T-027-*.md
 spec:
   - docs/03-architecture.md §6, §8
   - docs/adr/0004-graphql-api.md
@@ -96,7 +101,13 @@ spec:
   - `internal/legacy/api` still has a `go:generate` that re-runs our gqlgen config (same output) until T-002 removes it.
 - Follow-ups (proposed tasks):
   - T-025 (frontend): login page shown on `unauthorized`, posting to T-024's endpoint, then recreating the WS client.
-  - Lead (docs): copy the project rules above into docs/01 F-WSP-1.
+  - T-026 (lead, created): copy the project rules above into docs/01 F-WSP-1 before T-006.
+  - T-027 (backend, created): Host allowlist against DNS rebinding + `--allow-guests` help text (docs/03 §8).
+  - T-024 note: `Auth.Handler` is now strict everywhere, so the login endpoint needs an explicit exemption there.
+- Review round 1 (changes): `Auth.Handler` strict + `Auth.WebSocket` for the WS endpoint only; pprof behind auth;
+  case-insensitive Bearer; error presenter classifies by cause (plain resolver errors → `INTERNAL`), scalar errors are
+  `apperr` `BAD_INPUT`; 32 MiB POST body cap (413); docs/03 §6/§8/§9, docs/05 §2 (`coder/websocket`), roadmap; tests
+  through the real handler for auth bypass, error codes and body limit.
 
 ## Review (reviewer)
 Reviewer: claude-code (claude-opus-5-5), 2026-11-18, branch `task/T-007-graphql-scaffold` @ 048b22b.
@@ -115,7 +126,7 @@ gqlgen path is not tested and is wrong (see the second major) · CSRF + `CrossOr
 contract with descriptions ✔.
 
 **Findings**
-- [ ] [major] internal/api/middleware/auth.go:49 — Auth bypass on every GET under `/api/`. `isWebSocketUpgrade` only
+- [x] [major] internal/api/middleware/auth.go:49 — Auth bypass on every GET under `/api/`. `isWebSocketUpgrade` only
   checks `GET` + `Upgrade: websocket`, so any GET route lets an unauthenticated request through when it carries that
   header. I confirmed this on the running binary: 401 becomes 404 on `/api/rest/files/1`. No GET route exposes data
   yet, but T-008 (`GET /api/rest/ca.crt`) and the files, exports, backups and preview downloads will all be readable
@@ -123,7 +134,10 @@ contract with descriptions ✔.
   that passes unauthenticated upgrades through with `Authenticated()==false`, and use it only on
   `GET /api/graphql/ws` (internal/api/server.go:40), e.g. by giving the WS route its own handler chain. Add an
   integration test: token on, `GET /api/rest/x` with `Upgrade: websocket` and no credentials → 401.
-- [ ] [major] internal/api/graphql/graphql.go:104,124 — In production, unclassified resolver errors come out as
+  **Fixed** (c1613b4): `Auth.Handler` is strict; `Auth.WebSocket` passes unauthenticated upgrades and is used only for
+  `GET /api/graphql/ws` (own chain in server.go). Tests: `TestAuth` (upgrade on a strict route → 401, WS route without
+  upgrade → 401), `TestAuthUpgradeHeaderDoesNotBypass` (`/api/rest/files/1`, `/api/nope` with `Upgrade` → 401).
+- [x] [major] internal/api/graphql/graphql.go:104,124 — In production, unclassified resolver errors come out as
   `BAD_INPUT` with their raw message, when they should be `INTERNAL` with a generic message plus a log line. gqlgen's
   `graphql.AddError` calls `ErrorOnPath`, which wraps every plain error in `*gqlerror.Error` (`gqlerror.WrapPath`)
   before the presenter sees it. So `isGQL` is always true for a resolver returning e.g. `fmt.Errorf("open %s: %w",
@@ -135,44 +149,64 @@ contract with descriptions ✔.
   scalar unmarshalers in `scalars/scalars.go` return `apperr.New(apperr.BadInput, …)` so argument errors keep
   `BAD_INPUT` through `apperr`. Add a test through the real handler: a resolver returning a plain error must give
   `INTERNAL` / "internal error" and a log line, and a bad `Int64` variable must give `BAD_INPUT`.
-- [ ] [major] internal/api/server_test.go — This file is outside the task's `paths` (only `internal/api/server.go` is
+  **Fixed** (1268c8e): a gqlerror is `BAD_INPUT` only when it has no cause; scalar unmarshalers return
+  `apperr` `BAD_INPUT`. Tests: `TestHandlerErrorCodes` through the real handler (plain resolver error → `INTERNAL`,
+  generic message, cause logged; panic → `INTERNAL`; missing variable keeps gqlgen's code), `TestPresentError` with
+  `graphql.ErrorOnPath` (what generated code does) for a bad `Int64` → `BAD_INPUT`. No schema field takes an `Int64`
+  argument yet, so a bad `Int64` variable cannot be sent through the handler; checked that the tests fail on the old code.
+- [x] [major] internal/api/server_test.go — This file is outside the task's `paths` (only `internal/api/server.go` is
   listed). Hard rule 1. → No code change: the operator adds `internal/api/server_test.go` (or
   `internal/api/*_test.go`) to `paths`, with the same "operator approval" note as the other additions.
-- [ ] [minor] docs/03-architecture.md:149 — The spec says services use "`apperr.NotFound(...)` & co.", but
+  **Fixed**: operator approved; `internal/api/*_test.go` added to `paths`.
+- [x] [minor] docs/03-architecture.md:149 — The spec says services use "`apperr.NotFound(...)` & co.", but
   `apperr.NotFound` is a `Code` constant, not a constructor. The real API is `apperr.New(apperr.NotFound, …)`. →
   Change the doc to `apperr.New(code, …)` / `apperr.Query(span, …)`, or add the constructors.
-- [ ] [minor] internal/api/graphql/graphql.go:66 — `transport.POST` reads the body with an unbounded `io.ReadAll`
+  **Fixed**: docs/03 §6 now names `apperr.New(code, …)` / `apperr.Query(span, …)`.
+- [x] [minor] internal/api/graphql/graphql.go:66 — `transport.POST` reads the body with an unbounded `io.ReadAll`
   (gqlgen http_post.go:48). The WS side is capped at 1 MiB by gqlgen. → Wrap the POST route in
   `http.MaxBytesHandler` (server.go, `POST /api/graphql`) with a named constant (e.g. 32 MiB, large enough for
   base64 Replay bodies). Record the limit in docs/03 §6.
-- [ ] [minor] go.mod:10 — `github.com/coder/websocket` became a direct dependency (used only by server_test.go). It
+  **Fixed**: `POST /api/graphql` capped at `api.MaxGraphQLRequestBytes` (32 MiB). A declared larger `Content-Length`
+  gets 413, and a longer chunked body fails as a GraphQL error (`TestGraphQLBodyLimit`). Recorded in docs/03 §6.
+- [x] [minor] go.mod:10 — `github.com/coder/websocket` became a direct dependency (used only by server_test.go). It
   is not on the docs/05 §2 approved list, even though gqlgen already pulls it in as its default WS implementation. →
   Lead adds it to docs/05 §2 (Testing, or "GraphQL server" as the gqlgen WS implementation), or the tests talk to
   the socket another way.
-- [ ] [minor] internal/app/app.go:219 — With `--debug --auth-token`, `/debug/pprof/*` is mounted outside the API auth
+  **Fixed**: operator approved; added to docs/05 §2 next to gqlgen.
+- [x] [minor] internal/app/app.go:219 — With `--debug --auth-token`, `/debug/pprof/*` is mounted outside the API auth
   middleware and stays unauthenticated. This exposes heap and goroutine dumps on a host the operator thinks is
   protected. → Wrap `mountDebug` routes with the same `middleware.Auth.Handler`, or document in docs/03 §8/§9 that
   `--debug` is unauthenticated.
-- [ ] [minor] internal/api/middleware/auth.go:65 — Two spec gaps around trust in loopback/Host, with no current spec
+  **Fixed**: `mountDebug` wraps every pprof route in `Auth.Handler` (removes the T-004 `TODO(T-007)`). Tests in
+  `TestHandler` (no token → 401, bearer → 200). docs/03 §9 updated.
+- [x] [minor] internal/api/middleware/auth.go:65 — Two spec gaps around trust in loopback/Host, with no current spec
   violation: (a) `--allow-guests` trusts every loopback peer, so a same-host reverse proxy turns every remote client
   into a guest; (b) DNS rebinding: when bound to loopback without a token, CrossOriginProtection and the WS origin
   check both pass for a rebinding origin, because Origin host == Host. → Lead decides and records in docs/03 §8,
   e.g. a Host allowlist (`localhost`, `127.0.0.1`, `[::1]`, configured listen host) when bound to loopback.
   Suggested follow-up task.
-- [ ] [minor] internal/api/graphql/schema/project.graphqls / docs/01 F-WSP-1 — The contract makes product decisions
+  **Decided** in docs/03 §8: no `X-Forwarded-For` trust, `--allow-guests` documented as incompatible with a same-host
+  reverse proxy; Host allowlist (421) when bound to loopback. Implementation: new task T-027 (backend).
+- [x] [minor] internal/api/graphql/schema/project.graphqls / docs/01 F-WSP-1 — The contract makes product decisions
   that are not in F-WSP-1: renaming saves a temp project, temp projects cannot be default, duplicates default to
   " (copy)", list order is most recently opened. The Handoff flags this (not silent), but T-006 will implement from
   the schema. → Lead copies these into docs/01 F-WSP-1 before T-006 starts. Track it as a task, not only a Handoff
   bullet.
-- [ ] [nit] internal/app/app_test.go:208-210 — The two new API cases sit between the comment "go tool pprof resolves
+  **Tracked**: new task T-026 (lead, docs/01 F-WSP-1). It must land before T-006; the operator should add it to
+  T-006's `depends_on`.
+- [x] [nit] internal/app/app_test.go:208-210 — The two new API cases sit between the comment "go tool pprof resolves
   addresses with POST …" and the pprof POST case it describes. → Move them above the comment.
-- [ ] [nit] internal/api/middleware/auth.go:69 — `CutPrefix(…, "Bearer ")` is case-sensitive, but the auth scheme
+  **Fixed**: the API cases sit after the pprof cases; the comment is next to its case.
+- [x] [nit] internal/api/middleware/auth.go:69 — `CutPrefix(…, "Bearer ")` is case-sensitive, but the auth scheme
   is case-insensitive (RFC 9110 §11.1). → Split on the first space and compare the scheme with `strings.EqualFold`.
-- [ ] [nit] web/src/lib/components/StatusBar.svelte:8 — The default `start` uses the module singleton `connection`
+  **Fixed**: `bearerToken` splits on the first space and compares the scheme with `strings.EqualFold` (+ tests).
+- [x] [nit] web/src/lib/components/StatusBar.svelte:8 — The default `start` uses the module singleton `connection`
   rather than the `conn` prop, so a caller passing only `conn` would start a different object. → `start = () =>
   conn.start(getApi())` (read inside the closure).
-- [ ] [nit] internal/api/graphql/schema/project.graphqls:48 — `ProjectChange.kind` has no description; every other
+  **Fixed**: `start = () => conn.start(getApi())`.
+- [x] [nit] internal/api/graphql/schema/project.graphqls:48 — `ProjectChange.kind` has no description; every other
   field does. → Add one ("What happened.").
+  **Fixed**: "What happened."
 
 **What's good**: clean split between `apperr` and the presenter, hand-written resolvers with contract stubs,
 constant-time token compare, the WS 4401 close plus client `shouldRetry`, the synctest ping test, a thin API layer,

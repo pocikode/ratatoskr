@@ -21,6 +21,8 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | T-009 | Workspace page (projects tab) + project switcher in top bar | F | T-003, T-006, T-007 |
 | T-023 | CI: install Bun + web deps so `make check` runs web checks (fix after T-003) | L | T-001, T-003 |
 | T-024 | Login/logout REST endpoints setting the auth cookie (follow-up of T-007) | B | T-007 |
+| T-026 | Spec: project rules of `project.graphqls` into docs/01 F-WSP-1 (before T-006) | L | T-007 |
+| T-027 | DNS rebinding Host allowlist on loopback + `--allow-guests` reverse-proxy warning | B | T-007 |
 
 ## M1 — Proxy core, History, Query language, Scopes, Sitemap
 
