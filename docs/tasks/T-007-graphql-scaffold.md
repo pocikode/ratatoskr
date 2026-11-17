@@ -3,7 +3,7 @@ id: T-007
 title: GraphQL server scaffold, subscriptions, errors, auth/CSRF, codegen both sides
 milestone: M0
 role: lead
-status: in_review
+status: done
 depends_on: [T-004, T-003]
 owner: "claude-code (claude-opus-5-5)"
 branch: task/T-007-graphql-scaffold
@@ -104,6 +104,10 @@ spec:
   - T-026 (lead, created): copy the project rules above into docs/01 F-WSP-1 before T-006.
   - T-027 (backend, created): Host allowlist against DNS rebinding + `--allow-guests` help text (docs/03 §8).
   - T-024 note: `Auth.Handler` is now strict everywhere, so the login endpoint needs an explicit exemption there.
+  - Carried from review round 2 (not fixed here): T-006 — `apperr` messages reach clients, so don't `%w` raw OS/SQL
+    errors into `Msg` (doc in docs/03 §6 or add `apperr.Wrap`), and handle multiple `%w` causes; T-024 — WS test with
+    HTTP credentials and no `connection_init.token` → `connection_ack`; any backend task — resolver panic log with
+    stack trace, logged once.
 - Review round 1 (changes): `Auth.Handler` strict + `Auth.WebSocket` for the WS endpoint only; pprof behind auth;
   case-insensitive Bearer; error presenter classifies by cause (plain resolver errors → `INTERNAL`), scalar errors are
   `apperr` `BAD_INPUT`; 32 MiB POST body cap (413); docs/03 §6/§8/§9, docs/05 §2 (`coder/websocket`), roadmap; tests
