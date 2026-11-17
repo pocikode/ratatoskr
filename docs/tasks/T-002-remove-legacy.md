@@ -3,7 +3,7 @@ id: T-002
 title: Remove Hetty admin UI and bbolt, keep the binary compiling with stubs
 milestone: M0
 role: backend
-status: in_review
+status: done
 depends_on: [T-001]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-002-remove-legacy

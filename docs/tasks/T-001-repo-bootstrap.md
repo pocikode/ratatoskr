@@ -3,7 +3,7 @@ id: T-001
 title: Bootstrap the fork - module path, Go 1.27, internal layout, Makefile, lint, CI
 milestone: M0
 role: lead
-status: in_review
+status: done
 depends_on: []
 owner: "claude-code (claude-opus-5-5)"
 branch: task/T-001-repo-bootstrap
