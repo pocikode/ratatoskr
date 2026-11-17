@@ -247,3 +247,68 @@ reasoned and documented as a plan deviation. Gating `--auth-token` is the right 
 
 **Verdict: `changes_requested`.** Fix the two majors (repeatable `--listen`, ring retaining live references). The minors
 should go in the same pass, especially `os.Root` for config.toml, because it's part of an AC.
+
+### Round 2
+
+**Reviewer:** claude-code/reviewer · 2026-11-18 · commits `2528596..f1e2edd`
+
+**Scope:** every changed file is still inside `paths`. No dependency changes in this round. No schema or generated files
+touched. No Caido material.
+
+**`make check`:** green. go fix diff is empty, vet passes, golangci-lint reports `0 issues.`, `go test -race ./...` passes
+(cmd/ratatoskr, app, config, logging), svelte-check/eslint/prettier report 0 errors, vitest 37/37 passed.
+`make test-int` not run: proxy/store/rawhttp are untouched.
+
+**Round-1 findings:** all 9 verified as fixed, both in the code and with a test for each:
+- Repeatable `--listen`: `listenValue` plus the `ff.Resetter` handling. `app.New` gates more than one address.
+- Ring snapshot: `flatten` turns `KindAny` into a string. `TestRingSnapshotsValues` mutates the logged value and runs
+  under `-race`.
+- Group flattening follows the slog rules: zero attrs are dropped and empty-key groups are inlined.
+- The data-dir default is now looked up lazily.
+- `config.toml` is read through `os.Root`.
+- `slog.SetDefault` is called.
+- pprof `symbol` answers both GET and POST. Registering it method-less would conflict with `GET /debug/pprof/` under
+  the Go 1.22+ mux rules, which I checked, so this deviation is correct.
+- `cmdline` has its `TODO(T-007)`.
+- The "pprof off" test asserts more strongly.
+
+**Manual probes (built binary):**
+- `--listen a --listen b` and `RATATOSKR_LISTEN="a, b"` both exit 1 with `2 --listen addresses: not implemented yet (… T-011)`.
+- `env -u HOME -u XDG_CONFIG_HOME` with `--data-dir` starts and stops cleanly. `--help` also works without `$HOME`.
+- `data_dir` in config.toml gives a clear refusal.
+- A TOML `listen = [..]` array works.
+- `--listen` beats a TOML `listen`.
+- `RATATOSKR_DATA_DIR=` gives `data_dir must not be empty`.
+- `--listen foo` and `--listen "127.0.0.1:0,"` give clear errors.
+
+### Findings (round 2)
+- [ ] [minor] cmd/ratatoskr/main_test.go:200-201 — `previous := slog.Default()` runs *after* `run` has already called
+  `slog.SetDefault`. The cleanup therefore restores the test's own logger, and the process default stays pointed at
+  this test's `bytes.Buffer` for the rest of the package. The parallel `run` tests (`TestRunRejectsUnimplementedAuthToken`,
+  `TestRunRejectsSeveralListeners`) also call `SetDefault` with their own unsynchronized buffers. As soon as any
+  goroutine logs through `slog.Default()` or the stdlib `log` package, two tests can write into one `bytes.Buffer` and
+  race. → Capture `previous` before calling `run` and restore it in `t.Cleanup`. Give every test that reaches
+  `logging.New` (all `run` calls that get past `config.Load`) the same save/restore through a small helper. Since the
+  default is process-global, also drop `t.Parallel()` from those tests, or give `run` an option that skips `SetDefault`.
+- [ ] [nit] internal/config/config.go:335 — An error from `listenValue.Set` carries the `config:` prefix twice:
+  `config: parse args: --listen: set "foo": config: listen: address foo: …`. → Let `Set` return the error from
+  `validateAddr` without the `config:` prefix. For example, split `validateAddr` into a prefix-free check, and have
+  `Validate` wrap it.
+- [ ] [nit] internal/config/config_test.go:396-399 — `TestLoadConfigFileThroughRoot` passes on *any* error, including
+  one unrelated to `os.Root`. → Also assert `strings.Contains(err.Error(), "escapes")` (the `os.Root` message is
+  `path escapes from parent`).
+- [ ] [nit] internal/logging/ring.go:245-246 — `a.Value.String()` renders a `KindAny` value in full before `fit`
+  truncates it to 4 KiB. A large `[]byte` or struct therefore costs a full-size temporary allocation on every log call.
+  The text handler does the same, so this is not a regression. → Optional: render into a writer capped at
+  `maxEntryBytes` (`fmt.Fprint` into a bounded writer). Or leave it and document it on `Entry`.
+
+### What's good
+- The fixes are well targeted.
+- `listenValue` handles ff's reset semantics, which is the subtle part.
+- `resolveDataDir` uses `IsSet`, so `--data-dir ""` still errors instead of falling back.
+- The handoff documents the `symbol` deviation with the correct reason.
+- The tests are still channel-driven, with no sleeps.
+
+**Verdict: `approve`.** No blocker or major findings remain. Fix the minor (test hygiene around the global
+`slog.Default`) before merge, or in an early follow-up; the nits are optional. Status stays `in_review` for the operator
+to merge and set `done`.
