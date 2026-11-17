@@ -73,6 +73,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	logger, ring := logging.New(stderr, level)
+	// Anything that logs through slog.Default (the stdlib, later packages,
+	// app's own fallback) has to land in the ring too, or the Logs page misses it.
+	slog.SetDefault(logger)
+
 	logger.Info("ratatoskr starting", "version", version, "commit", commit(), "config", *cfg)
 
 	instance, err := app.New(app.Options{Config: *cfg, Logger: logger, Logs: ring})
