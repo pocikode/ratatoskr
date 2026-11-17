@@ -1,172 +1,212 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"io"
-	"net"
-	"net/http"
-	"net/http/httptest"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/pocikode/ratatoskr/internal/app"
 )
 
-func TestPlaceholderHandler(t *testing.T) {
+// clearEnv unsets the RATATOSKR_* variables a developer may have exported.
+func clearEnv(t *testing.T) {
+	t.Helper()
+
+	for _, name := range []string{"listen", "ui-listen", "data-dir", "no-open", "auth-token", "debug", "allow-guests"} {
+		key := "RATATOSKR_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+
+		old, existed := os.LookupEnv(key)
+
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("unset %s: %v", key, err)
+		}
+
+		t.Cleanup(func() {
+			if existed {
+				_ = os.Setenv(key, old)
+			}
+		})
+	}
+}
+
+func TestRunVersion(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+
+	if err := run(t.Context(), []string{"version"}, &stdout, &stderr); err != nil {
+		t.Fatalf("run(version): %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.HasPrefix(out, "ratatoskr ") {
+		t.Errorf("version output = %q, want it to start with %q", out, "ratatoskr ")
+	}
+
+	if !strings.Contains(out, version) {
+		t.Errorf("version output = %q, want it to contain %q", out, version)
+	}
+
+	if !strings.Contains(out, "(commit ") {
+		t.Errorf("version output = %q, want it to report the commit", out)
+	}
+
+	if stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing", stderr.String())
+	}
+}
+
+func TestRunSubcommands(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		method     string
-		path       string
-		wantStatus int
-		wantBody   string
+		name    string
+		args    []string
+		wantErr string
+		wantNot bool
 	}{
-		{
-			name:       "root serves the placeholder",
-			method:     http.MethodGet,
-			path:       "/",
-			wantStatus: http.StatusOK,
-			wantBody:   "<h1>Ratatoskr</h1>",
-		},
-		{
-			name:       "head root",
-			method:     http.MethodHead,
-			path:       "/",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "unknown path is not the placeholder",
-			method:     http.MethodGet,
-			path:       "/nope",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "non-GET is rejected",
-			method:     http.MethodPost,
-			path:       "/",
-			wantStatus: http.StatusMethodNotAllowed,
-		},
+		{name: "ca export", args: []string{"ca", "export"}, wantNot: true},
+		{name: "ca regenerate", args: []string{"ca", "regenerate"}, wantNot: true},
+		{name: "project list", args: []string{"project", "list"}, wantNot: true},
+		{name: "project backup", args: []string{"project", "backup"}, wantNot: true},
+		{name: "project restore", args: []string{"project", "restore"}, wantNot: true},
+		{name: "ca without a command", args: []string{"ca"}, wantErr: "expected one of export|regenerate"},
+		{name: "ca with an unknown command", args: []string{"ca", "bogus"}, wantErr: "unknown command"},
+		{name: "unknown command", args: []string{"bogus"}, wantErr: "unknown command"},
+		{name: "version with arguments", args: []string{"version", "extra"}, wantErr: "unexpected arguments"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rec := httptest.NewRecorder()
-			newHandler().ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+			err := run(t.Context(), tt.args, &bytes.Buffer{}, &bytes.Buffer{})
 
-			if got := rec.Code; got != tt.wantStatus {
-				t.Errorf("status = %d, want %d", got, tt.wantStatus)
-			}
+			if tt.wantNot {
+				if !errors.Is(err, app.ErrNotImplemented) {
+					t.Fatalf("run(%q) error = %v, want ErrNotImplemented", tt.args, err)
+				}
 
-			if !strings.Contains(rec.Body.String(), tt.wantBody) {
-				t.Errorf("body %q does not contain %q", rec.Body.String(), tt.wantBody)
-			}
+				if !strings.Contains(err.Error(), "not implemented yet") {
+					t.Errorf("error = %q, want it to say %q", err, "not implemented yet")
+				}
 
-			if tt.wantStatus != http.StatusOK {
 				return
 			}
 
-			h := rec.Header()
-			if got, want := h.Get("Content-Type"), "text/html; charset=utf-8"; got != want {
-				t.Errorf("Content-Type = %q, want %q", got, want)
-			}
-
-			if got, want := h.Get("X-Content-Type-Options"), "nosniff"; got != want {
-				t.Errorf("X-Content-Type-Options = %q, want %q", got, want)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("run(%q) error = %v, want it to contain %q", tt.args, err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestServePlaceholder(t *testing.T) {
+func TestRunHelp(t *testing.T) {
 	t.Parallel()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
+	var stdout bytes.Buffer
+
+	if err := run(t.Context(), []string{"--help"}, &stdout, &bytes.Buffer{}); err != nil {
+		t.Fatalf("run(--help): %v", err)
 	}
 
+	usage := stdout.String()
+	for _, want := range []string{"usage: ratatoskr", "--listen", "--data-dir", "ratatoskr version"} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("usage does not contain %q:\n%s", want, usage)
+		}
+	}
+}
+
+func TestRunRejectsUnknownFlag(t *testing.T) {
+	t.Parallel()
+
+	err := run(t.Context(), []string{"--nope"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("run(--nope) error = %v, want an unknown flag error", err)
+	}
+}
+
+func TestRunRejectsUnimplementedAuthToken(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	err := run(t.Context(),
+		[]string{"--auth-token", "s3cret", "--data-dir", dir, "--listen", "127.0.0.1:0"},
+		&bytes.Buffer{}, &bytes.Buffer{})
+	if !errors.Is(err, app.ErrNotImplemented) {
+		t.Fatalf("run(--auth-token) error = %v, want ErrNotImplemented", err)
+	}
+}
+
+func TestRunServesAndStopsOnContextCancel(t *testing.T) {
+	clearEnv(t)
+
+	var stderr bytes.Buffer
+
+	dir := filepath.Join(t.TempDir(), "data")
+
+	// The context is cancelled up front: Run still has to bind, wire and shut
+	// down cleanly, which is the lifecycle this test covers. Serving is covered by
+	// the internal/app tests.
 	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- serve(ctx, ln, options{}) }()
-
-	res, err := http.Get("http://" + ln.Addr().String() + "/")
-	if err != nil {
-		t.Fatalf("get placeholder: %v", err)
-	}
-
-	body, err := io.ReadAll(res.Body)
-	if closeErr := res.Body.Close(); closeErr != nil {
-		t.Fatalf("close body: %v", closeErr)
-	}
-
-	if err != nil {
-		t.Fatalf("read body: %v", err)
-	}
-
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusOK)
-	}
-
-	if !strings.Contains(string(body), "Ratatoskr") {
-		t.Errorf("body %q does not contain %q", body, "Ratatoskr")
-	}
-
 	cancel()
 
-	select {
-	case err := <-serveErr:
-		if err != nil {
-			t.Fatalf("serve: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("serve did not return after the context was cancelled")
+	err := run(ctx, []string{"--listen", "127.0.0.1:0", "--data-dir", dir}, &bytes.Buffer{}, &stderr)
+	if err != nil {
+		t.Fatalf("run: %v (stderr: %s)", err, stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "ratatoskr listening") {
+		t.Errorf("stderr = %q, want the listening record", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "ratatoskr stopped") {
+		t.Errorf("stderr = %q, want the stopped record", stderr.String())
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat data dir: %v", err)
+	}
+
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf("data dir mode = %o, want 700", got)
 	}
 }
 
-func TestParseFlags(t *testing.T) {
+func TestNotifyContextOnSIGTERM(t *testing.T) {
+	// Not parallel: the signal is delivered to the whole process.
+	ctx, stop := notifyContext()
+	defer stop()
+
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("context was not cancelled by SIGTERM")
+	}
+}
+
+func TestCommit(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name string
-		args []string
-		want options
-	}{
-		{
-			name: "defaults",
-			want: options{listen: "127.0.0.1:8080"},
-		},
-		{
-			name: "listen and data dir",
-			args: []string{"--listen", "127.0.0.1:0", "--data-dir", "./.dev-data"},
-			want: options{listen: "127.0.0.1:0", dataDir: "./.dev-data"},
-		},
-		{
-			name: "version",
-			args: []string{"-version"},
-			want: options{listen: "127.0.0.1:8080", showVersion: true},
-		},
+	got := commit()
+	if got == "" {
+		t.Fatal("commit() = \"\", want the build revision or \"unknown\"")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := parseFlags(tt.args)
-			if err != nil {
-				t.Fatalf("parseFlags(%q): %v", tt.args, err)
-			}
-
-			if got != tt.want {
-				t.Errorf("parseFlags(%q) = %+v, want %+v", tt.args, got, tt.want)
-			}
-		})
-	}
-
-	if _, err := parseFlags([]string{"--nope"}); err == nil {
-		t.Error("parseFlags(--nope) = nil error, want an error")
+	if strings.ContainsAny(got, " \t") {
+		t.Errorf("commit() = %q, want a single token", got)
 	}
 }

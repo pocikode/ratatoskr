@@ -29,6 +29,7 @@ import (
 	"github.com/peterbourgon/ff/v4"
 	"github.com/peterbourgon/ff/v4/ffhelp"
 	"github.com/peterbourgon/ff/v4/fftoml"
+	"github.com/peterbourgon/ff/v4/ffval"
 )
 
 const (
@@ -85,7 +86,11 @@ func Load(args []string) (*Config, error) {
 
 	var sawDataDir bool
 
-	fs := newFlagSet(cfg, dir)
+	fs, err := newFlagSet(cfg, dir)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := ff.Parse(fs, args, parseOptions(dir, &sawDataDir)...); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
@@ -122,7 +127,11 @@ func resolveDataDir(args []string) (string, error) {
 
 	cfg := &Config{}
 
-	fs := newFlagSet(cfg, dir)
+	fs, err := newFlagSet(cfg, dir)
+	if err != nil {
+		return "", err
+	}
+
 	if err := ff.Parse(fs, args, ff.WithEnvVarPrefix(envPrefix)); err != nil {
 		return "", fmt.Errorf("config: %w", err)
 	}
@@ -179,36 +188,86 @@ func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(attrs...)
 }
 
-// Usage returns the help text for the root command.
-func Usage() string {
+// Usage writes the help text for the root command.
+func Usage(w io.Writer) error {
 	dir, err := defaultDataDir()
 	if err != nil {
 		dir = ""
 	}
 
-	return ffhelp.Flags(newFlagSet(&Config{}, dir),
+	fs, err := newFlagSet(&Config{}, dir)
+	if err != nil {
+		return err
+	}
+
+	_, err = ffhelp.Flags(fs,
 		"usage: ratatoskr [flags]",
 		"       ratatoskr version",
 		"       ratatoskr ca export|regenerate",
 		"       ratatoskr project list|backup|restore",
-	).String()
+	).WriteTo(w)
+
+	if err != nil {
+		return fmt.Errorf("config: write usage: %w", err)
+	}
+
+	return nil
 }
 
 // newFlagSet defines the flags of the root command on cfg. dataDir is the
-// --data-dir default: the dir whose config.toml is being read. The definition is
-// static, so the ff helpers cannot fail (they panic on programmer error only).
-func newFlagSet(cfg *Config, dataDir string) *ff.FlagSet {
+// --data-dir default: the dir whose config.toml is being read.
+func newFlagSet(cfg *Config, dataDir string) (*ff.FlagSet, error) {
 	fs := ff.NewFlagSet("ratatoskr")
 
-	fs.StringVar(&cfg.Listen, 0, "listen", DefaultListen, "address of the shared proxy and UI/API `addr` (host:port)")
-	fs.StringVar(&cfg.UIListen, 0, "ui-listen", "", "serve the UI/API on its own `addr` instead of the proxy listener")
-	fs.StringVar(&cfg.DataDir, 0, "data-dir", dataDir, "`directory` holding config.toml, the CA and the project databases")
-	fs.BoolVar(&cfg.NoOpen, 0, "no-open", "do not open a browser window on start")
-	fs.StringVar(&cfg.AuthToken, 0, "auth-token", "", "require this bearer `token` for UI/API access")
-	fs.BoolVar(&cfg.Debug, 0, "debug", "log at debug level and serve /debug/pprof")
-	fs.BoolVar(&cfg.AllowGuests, 0, "allow-guests", "let localhost clients in without a token")
+	flags := []ff.FlagConfig{
+		{
+			LongName:    "listen",
+			Placeholder: "addr",
+			Usage:       "address of the shared proxy and UI/API listener (host:port)",
+			Value:       ffval.NewValueDefault(&cfg.Listen, DefaultListen),
+		},
+		{
+			LongName:    "ui-listen",
+			Placeholder: "addr",
+			Usage:       "serve the UI/API on its own address instead of the proxy listener",
+			Value:       ffval.NewValueDefault(&cfg.UIListen, ""),
+		},
+		{
+			LongName:    "data-dir",
+			Placeholder: "path",
+			Usage:       "directory holding config.toml, the CA and the project databases",
+			Value:       ffval.NewValueDefault(&cfg.DataDir, dataDir),
+		},
+		{
+			LongName: "no-open",
+			Usage:    "do not open a browser window on start",
+			Value:    ffval.NewValueDefault(&cfg.NoOpen, false),
+		},
+		{
+			LongName:    "auth-token",
+			Placeholder: "token",
+			Usage:       "require this bearer token for UI/API access",
+			Value:       ffval.NewValueDefault(&cfg.AuthToken, ""),
+		},
+		{
+			LongName: "debug",
+			Usage:    "log at debug level and serve /debug/pprof",
+			Value:    ffval.NewValueDefault(&cfg.Debug, false),
+		},
+		{
+			LongName: "allow-guests",
+			Usage:    "let localhost clients in without a token",
+			Value:    ffval.NewValueDefault(&cfg.AllowGuests, false),
+		},
+	}
 
-	return fs
+	for _, fc := range flags {
+		if _, err := fs.AddFlag(fc); err != nil {
+			return nil, fmt.Errorf("config: define --%s: %w", fc.LongName, err)
+		}
+	}
+
+	return fs, nil
 }
 
 // parseOptions wires environment variables and the config file into a parse.

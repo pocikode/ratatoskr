@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -346,7 +347,13 @@ func TestLogValueRedactsAuthToken(t *testing.T) {
 }
 
 func TestUsage(t *testing.T) {
-	usage := Usage()
+	var buf bytes.Buffer
+
+	if err := Usage(&buf); err != nil {
+		t.Fatalf("Usage: %v", err)
+	}
+
+	usage := buf.String()
 
 	for _, want := range []string{"ratatoskr", "--listen", "--ui-listen", "--data-dir", "--no-open", "--auth-token", "--debug", "--allow-guests"} {
 		if !strings.Contains(usage, want) {
