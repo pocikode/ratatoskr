@@ -110,3 +110,40 @@ and `text-[11px]` minors. The dependency-list and output-path minors are lead do
 
 
 **Implementer reply (round 2)**: both majors, URIError, text-xs, IME, ⌘K, router `win`, eslint ignore fixed (+2 tests, 37 total). Lead items (docs/06 §1/§2/§8, ADR-0005 output path, theme exception) and the T-007 note on `test:e2e` are left open; `static.go` `..` behaviour left as is.
+
+### Round 2
+**Reviewer**: claude-opus-5-5 · 2026-11-17 · commit c73a477
+
+**Checks**: `make check` green (go fix/vet/golangci-lint/`go test -race` ok; svelte-check 0/0, eslint + prettier clean, vitest
+4 files / 37 tests pass). `bun run build` → entry JS 62.07 KB gzip; tree clean after build. `git diff --name-only main...HEAD` only
+touches `web/**`, `internal/api/static/**` and this task file: lane restored.
+
+**Round-1 verification**
+- Root `.gitignore` reverted; `internal/api/static/.gitignore` (`dist/*`, `!dist/.gitkeep`) sits beside `dist/`. ✔
+- RouterView stores `{ id, component }` and renders it only when `loaded.id === router.route.id`, with the placeholder in between.
+  The new deferred-load test fails on the old code and passes now. Dropping `{#key}` also means a param-only change (same route id)
+  keeps the page mounted, which is the right default; pages must read `router.location.params` reactively. ✔
+- `safeDecode` + test; `text-xs` mapped through `--fs-xs` in `@theme`; IME guard; ⌘K/Ctrl K; `navigate` uses the started `win`;
+  dead eslint ignore and `web/.gitignore` `dist` removed. ✔
+- `static.go` `..` → 400 left as is: accepted (nit, optional).
+
+**Findings**
+- [ ] [minor] web/src/lib/stores/theme.svelte.ts:16: `TODO(T-007)` points at a task that does not own the settings API.
+  `docs/tasks/T-007-graphql-scaffold.md` never mentions theme or settings, and no other task does either, so the debt is still
+  untracked. → **Lead**: create or name the task that owns user settings (and record the pre-paint localStorage-mirror exception in
+  docs/06 §4); the implementer then retargets the TODO id. This does not block the merge.
+- [ ] [minor] docs/tasks/T-003-web-scaffold.md (Review, round 1): the implementer ticked `[x]` on items they did not fix and that
+  belong to the lead: the docs/06 §1 dependency list, docs/06 §2/§8 plus ADR-0005 output path, and the T-007 `test:e2e` note. Their own
+  reply says these are still open, so the checkboxes are misleading. → The **Lead** must still do: (a) add
+  `@fontsource-variable/inter`, `@fontsource-variable/jetbrains-mono`, `jsdom`, `@testing-library/jest-dom`,
+  `@testing-library/user-event`, `@tailwindcss/vite`, `@eslint/js`, `globals`, `@types/node` to docs/06 §1; (b) change `web/dist`
+  → `internal/api/static/dist` in docs/06 §2/§8 and ADR-0005; (c) add Playwright install + `test:e2e` and the settings owner to
+  T-007/T-021 scope. Implementers should only tick findings they fixed.
+- [ ] [nit] web/src/App.test.ts:61: the final `findByRole('heading', { name: 'Findings' })` is also satisfied by the loading-state
+  `PlaceholderPage`, so it doesn't prove the lazy page mounted after `release()`. Every page is a placeholder today, so the result is
+  identical. → When real pages land, assert on page-specific content (or a `data-page` attribute) instead.
+- [ ] [nit] web/src/lib/components/TopBar.svelte:8: `navigator.platform` is deprecated. → Fine for now; when shortcuts become rebindable
+  (T-022), render the hint from the binding instead of sniffing the platform.
+
+**Verdict**: `approve`. There are no blocker or major findings left. The remaining minors are lead doc/task actions and don't need code
+changes on this branch. Status stays `in_review` until the operator merges and sets `done`.
