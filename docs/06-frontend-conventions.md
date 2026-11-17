@@ -4,7 +4,7 @@
 
 | Concern | Choice |
 |---|---|
-| Runtime / package manager / scripts | **Bun** (`bun install`, `bun run …`, `bunx --bun vite`) — lockfile `bun.lock` committed. No npm/pnpm/yarn. |
+| Runtime / package manager / scripts | **Bun** (`bun install`, `bun run …`, `bunx --bun vite`) — lockfile `bun.lock` committed. No npm/pnpm/yarn. CI pins Bun via `BUN_VERSION` in `.github/workflows/ci.yml` (currently 1.4.4) and runs `bun install --frozen-lockfile`. |
 | Framework | **Svelte 5** (runes) — plain Vite SPA, **no SvelteKit** (ADR-0005) |
 | Bundler / dev server | Vite (+ `@sveltejs/vite-plugin-svelte`) |
 | Language | TypeScript strict (`"strict": true, "noUncheckedIndexedAccess": true`). Use the TS version that `svelte-check` supports (check its peerDependencies before upgrading major versions). |

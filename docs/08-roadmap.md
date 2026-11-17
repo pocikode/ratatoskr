@@ -19,6 +19,7 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | T-007 | GraphQL server scaffold: gqlgen latest, schema dir, subscriptions transport, error codes, auth/CSRF middleware, codegen on web | L | T-003, T-004 |
 | T-008 | `internal/ca`: root CA gen/import/export, SNI leaf cache, REST CA download | B | T-004 (core), T-007 (REST) |
 | T-009 | Workspace page (projects tab) + project switcher in top bar | F | T-003, T-006, T-007 |
+| T-023 | CI: install Bun + web deps so `make check` runs web checks (fix after T-003) | L | T-001, T-003 |
 
 ## M1 — Proxy core, History, Query language, Scopes, Sitemap
 
