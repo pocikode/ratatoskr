@@ -3,7 +3,7 @@ id: T-005
 title: SQLite store - open, WAL, migrations, write serializer, schema v1
 milestone: M0
 role: backend
-status: in_progress
+status: in_review
 depends_on: [T-002]
 owner: "claude-code (sonnet-5.5)"
 branch: task/T-005-store
@@ -21,11 +21,11 @@ spec:
 serialized writer + read pool, transaction helpers, and the v1 schemas (tables from docs/03 §5, created even if unused yet).
 
 ## Acceptance criteria
-- [ ] `store.OpenInstance(ctx, root *os.Root)` / `store.OpenProject(ctx, root)` return handles; pragmas verified by test.
-- [ ] Migration runner is idempotent, records version, refuses to open a DB with a newer schema (clear error).
-- [ ] Concurrent writers (100 goroutines × 1k inserts) complete without `SQLITE_BUSY` errors (`-race`).
-- [ ] Batch insert helper for requests achieves ≥ 20k rows/s on CI hardware (benchmark).
-- [ ] SQLite user functions registered: `regexp(pattern, text)`, `bcontains_fold(blob, needle)` with tests.
+- [x] `store.OpenInstance(ctx, root *os.Root)` / `store.OpenProject(ctx, root)` return handles; pragmas verified by test.
+- [x] Migration runner is idempotent, records version, refuses to open a DB with a newer schema (clear error).
+- [x] Concurrent writers (100 goroutines × 1k inserts) complete without `SQLITE_BUSY` errors (`-race`).
+- [x] Batch insert helper for requests achieves ≥ 20k rows/s on CI hardware (benchmark).
+- [x] SQLite user functions registered: `regexp(pattern, text)`, `bcontains_fold(blob, needle)` with tests.
 
 ## Plan (implementer, ≤15 lines)
 1. Add `modernc.org/sqlite` (approved list). Register `regexp` and `bcontains_fold` once via `sync.OnceValue` + `RegisterScalarFunction`.
@@ -40,5 +40,13 @@ serialized writer + read pool, transaction helpers, and the v1 schemas (tables f
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
+**Changed:** new `internal/store` (store.go, migrate.go, funcs.go, requests.go, embedded `migrations/{instance,project}/0001_init.sql`), `modernc.org/sqlite` added.
+- `OpenInstance/OpenProject(ctx, *os.Root)` -> `*DB` with a single serialized writer (`_txlock=immediate`, 1 conn) and a read pool (`query_only`, <=8 conns). `DB.Write` / `DB.View` tx helpers, `DB.Reader()`.
+- Migrations: `schema_version` table, forward-only, contiguous; newer DB -> `*NewerSchemaError` (`errors.Is(err, ErrNewerSchema)`).
+- UDFs `regexp` (RE2, bounded compile cache) and `bcontains_fold` (ASCII fold, no alloc), registered once.
+- `DB.InsertRequests` batch helper: ~149k rows/s locally (no race).
+**Verify:** `go test -race ./internal/store/`, `go test -bench . -run x ./internal/store/`, `make check`.
+**Limitations:** schema columns for tables only named in docs/03 §5 (presets, replay, automate, mr_*, exports, assistant) are my best-fit v1 guesses; later tasks add migrations. Concurrent-writer test is skipped under `-short`. `make check` needed `bun install` in web/ (untracked node_modules).
+**Follow-ups:** batching goroutine (50 ms / 200 rows flush) belongs to the capture pipeline task, built on `InsertRequests`.
 
 ## Review (reviewer)
