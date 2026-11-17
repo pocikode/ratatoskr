@@ -3,7 +3,7 @@ id: T-005
 title: SQLite store - open, WAL, migrations, write serializer, schema v1
 milestone: M0
 role: backend
-status: in_review
+status: done
 depends_on: [T-002]
 owner: "claude-code (sonnet-5.5)"
 branch: task/T-005-store
