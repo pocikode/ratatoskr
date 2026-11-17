@@ -3,7 +3,7 @@ id: T-004
 title: Config, CLI flags/env/TOML, app wiring, structured logging
 milestone: M0
 role: backend
-status: in_review
+status: done
 depends_on: [T-002]
 owner: "opencode/deepseek-v4.1-flash-1017"
 branch: task/T-004-config-cli
