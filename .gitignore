@@ -13,3 +13,7 @@
 !/CLAUDE.md
 !/.opencode
 !/AGENTS.md
+
+# web build output
+/internal/api/static/dist/*
+!/internal/api/static/dist/.gitkeep

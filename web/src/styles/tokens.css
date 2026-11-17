@@ -1,0 +1,77 @@
+/* Design tokens. Components use these variables only (docs/06 §6). Dark is the default theme. */
+:root {
+  --font-ui: 'Inter Variable', system-ui, sans-serif;
+  --font-code: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --text-base: 13px;
+  --leading-dense: 1.35;
+  --radius: 6px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --topbar-h: 40px;
+  --statusbar-h: 24px;
+  --sidebar-w: 220px;
+  --sidebar-w-rail: 48px;
+  --row-h: 26px;
+}
+
+:root[data-density='compact'] {
+  --row-h: 22px;
+  --space-2: 6px;
+}
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0f1419;
+  --bg-elevated: #161c24;
+  --bg-subtle: #1b222c;
+  --bg-hover: #222b37;
+  --border: #2a3441;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --accent: #14b8a6;
+  --accent-hover: #2dd4bf;
+  --on-accent: #04201c;
+  --accent-soft: #14b8a626;
+  --warn: #f59e0b;
+  --danger: #f43f5e;
+  --success: #10b981;
+  --focus-ring: #2dd4bf;
+  --shadow-overlay: 0 8px 28px #00000080;
+  --scrim: #00000080;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f8fafc;
+  --bg-elevated: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --bg-hover: #e2e8f0;
+  --border: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --accent: #0f766e;
+  --accent-hover: #115e59;
+  --on-accent: #ffffff;
+  --accent-soft: #0f766e1f;
+  --warn: #b45309;
+  --danger: #be123c;
+  --success: #047857;
+  --focus-ring: #0f766e;
+  --shadow-overlay: 0 8px 28px #0f172a33;
+  --scrim: #0f172a66;
+}
+
+/* Row colours (docs/02 §10): shared by tables in later tasks. */
+:root {
+  --row-red: #ef4444;
+  --row-orange: #f97316;
+  --row-yellow: #eab308;
+  --row-green: #22c55e;
+  --row-teal: #14b8a6;
+  --row-blue: #3b82f6;
+  --row-purple: #a855f7;
+  --row-pink: #ec4899;
+}
