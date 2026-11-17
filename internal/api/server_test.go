@@ -181,7 +181,48 @@ func TestAuthHTTP(t *testing.T) {
 	}
 }
 
-// subscribe opens a graphql-transport-ws connection, sends connection_init with
+// TestAuthUpgradeHeaderDoesNotBypass: only the WebSocket endpoint accepts an
+// upgrade without credentials (T-007 review).
+func TestAuthUpgradeHeaderDoesNotBypass(t *testing.T) {
+	t.Parallel()
+
+	srv := newServer(t, middleware.Auth{Token: token})
+
+	for _, path := range []string{"/api/rest/files/1", "/api/nope", "/api/graphql/ws"} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if path != "/api/graphql/ws" {
+			req.Header.Set("Upgrade", "websocket")
+			req.Header.Set("Connection", "Upgrade")
+		}
+
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("GET %s: status %d, want 401", path, resp.StatusCode)
+		}
+	}
+}
+
+func TestGraphQLBodyLimit(t *testing.T) {
+	t.Parallel()
+
+	srv := newServer(t, middleware.Auth{})
+
+	status, _ := post(t, srv, strings.Repeat(" ", api.MaxGraphQLRequestBytes)+"{ serverInfo { version } }", nil)
+	if status != http.StatusRequestEntityTooLarge {
+		t.Errorf("status %d, want 413", status)
+	}
+}
+
+// dialWS opens a graphql-transport-ws connection, sends connection_init with
 // payload and returns the connection after the server's answer to it.
 func dialWS(t *testing.T, srv *httptest.Server, payload map[string]any) (*websocket.Conn, map[string]any, error) {
 	t.Helper()

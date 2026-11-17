@@ -31,30 +31,49 @@ func (a Auth) CheckToken(tok string) bool {
 
 type authKey struct{}
 
-// Authenticated reports whether the request behind ctx passed [Auth.Handler]:
-// it presented the token, is a permitted guest, or auth is off. WebSocket
-// upgrades without credentials reach the GraphQL layer unauthenticated so the
-// token can still arrive in connection_init.
+// Authenticated reports whether the request behind ctx passed [Auth.Handler] or
+// [Auth.WebSocket] with credentials: it presented the token, is a permitted
+// guest, or auth is off. Only [Auth.WebSocket] lets a request through without
+// them, so the token can still arrive in connection_init.
 func Authenticated(ctx context.Context) bool {
 	ok, _ := ctx.Value(authKey{}).(bool)
 
 	return ok
 }
 
-// Handler authenticates every request. Unauthenticated requests get 401, except
-// WebSocket upgrades, which are passed on with [Authenticated] false.
+// Handler rejects every unauthenticated request with 401.
 func (a Auth) Handler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !a.allows(r) {
+			unauthorized(w)
+
+			return
+		}
+
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authKey{}, true)))
+	})
+}
+
+// WebSocket is [Auth.Handler] for the GraphQL WebSocket endpoint only: an
+// unauthenticated WebSocket upgrade is passed on with [Authenticated] false, so
+// the GraphQL layer can check the token of connection_init. Anything else
+// without credentials gets 401.
+func (a Auth) WebSocket(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ok := a.allows(r)
 		if !ok && !isWebSocketUpgrade(r) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="ratatoskr"`)
-			writeError(w, http.StatusUnauthorized, "authentication required")
+			unauthorized(w)
 
 			return
 		}
 
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authKey{}, ok)))
 	})
+}
+
+func unauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="ratatoskr"`)
+	writeError(w, http.StatusUnauthorized, "authentication required")
 }
 
 func (a Auth) allows(r *http.Request) bool {
@@ -66,7 +85,7 @@ func (a Auth) allows(r *http.Request) bool {
 		return true
 	}
 
-	if tok, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); found && a.CheckToken(tok) {
+	if a.CheckToken(bearerToken(r)) {
 		return true
 	}
 
@@ -75,6 +94,17 @@ func (a Auth) allows(r *http.Request) bool {
 	}
 
 	return false
+}
+
+// bearerToken returns the credentials of an "Authorization: Bearer <token>"
+// header. The scheme is case-insensitive (RFC 9110 §11.1).
+func bearerToken(r *http.Request) string {
+	scheme, tok, found := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") {
+		return ""
+	}
+
+	return strings.TrimSpace(tok)
 }
 
 func isWebSocketUpgrade(r *http.Request) bool {

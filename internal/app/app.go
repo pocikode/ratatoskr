@@ -214,14 +214,16 @@ func (a *App) Logs() *logging.Ring {
 // plus /debug/pprof on the same server when --debug is set
 // (docs/03-architecture.md §6, §9).
 func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
+	auth := middleware.Auth{Token: a.cfg.AuthToken, AllowGuests: a.cfg.AllowGuests}
+
 	mux := http.NewServeMux()
 	if a.cfg.Debug {
-		mountDebug(mux)
+		mountDebug(mux, auth)
 	}
 
 	mux.Handle("/api/", api.NewHandler(api.Options{
 		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now()},
-		Auth:      middleware.Auth{Token: a.cfg.AuthToken, AllowGuests: a.cfg.AllowGuests},
+		Auth:      auth,
 		Logger:    a.log,
 	}))
 	mux.Handle("/", static.Handler())

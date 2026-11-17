@@ -100,11 +100,13 @@ func TestAuth(t *testing.T) {
 	const token = "s3cret"
 
 	tests := []struct {
-		name     string
-		auth     middleware.Auth
-		remote   string
-		headers  map[string]string
-		cookie   string
+		name    string
+		auth    middleware.Auth
+		remote  string
+		headers map[string]string
+		cookie  string
+		// ws selects Auth.WebSocket instead of Auth.Handler.
+		ws       bool
 		want     int
 		wantAuth bool
 	}{
@@ -137,9 +139,33 @@ func TestAuth(t *testing.T) {
 			remote: "127.0.0.1:5555", want: http.StatusUnauthorized,
 		},
 		{
+			name: "bearer scheme is case-insensitive", auth: middleware.Auth{Token: token},
+			headers: map[string]string{"Authorization": "bearer " + token}, want: http.StatusNoContent, wantAuth: true,
+		},
+		{
+			name: "token without scheme", auth: middleware.Auth{Token: token},
+			headers: map[string]string{"Authorization": token}, want: http.StatusUnauthorized,
+		},
+		{
+			// An Upgrade header must not open other routes (T-007 review).
+			name: "websocket upgrade on a strict route", auth: middleware.Auth{Token: token},
+			headers: map[string]string{"Upgrade": "websocket", "Connection": "Upgrade"}, want: http.StatusUnauthorized,
+		},
+		{
 			// The token may still arrive in connection_init.
-			name: "websocket without credentials", auth: middleware.Auth{Token: token},
+			name: "websocket without credentials", auth: middleware.Auth{Token: token}, ws: true,
 			headers: map[string]string{"Upgrade": "websocket", "Connection": "Upgrade"}, want: http.StatusNoContent,
+		},
+		{
+			name: "websocket with bearer", auth: middleware.Auth{Token: token}, ws: true,
+			headers: map[string]string{
+				"Upgrade": "websocket", "Connection": "Upgrade", "Authorization": "Bearer " + token,
+			},
+			want: http.StatusNoContent, wantAuth: true,
+		},
+		{
+			name: "websocket route without upgrade", auth: middleware.Auth{Token: token}, ws: true,
+			want: http.StatusUnauthorized,
 		},
 	}
 
@@ -163,7 +189,12 @@ func TestAuth(t *testing.T) {
 			}
 
 			rec := httptest.NewRecorder()
-			tt.auth.Handler(okHandler).ServeHTTP(rec, r)
+			h := tt.auth.Handler
+			if tt.ws {
+				h = tt.auth.WebSocket
+			}
+
+			h(okHandler).ServeHTTP(rec, r)
 
 			if rec.Code != tt.want {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.want)

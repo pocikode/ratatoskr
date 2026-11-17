@@ -184,6 +184,8 @@ func TestHandler(t *testing.T) {
 	tests := []struct {
 		name       string
 		debug      bool
+		token      string
+		bearer     string
 		method     string
 		path       string
 		wantStatus []int
@@ -206,10 +208,13 @@ func TestHandler(t *testing.T) {
 		{name: "pprof goroutineleak", debug: true, path: "/debug/pprof/goroutineleak?debug=1", wantStatus: []int{http.StatusOK}, wantBody: "goroutineleak"},
 		{name: "pprof symbol", debug: true, path: "/debug/pprof/symbol", wantStatus: []int{http.StatusOK}},
 		// go tool pprof resolves addresses with POST /debug/pprof/symbol.
+		{name: "pprof symbol accepts POST", debug: true, method: http.MethodPost, path: "/debug/pprof/symbol", wantStatus: []int{http.StatusOK}},
+		// With --auth-token, pprof needs the token like the API does.
+		{name: "pprof needs the token", debug: true, token: "s3cret", path: "/debug/pprof/cmdline", wantStatus: []int{http.StatusUnauthorized}},
+		{name: "pprof with the token", debug: true, token: "s3cret", bearer: "s3cret", path: "/debug/pprof/", wantStatus: []int{http.StatusOK}, wantBody: "goroutineleak"},
 		// The API is mounted under /api/ and guarded by the CSRF middleware.
 		{name: "graphql needs the api header", method: http.MethodPost, path: "/api/graphql", wantStatus: []int{http.StatusUnsupportedMediaType}},
 		{name: "unknown api path is 404, not the spa", path: "/api/nope", wantStatus: []int{http.StatusNotFound}},
-		{name: "pprof symbol accepts POST", debug: true, method: http.MethodPost, path: "/debug/pprof/symbol", wantStatus: []int{http.StatusOK}},
 	}
 
 	for _, tt := range tests {
@@ -217,9 +222,10 @@ func TestHandler(t *testing.T) {
 			t.Parallel()
 
 			a, err := New(Options{Config: config.Config{
-				Listen:  []string{"127.0.0.1:0"},
-				DataDir: dataDir(t),
-				Debug:   tt.debug,
+				Listen:    []string{"127.0.0.1:0"},
+				DataDir:   dataDir(t),
+				Debug:     tt.debug,
+				AuthToken: tt.token,
 			}})
 			if err != nil {
 				t.Fatalf("New: %v", err)
@@ -234,7 +240,12 @@ func TestHandler(t *testing.T) {
 				method = http.MethodGet
 			}
 
-			a.handler.ServeHTTP(rec, httptest.NewRequest(method, tt.path, nil))
+			req := httptest.NewRequest(method, tt.path, nil)
+			if tt.bearer != "" {
+				req.Header.Set("Authorization", "Bearer "+tt.bearer)
+			}
+
+			a.handler.ServeHTTP(rec, req)
 
 			if !slices.Contains(tt.wantStatus, rec.Code) {
 				t.Fatalf("status = %d, want one of %v", rec.Code, tt.wantStatus)
