@@ -37,6 +37,8 @@ func OpenProject(ctx context.Context, root *os.Root) (*DB, error) {
 	return open(ctx, root, projectFile, "project")
 }
 
+// open creates file through root, then opens it by absolute path. SQLite opens
+// the main, -wal and -shm files by path itself, so os.Root only guards creation.
 func open(ctx context.Context, root *os.Root, file, kind string) (*DB, error) {
 	if root == nil {
 		return nil, errors.New("store: nil root")
@@ -53,7 +55,11 @@ func open(ctx context.Context, root *os.Root, file, kind string) (*DB, error) {
 	if err := f.Close(); err != nil {
 		return nil, fmt.Errorf("store: close %s: %w", file, err)
 	}
-	path := filepath.Join(root.Name(), file)
+	dir, err := filepath.Abs(root.Name())
+	if err != nil {
+		return nil, fmt.Errorf("store: resolve root: %w", err)
+	}
+	path := filepath.Join(dir, file)
 
 	writer, err := sql.Open("sqlite", dsn(path, true))
 	if err != nil {
@@ -96,8 +102,17 @@ func dsn(path string, write bool) string {
 	} else {
 		q.Add("_pragma", "query_only(1)")
 	}
-	u := url.URL{Scheme: "file", Path: path, RawQuery: q.Encode()}
-	return u.String()
+	p := filepath.ToSlash(path)
+	return (&url.URL{Scheme: "file", Path: uriPath(p, filepath.VolumeName(path) != ""), RawQuery: q.Encode()}).String()
+}
+
+// uriPath turns a slash-separated path into a file URI path; paths with a
+// Windows volume get a leading slash (file:///C:/x/project.db).
+func uriPath(p string, hasVolume bool) string {
+	if hasVolume {
+		return "/" + p
+	}
+	return p
 }
 
 // Path returns the database file path.
@@ -116,8 +131,9 @@ func (d *DB) Close() error {
 
 // Write runs fn in an immediate write transaction on the single writer
 // connection. Writes are therefore serialized and never hit SQLITE_BUSY from
-// other in-process writers. fn's error (or a panic) rolls back.
-func (d *DB) Write(ctx context.Context, fn func(tx *sql.Tx) error) (err error) {
+// other in-process writers. fn's error (or a panic) rolls back. fn must not
+// call Write again: there is one writer connection, so that deadlocks.
+func (d *DB) Write(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	return runTx(ctx, d.writer, false, fn)
 }
 

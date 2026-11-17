@@ -24,6 +24,8 @@ CREATE INDEX requests_host_idx    ON requests(host);
 CREATE INDEX requests_created_idx ON requests(created_at);
 CREATE INDEX requests_source_idx  ON requests(source);
 CREATE INDEX requests_method_idx  ON requests(method);
+-- FK children are indexed so ON DELETE checks on requests never scan.
+CREATE INDEX requests_edited_from_idx ON requests(edited_from);
 
 CREATE TABLE responses (
     request_id   INTEGER PRIMARY KEY REFERENCES requests(id) ON DELETE CASCADE,
@@ -33,7 +35,7 @@ CREATE TABLE responses (
     len          INTEGER NOT NULL,
     roundtrip_ms INTEGER NOT NULL DEFAULT 0,
     created_at   INTEGER NOT NULL,
-    edited_from  INTEGER
+    edited_from  INTEGER -- id of the response this edit derives from; intentionally not an FK (history may be pruned independently)
 ) STRICT;
 CREATE INDEX responses_code_idx ON responses(code);
 
@@ -67,6 +69,7 @@ CREATE TABLE ws_streams (
     created_at INTEGER NOT NULL,
     closed_at  INTEGER
 ) STRICT;
+CREATE INDEX ws_streams_request_idx ON ws_streams(request_id);
 
 CREATE TABLE ws_messages (
     id          INTEGER PRIMARY KEY,
@@ -76,7 +79,7 @@ CREATE TABLE ws_messages (
     raw         BLOB    NOT NULL,
     len         INTEGER NOT NULL,
     created_at  INTEGER NOT NULL,
-    edited_from INTEGER
+    edited_from INTEGER -- id of the message this edit derives from; intentionally not an FK
 ) STRICT;
 CREATE INDEX ws_messages_stream_idx ON ws_messages(stream_id);
 
@@ -117,6 +120,7 @@ CREATE TABLE mr_rules (
     definition_json TEXT  NOT NULL DEFAULT '{}',
     sort_order    INTEGER NOT NULL DEFAULT 0
 ) STRICT;
+CREATE INDEX mr_rules_collection_idx ON mr_rules(collection_id);
 
 CREATE TABLE replay_collections (
     id         INTEGER PRIMARY KEY,
@@ -133,6 +137,7 @@ CREATE TABLE replay_sessions (
     sort_order    INTEGER NOT NULL DEFAULT 0,
     created_at    INTEGER NOT NULL
 ) STRICT;
+CREATE INDEX replay_sessions_collection_idx ON replay_sessions(collection_id);
 
 CREATE TABLE replay_entries (
     id         INTEGER PRIMARY KEY,
@@ -141,6 +146,7 @@ CREATE TABLE replay_entries (
     created_at INTEGER NOT NULL
 ) STRICT;
 CREATE INDEX replay_entries_session_idx ON replay_entries(session_id);
+CREATE INDEX replay_entries_request_idx ON replay_entries(request_id);
 
 CREATE TABLE automate_sessions (
     id          INTEGER PRIMARY KEY,
@@ -157,6 +163,7 @@ CREATE TABLE automate_attacks (
     created_at  INTEGER NOT NULL,
     finished_at INTEGER
 ) STRICT;
+CREATE INDEX automate_attacks_session_idx ON automate_attacks(session_id);
 
 CREATE TABLE automate_results (
     id              INTEGER PRIMARY KEY,
@@ -167,6 +174,7 @@ CREATE TABLE automate_results (
     error           TEXT
 ) STRICT;
 CREATE INDEX automate_results_attack_idx ON automate_results(attack_id);
+CREATE INDEX automate_results_request_idx ON automate_results(request_id);
 
 CREATE TABLE findings (
     id             INTEGER PRIMARY KEY,
@@ -178,6 +186,7 @@ CREATE TABLE findings (
     created_at     INTEGER NOT NULL,
     UNIQUE (reporter, dedupe_key)
 ) STRICT;
+CREATE INDEX findings_request_idx ON findings(request_id);
 
 CREATE TABLE exports (
     id         INTEGER PRIMARY KEY,

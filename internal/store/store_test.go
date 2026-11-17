@@ -5,11 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
-
-	"os"
 
 	"github.com/pocikode/ratatoskr/internal/store"
 )
@@ -147,11 +146,11 @@ func TestMigrationsIdempotentAndNewer(t *testing.T) {
 }
 
 func TestConcurrentWriters(t *testing.T) {
-	db, _ := openProject(t)
-	const writers, perWriter = 100, 1000
 	if testing.Short() {
 		t.Skip("long")
 	}
+	db, _ := openProject(t)
+	const writers, perWriter = 100, 1000
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 
@@ -289,11 +288,86 @@ func BenchmarkInsertRequests(b *testing.B) {
 		batch[i] = store.Request{Source: "proxy", Host: "example.test", Port: 443, TLS: true,
 			Method: "GET", Path: "/bench", Raw: raw, CreatedAt: int64(i)}
 	}
-	b.ResetTimer()
 	for b.Loop() {
 		if _, err := db.InsertRequests(b.Context(), batch); err != nil {
 			b.Fatal(err)
 		}
 	}
 	b.ReportMetric(float64(len(batch))*float64(b.N)/b.Elapsed().Seconds(), "rows/s")
+}
+
+func TestView(t *testing.T) {
+	db, _ := openProject(t)
+	ctx := t.Context()
+	if _, err := db.InsertRequests(ctx, []store.Request{{Source: "proxy", Host: "h", Port: 80, Method: "GET", Path: "/", Raw: []byte("x"), CreatedAt: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	err := db.View(ctx, func(tx *sql.Tx) error {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM requests`).Scan(&n); err != nil {
+			return err
+		}
+		if n != 1 {
+			t.Errorf("View saw %d rows, want 1", n)
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM requests`)
+		if err == nil {
+			t.Error("write inside View succeeded")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestForeignKeysIndexed asserts every FK child column leads an index (or is
+// the sole primary key), so parent deletes never scan child tables.
+func TestForeignKeysIndexed(t *testing.T) {
+	open := map[string]func(*testing.T) *store.DB{
+		"project": func(t *testing.T) *store.DB { db, _ := openProject(t); return db },
+		"instance": func(t *testing.T) *store.DB {
+			db, err := store.OpenInstance(t.Context(), newRoot(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+			return db
+		},
+	}
+	for name, f := range open {
+		t.Run(name, func(t *testing.T) {
+			rd := f(t).Reader()
+			rows, err := rd.QueryContext(t.Context(), `SELECT m.name, fk."from" FROM sqlite_master m, pragma_foreign_key_list(m.name) fk WHERE m.type = 'table'`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			type fkc struct{ table, col string }
+			var fks []fkc
+			for rows.Next() {
+				var c fkc
+				if err := rows.Scan(&c.table, &c.col); err != nil {
+					t.Fatal(err)
+				}
+				fks = append(fks, c)
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+			_ = rows.Close()
+			for _, c := range fks {
+				var ok bool
+				err := rd.QueryRowContext(t.Context(), `SELECT EXISTS (
+					SELECT 1 FROM pragma_index_list(?1) i, pragma_index_info(i.name) x WHERE x.seqno = 0 AND x.name = ?2
+				) OR (SELECT count(*) FROM pragma_table_info(?1) WHERE pk > 0) = 1
+				  AND EXISTS (SELECT 1 FROM pragma_table_info(?1) WHERE pk = 1 AND name = ?2)`, c.table, c.col).Scan(&ok)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !ok {
+					t.Errorf("%s.%s is an FK column without a leading index", c.table, c.col)
+				}
+			}
+		})
+	}
 }

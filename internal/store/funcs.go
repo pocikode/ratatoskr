@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"fmt"
 	"regexp"
@@ -38,6 +39,7 @@ func compileCached(pattern string) (*regexp.Regexp, error) {
 }
 
 // asBytes converts a driver value to bytes; ok is false for NULL / unsupported.
+// TEXT values are copied; hot paths should avoid it.
 func asBytes(v driver.Value) ([]byte, bool) {
 	switch x := v.(type) {
 	case []byte:
@@ -55,15 +57,20 @@ func sqlRegexp(pattern, text driver.Value) (driver.Value, error) {
 	if !ok {
 		return nil, nil
 	}
-	t, ok := asBytes(text)
-	if !ok {
+	var match func(*regexp.Regexp) bool
+	switch x := text.(type) {
+	case string:
+		match = func(re *regexp.Regexp) bool { return re.MatchString(x) }
+	case []byte:
+		match = func(re *regexp.Regexp) bool { return re.Match(x) }
+	default:
 		return nil, nil
 	}
 	re, err := compileCached(p)
 	if err != nil {
 		return nil, err
 	}
-	return boolInt(re.Match(t)), nil
+	return boolInt(match(re)), nil
 }
 
 // containsFold reports whether needle occurs in hay, comparing ASCII
@@ -73,18 +80,37 @@ func containsFold(hay, needle []byte) bool {
 	if n == 0 {
 		return true
 	}
-	for i := 0; i+n <= len(hay); i++ {
-		j := 0
-		for ; j < n; j++ {
-			if lowerASCII(hay[i+j]) != lowerASCII(needle[j]) {
+	lo, up := lowerASCII(needle[0]), upperASCII(needle[0])
+	for i := 0; i+n <= len(hay); {
+		j := bytes.IndexByte(hay[i:len(hay)-n+1], lo)
+		if lo != up {
+			if k := bytes.IndexByte(hay[i:len(hay)-n+1], up); k >= 0 && (j < 0 || k < j) {
+				j = k
+			}
+		}
+		if j < 0 {
+			return false
+		}
+		i += j
+		m := 1
+		for ; m < n; m++ {
+			if lowerASCII(hay[i+m]) != lowerASCII(needle[m]) {
 				break
 			}
 		}
-		if j == n {
+		if m == n {
 			return true
 		}
+		i++
 	}
 	return false
+}
+
+func upperASCII(b byte) byte {
+	if 'a' <= b && b <= 'z' {
+		return b - ('a' - 'A')
+	}
+	return b
 }
 
 func lowerASCII(b byte) byte {

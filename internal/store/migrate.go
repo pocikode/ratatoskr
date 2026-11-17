@@ -98,9 +98,18 @@ func migrate(ctx context.Context, db *sql.DB, kind string) (int, error) {
 }
 
 func applyMigration(ctx context.Context, conn *sql.Conn, m migration) error {
-	tx, err := conn.BeginTx(ctx, nil)
+	tx, err := conn.BeginTx(ctx, nil) // BEGIN IMMEDIATE via _txlock
 	if err != nil {
 		return err
+	}
+	// Re-check under the write lock: another process may have applied it.
+	var cur int
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&cur); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if cur >= m.version {
+		return tx.Rollback()
 	}
 	if _, err := tx.ExecContext(ctx, m.sql); err != nil {
 		_ = tx.Rollback()
