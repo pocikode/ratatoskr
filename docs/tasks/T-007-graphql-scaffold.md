@@ -215,3 +215,54 @@ deterministic codegen with strict scalars on the TS side, and docs/03 §6/§8 an
 **Verdict: changes_requested.** Fix the two security/correctness majors (auth bypass, error classification) with
 tests, and get the operator to amend `paths` for `server_test.go`. The minors can be fixed here or tracked as
 follow-ups.
+
+### Review round 2
+Reviewer: claude-code (claude-opus-5-5), 2026-11-18, branch `task/T-007-graphql-scaffold` @ 5a984fa.
+
+**Checks run**
+- `make check`: green (go fix diff, vet, golangci-lint, `go test -race`, svelte-check 0 errors/0 warnings, eslint,
+  prettier, vitest 7 files / 50 tests).
+- `make gen` twice: exit 0, `git status` clean both times. AC 1 holds.
+- `make test-int`: not run (no proxy/store/rawhttp changes).
+- Manual probe: built binary with `--auth-token s3cret --debug`. `GET /api/rest/files/1`, `/api/nope` and
+  `/debug/pprof/cmdline` with `Upgrade: websocket` all return 401 (round 1 gave 404). `GET /api/graphql/ws` without
+  upgrade or credentials returns 401. `POST /api/graphql` with `Authorization: bearer s3cret` (lower-case scheme)
+  returns `NOT_IMPLEMENTED` for `projects`.
+- Paths: every changed file matches `paths`, including the round-1 additions (`internal/api/*_test.go`, docs/05,
+  T-026, T-027).
+
+**Round-1 findings re-verified**: all eleven are resolved as described above. The auth split (`Handler` strict,
+`WebSocket` only on `GET /api/graphql/ws` with its own mux) is correct. The presenter now classifies by cause, and I
+checked gqlgen v0.17.98: `AddErrorf`, `InvalidNullError` and resolver errors all reach the presenter as
+`gqlerror.WrapPath` with `Err` set, so they become `INTERNAL`. Only `gqlerror.Errorf` messages about the request
+become `BAD_INPUT`. `TestHandlerErrorCodes` exercises the real handler, the body cap returns 413, and pprof sits
+behind `Auth.Handler`.
+
+**AC coverage**: make gen deterministic ✔ (manual) · error mapping ✔ (`TestPresentError`, `TestHandlerErrorCodes`,
+`TestErrorCodes`; span ✔) · CSRF + `CrossOriginProtection` ✔ (`TestCSRF`, `TestCrossOrigin`, `TestRequireAPIRequest`,
+`TestWebSocketRejectsForeignOrigin`) · ping every second ✔ (synctest + `TestPingSubscription`) + status bar states ✔
+(vitest) · project contract with descriptions ✔.
+
+**Findings (round 2)**
+- [ ] [minor] internal/apperr/apperr.go:61-65 — `New` copies the text of a `%w` cause into `Msg`, and `Msg` reaches
+  clients for every code except `INTERNAL`. A future service writing `apperr.New(apperr.NotFound, "open project: %w",
+  err)` around an `*fs.PathError` or SQLite error leaks paths or SQL. Round 1 closed that same leak for plain errors.
+  The doc comment states this, but docs/03 §6 does not warn about it. → Add a sentence to docs/03 §6 ("messages of
+  non-INTERNAL `apperr` errors are shown to clients; do not `%w` raw OS/SQL errors into them, set `Err` instead"), or
+  add `apperr.Wrap(code, cause, format, args…)` that keeps the cause out of `Msg`. Either is fine here or in T-006.
+- [ ] [nit] internal/apperr/apperr.go:64 — With two `%w` verbs, `fmt.Errorf` returns an `Unwrap() []error` value,
+  so `errors.Unwrap` gives nil and both causes are dropped from `Err`. → Store `err` itself as `Err` when
+  `errors.Unwrap(err) == nil` but `err` wraps more than one error, or document "at most one %w".
+- [ ] [nit] internal/api/graphql/graphql.go:72-76 — The panic log has no stack trace, so a resolver panic in
+  production cannot be located. The same panic is also logged twice: once here, and again by the presenter as
+  "graphql internal error". → Add `"stack", string(debug.Stack())` to the recover log, and return an error the
+  presenter recognises as already logged (e.g. a package-private sentinel cause) so it does not log again.
+- [ ] [nit] internal/api/server_test.go:314 — Nothing exercises the `middleware.Authenticated(ctx)` branch of `wsInit`
+  (graphql.go:85) end to end: a WebSocket that carries HTTP credentials (Bearer or `ratatoskr_token` cookie) but no
+  `connection_init.token` must be acknowledged. Browsers will take this path after T-024. → Add a `TestAuthWebSocket`
+  case: `websocket.DialOptions{HTTPHeader: {"Authorization": {"Bearer " + token}}}` with a nil payload →
+  `connection_ack`.
+
+**Verdict: approve.** No blocker or major findings remain. The minor and the nits can be fixed on this branch or
+carried into T-006 (apperr usage) and T-024 (WS cookie test). Status stays `in_review`; the operator sets `done`
+after merge.
