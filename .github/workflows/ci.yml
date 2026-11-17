@@ -22,6 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       GOLANGCI_LINT_VERSION: v2.15.0
+      BUN_VERSION: 1.4.4
     steps:
       - uses: actions/checkout@v5
 
@@ -31,5 +32,13 @@ jobs:
 
       - name: Install golangci-lint
         run: go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install web dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
 
       - run: make check
