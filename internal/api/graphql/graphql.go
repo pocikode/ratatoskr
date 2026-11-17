@@ -94,14 +94,17 @@ func wsInit(auth middleware.Auth) transport.WebsocketInitFunc {
 // every error, following docs/03-architecture.md §6:
 //   - an *apperr.Error in the chain decides the code and the message;
 //   - errors gqlgen already coded (parse/validation) pass through;
-//   - other gqlerror values are argument errors from gqlgen (BAD_INPUT);
-//   - anything else is INTERNAL: logged, with a generic message.
+//   - a gqlerror without a cause is a message gqlgen built itself, about the
+//     request (BAD_INPUT);
+//   - anything else is INTERNAL: logged, with a generic message. This includes
+//     plain resolver errors, which gqlgen wraps in a gqlerror before they get
+//     here, so classification goes by the cause, not the wrapper.
 func presentError(logger *slog.Logger) graphql.ErrorPresenterFunc {
 	return func(ctx context.Context, err error) *gqlerror.Error {
 		presented := *graphql.DefaultErrorPresenter(ctx, err)
 		presented.Extensions = cloneExtensions(presented.Extensions)
 
-		_, isGQL := errors.AsType[*gqlerror.Error](err)
+		gqlErr, isGQL := errors.AsType[*gqlerror.Error](err)
 
 		switch appErr, ok := errors.AsType[*apperr.Error](err); {
 		case ok:
@@ -121,7 +124,7 @@ func presentError(logger *slog.Logger) graphql.ErrorPresenterFunc {
 				presented.Extensions["span"] = map[string]int{"start": appErr.Span.Start, "end": appErr.Span.End}
 			}
 		case presented.Extensions["code"] != nil:
-		case isGQL:
+		case isGQL && gqlErr.Err == nil:
 			presented.Extensions["code"] = string(apperr.BadInput)
 		default:
 			logger.ErrorContext(ctx, "graphql internal error", "error", err, "path", presented.Path.String())

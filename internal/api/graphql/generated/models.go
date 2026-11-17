@@ -54,6 +54,7 @@ func (Project) IsNode() {}
 
 // One change to the set of projects.
 type ProjectChange struct {
+	// What happened.
 	Kind ProjectChangeKind `json:"kind"`
 	// ID of the affected project.
 	ProjectID string `json:"projectId"`

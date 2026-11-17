@@ -591,6 +591,7 @@ enum ProjectChangeKind {
 
 "One change to the set of projects."
 type ProjectChange {
+  "What happened."
   kind: ProjectChangeKind!
   "ID of the affected project."
   projectId: ID!

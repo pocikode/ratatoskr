@@ -10,6 +10,7 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 
 	"github.com/pocikode/ratatoskr/internal/api/graphql/scalars"
+	"github.com/pocikode/ratatoskr/internal/apperr"
 )
 
 func marshal(m graphql.Marshaler) string {
@@ -35,8 +36,8 @@ func TestTime(t *testing.T) {
 	}
 
 	for _, bad := range []any{"yesterday", 42, nil} {
-		if _, err := scalars.UnmarshalTime(bad); err == nil {
-			t.Errorf("UnmarshalTime(%#v) = nil error", bad)
+		if _, err := scalars.UnmarshalTime(bad); apperr.CodeOf(err) != apperr.BadInput {
+			t.Errorf("UnmarshalTime(%#v) = %v, want a BAD_INPUT error", bad, err)
 		}
 	}
 }
@@ -57,8 +58,8 @@ func TestBytes(t *testing.T) {
 	}
 
 	for _, bad := range []any{"not base64!", "AP9HRVQNCg", 1} {
-		if _, err := scalars.UnmarshalBytes(bad); err == nil {
-			t.Errorf("UnmarshalBytes(%#v) = nil error", bad)
+		if _, err := scalars.UnmarshalBytes(bad); apperr.CodeOf(err) != apperr.BadInput {
+			t.Errorf("UnmarshalBytes(%#v) = %v, want a BAD_INPUT error", bad, err)
 		}
 	}
 }
@@ -78,8 +79,8 @@ func TestInt64(t *testing.T) {
 	}
 
 	for _, bad := range []any{"1.5", "9223372036854775808", json.Number("1e3"), 1.5, nil} {
-		if _, err := scalars.UnmarshalInt64(bad); err == nil {
-			t.Errorf("UnmarshalInt64(%#v) = nil error", bad)
+		if _, err := scalars.UnmarshalInt64(bad); apperr.CodeOf(err) != apperr.BadInput {
+			t.Errorf("UnmarshalInt64(%#v) = %v, want a BAD_INPUT error", bad, err)
 		}
 	}
 }
