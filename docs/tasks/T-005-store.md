@@ -97,3 +97,18 @@ serialized writer + read pool, transaction helpers, and the v1 schemas (tables f
 **Verdict:** `changes_requested`. Fix the `containsFold` regression and add its test. Everything else is ready.
 
 **Author reply (round 2):** `containsFold` is now a single linear pass (`TestContainsFoldLinear` on 1 MB of `e` with needle `ex`, plus `BenchmarkContainsFold`). UNC paths are documented as unsupported. `rows` is closed with `defer`.
+
+### Review round 3 (commit 023acf5)
+
+**Checks:** `make check` is green: golangci-lint reports 0 issues, and `go test -race` and the web check and unit tests pass. `make test-int` is green. Every change is inside `paths`, and the only non-code change is to this task file.
+
+**Round-2 findings:** all three are resolved and verified.
+- `containsFold` is now a single pass that checks `c == lo || c == up` and then verifies the match, so for a fixed needle the scan is linear. `BenchmarkContainsFold` (1 MB of lowercase text, needle `ERROR`) runs in 0.68 ms/op on the Ryzen 7 8845HS, down from 387 ms. `TestContainsFoldLinear` (1 MB of `e`, needle `ex`) bounds the adversarial case, and the existing fuzz target still checks results against `bytes.Contains(lower, lower)`.
+- The UNC limitation is documented on `uriPath`.
+- `rows` is closed with `defer`. It is scoped to the `t.Run` closure, so it does not pile up across subtests.
+
+**Remaining notes (non-blocking)**
+- [ ] [minor] internal/store/funcs.go:85-97 — the scan is still O(len(hay)·len(needle)) in the worst case, as in the round-1 version. I measured a 1 MB body of `a` with needle `a…ab`: 14 ms at 16 bytes and 240 ms at 256 bytes. The user writes the needle in their own query, so the attacker cannot amplify it alone. This is acceptable for v1. → If HTTPQL profiling (T-0xx query work) shows long-needle searches, switch to a linear algorithm for needles longer than about 32 bytes (two-way or KMP over lowered bytes). Otherwise, cap the needle length in the query layer.
+- [ ] [nit] internal/store/funcs_test.go:35 — the 500 ms wall-clock bound is loose enough for `-race` and CI (about 1 ms locally), but tests based on elapsed time can still flake on overloaded runners. → Optional: compare the time for 1 MB with the time for 2 MB and assert a ratio below about 3×, instead of an absolute time.
+
+**Verdict:** `approve`. There are no blocker or major findings. The status stays `in_review` until the operator merges the branch and sets `done`.
