@@ -3,7 +3,7 @@ id: T-003
 title: Svelte 5 + Vite + Bun scaffold with app shell, router and embedding
 milestone: M0
 role: frontend
-status: in_review
+status: done
 depends_on: [T-001]
 owner: claude-sonnet-5-5
 branch: task/T-003-web-scaffold
