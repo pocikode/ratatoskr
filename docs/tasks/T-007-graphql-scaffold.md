@@ -33,6 +33,7 @@ paths:
   - docs/tasks/T-007-graphql-scaffold.md
   - docs/tasks/T-024-*.md
   - docs/08-roadmap.md
+  - cmd/ratatoskr/main.go
 spec:
   - docs/03-architecture.md §6, §8
   - docs/adr/0004-graphql-api.md

@@ -74,7 +74,6 @@ func TestNewRejectsUnimplementedOptions(t *testing.T) {
 		name string
 		cfg  config.Config
 	}{
-		{name: "auth token", cfg: config.Config{Listen: []string{"127.0.0.1:0"}, AuthToken: "s3cret"}},
 		{name: "separate ui listener", cfg: config.Config{Listen: []string{"127.0.0.1:0"}, UIListen: "127.0.0.1:9001"}},
 		{
 			name: "several listeners",
@@ -207,6 +206,9 @@ func TestHandler(t *testing.T) {
 		{name: "pprof goroutineleak", debug: true, path: "/debug/pprof/goroutineleak?debug=1", wantStatus: []int{http.StatusOK}, wantBody: "goroutineleak"},
 		{name: "pprof symbol", debug: true, path: "/debug/pprof/symbol", wantStatus: []int{http.StatusOK}},
 		// go tool pprof resolves addresses with POST /debug/pprof/symbol.
+		// The API is mounted under /api/ and guarded by the CSRF middleware.
+		{name: "graphql needs the api header", method: http.MethodPost, path: "/api/graphql", wantStatus: []int{http.StatusUnsupportedMediaType}},
+		{name: "unknown api path is 404, not the spa", path: "/api/nope", wantStatus: []int{http.StatusNotFound}},
 		{name: "pprof symbol accepts POST", debug: true, method: http.MethodPost, path: "/debug/pprof/symbol", wantStatus: []int{http.StatusOK}},
 	}
 
@@ -349,12 +351,14 @@ func TestWarnIfExposed(t *testing.T) {
 	tests := []struct {
 		name    string
 		addr    string
+		token   string
 		wantLog bool
 	}{
 		{name: "loopback", addr: "127.0.0.1:8080"},
 		{name: "ipv6 loopback", addr: "[::1]:8080"},
 		{name: "all interfaces", addr: "0.0.0.0:8080", wantLog: true},
 		{name: "lan address", addr: "192.168.1.10:8080", wantLog: true},
+		{name: "lan address with token", addr: "192.168.1.10:8080", token: "s3cret"},
 	}
 
 	for _, tt := range tests {
@@ -362,6 +366,7 @@ func TestWarnIfExposed(t *testing.T) {
 			t.Parallel()
 
 			a, logs := newTestApp(t, nil)
+			a.cfg.AuthToken = tt.token
 			a.warnIfExposed(tt.addr)
 
 			if got := strings.Contains(logs.String(), "reachable from the network"); got != tt.wantLog {

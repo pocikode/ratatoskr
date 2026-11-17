@@ -1,0 +1,104 @@
+# Projects (docs/01-feature-spec.md F-WSP-1). Owned by the lead; resolvers: T-006.
+# Project-scoped data lives in the selected project's database; every other page
+# resets and re-subscribes when `projectChanged` reports a SELECTED change.
+
+"""
+A project: one isolated database of captured traffic, sessions and settings.
+Exactly one project is selected at any time; when none exists, a temporary one
+is created.
+"""
+type Project implements Node {
+  id: ID!
+  "Display name. Not required to be unique."
+  name: String!
+  """
+  Temporary projects are created when no project exists and are deleted on clean
+  shutdown. Renaming a temporary project saves it (it stops being temporary).
+  """
+  isTemporary: Boolean!
+  "Whether this project is opened at start. At most one project is the default."
+  isDefault: Boolean!
+  "Whether this is the currently selected project."
+  isSelected: Boolean!
+  "When the project was created."
+  createdAt: Time!
+  "When the project was last selected; null if never."
+  lastOpenedAt: Time
+  "Size of the project's database file in bytes."
+  dbSizeBytes: Int64!
+}
+
+"What happened to a project in a `projectChanged` event."
+enum ProjectChangeKind {
+  "A project was created (including by duplication or as a temporary project)."
+  CREATED
+  "A project's fields changed: name, temporary or default flag."
+  UPDATED
+  "A project was deleted. `project` is null."
+  DELETED
+  """
+  A different project was selected. Clients must drop all project-scoped state
+  and re-run their queries and subscriptions.
+  """
+  SELECTED
+}
+
+"One change to the set of projects."
+type ProjectChange {
+  kind: ProjectChangeKind!
+  "ID of the affected project."
+  projectId: ID!
+  "The project after the change; null for DELETED."
+  project: Project
+}
+
+extend type Query {
+  "All projects, most recently opened first. The list is small, so it is not paginated."
+  projects: [Project!]!
+  "One project, or null if no project has this ID."
+  project(id: ID!): Project
+  "The selected project. There is always one."
+  currentProject: Project!
+}
+
+"Mutations. Other schema files extend this type."
+type Mutation {
+  """
+  Creates a project. `name` is trimmed and must not be empty (`BAD_INPUT`).
+  When `select` is true the new project also becomes the selected one.
+  """
+  createProject(name: String!, select: Boolean! = false): Project!
+  """
+  Renames a project and, if it was temporary, saves it. `name` is trimmed and
+  must not be empty (`BAD_INPUT`). `NOT_FOUND` for an unknown ID.
+  """
+  renameProject(id: ID!, name: String!): Project!
+  """
+  Copies a project's data into a new, unselected project. `name` defaults to the
+  source name with a " (copy)" suffix. `NOT_FOUND` for an unknown ID.
+  """
+  duplicateProject(id: ID!, name: String): Project!
+  """
+  Deletes a project and its directory, returning its ID. Deleting the selected
+  project first selects the default project, or a new temporary project when the
+  deleted one was the default or no default exists. `NOT_FOUND` for an unknown ID.
+  """
+  deleteProject(id: ID!): ID!
+  """
+  Makes this project the default (opened at start), clearing the flag on any
+  other project. Passing `id: null` clears the default. Temporary projects cannot
+  be the default (`BAD_INPUT`). `NOT_FOUND` for an unknown ID.
+  """
+  setDefaultProject(id: ID): Project
+  """
+  Selects a project: the old project's database is closed, the new one opened,
+  and a SELECTED `projectChanged` event is emitted. Selecting the already
+  selected project is a no-op. `NOT_FOUND` for an unknown ID.
+  """
+  selectProject(id: ID!): Project!
+}
+
+extend type Subscription {
+  "Every create, update, delete and selection of a project, in the order they happen."
+  projectChanged: ProjectChange!
+}
