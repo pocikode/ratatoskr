@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { Component } from 'svelte';
 import App from './App.svelte';
 import { CATEGORIES, routes } from '$lib/router/routes';
 import { ui } from '$lib/stores/ui.svelte';
@@ -35,6 +36,34 @@ describe('app shell', () => {
       expect(screen.getByRole('link', { name: title })).toHaveAttribute('aria-current', 'page');
     },
   );
+
+  it('does not keep the previous page mounted while the next chunk loads', async () => {
+    const target = routes.find((r) => r.id === 'findings')!;
+    const original = target.load;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    target.load = async () => {
+      await gate;
+      return original();
+    };
+    try {
+      window.location.hash = '#/replay';
+      render(App);
+      expect(await screen.findByRole('heading', { level: 1, name: 'Replay' })).toBeVisible();
+      window.location.hash = '#/findings';
+      await waitFor(() =>
+        expect(screen.getByRole('link', { name: 'Findings' })).toHaveAttribute(
+          'aria-current',
+          'page',
+        ),
+      );
+      expect(screen.queryByRole('heading', { level: 1, name: 'Replay' })).toBeNull();
+      release();
+      expect(await screen.findByRole('heading', { level: 1, name: 'Findings' })).toBeVisible();
+    } finally {
+      target.load = original as () => Promise<{ default: Component }>;
+    }
+  });
 
   it('restores the route from the hash on load', async () => {
     window.location.hash = '#/findings';

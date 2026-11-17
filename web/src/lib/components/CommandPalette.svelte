@@ -34,7 +34,7 @@
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       active = (activeIndex - 1 + results.length) % Math.max(results.length, 1);
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && !e.isComposing) {
       e.preventDefault();
       void runAt(activeIndex);
     }
@@ -97,7 +97,7 @@
           >
             {#if Icon}<Icon size={14} aria-hidden="true" />{/if}
             <span class="flex-1 truncate">{cmd.title}</span>
-            {#if cmd.group}<span class="text-[11px] text-muted">{cmd.group}</span>{/if}
+            {#if cmd.group}<span class="text-xs text-muted">{cmd.group}</span>{/if}
           </li>
         {:else}
           <li class="px-2 py-3 text-center text-muted" role="presentation">No matching commands</li>

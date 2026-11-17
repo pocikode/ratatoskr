@@ -5,6 +5,7 @@
   import { iconFor } from '$lib/utils/icons';
   import logo from '../../assets/logo.svg';
 
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
   const Search = iconFor('search')!;
   const User = iconFor('user')!;
   const menu = ['nav.goto.settings', 'theme.dark', 'theme.light'];
@@ -29,7 +30,7 @@
   >
     <Search size={14} aria-hidden="true" />
     <span class="flex-1 text-left">Search commands…</span>
-    <kbd class="font-mono text-[11px]">Ctrl K</kbd>
+    <kbd class="font-mono text-xs">{isMac ? '⌘K' : 'Ctrl K'}</kbd>
   </button>
 
   <div class="flex-1"></div>

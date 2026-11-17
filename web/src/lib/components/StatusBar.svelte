@@ -3,7 +3,7 @@
 </script>
 
 <footer
-  class="flex shrink-0 items-center gap-4 border-t border-line bg-elevated px-3 text-[11px] text-muted"
+  class="flex shrink-0 items-center gap-4 border-t border-line bg-elevated px-3 text-xs text-muted"
   style:height="var(--statusbar-h)"
 >
   <span class="flex items-center gap-1">

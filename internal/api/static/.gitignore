@@ -1,0 +1,3 @@
+# web build output (emptyOutDir wipes dist/, so this file lives beside it)
+dist/*
+!dist/.gitkeep

@@ -19,6 +19,7 @@
   --color-success: var(--success);
   --font-sans: var(--font-ui);
   --font-mono: var(--font-code);
+  --text-xs: var(--fs-xs);
   --radius-token: var(--radius);
 }
 

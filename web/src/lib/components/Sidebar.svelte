@@ -15,7 +15,7 @@
     {#each CATEGORIES as category (category)}
       <div class="mb-2">
         {#if !ui.sidebarCollapsed}
-          <h2 class="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-muted uppercase">
+          <h2 class="px-3 pt-2 pb-1 text-xs font-semibold tracking-wider text-muted uppercase">
             {category}
           </h2>
         {/if}

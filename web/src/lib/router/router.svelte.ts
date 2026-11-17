@@ -7,6 +7,14 @@ export interface Location {
   params: string[];
 }
 
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 /** Parses `#/replay/session/42` → `{ page: 'replay', params: ['session', '42'] }`. */
 export function parseHash(hash: string): Location {
   const segments = hash
@@ -14,7 +22,7 @@ export function parseHash(hash: string): Location {
     .split('?')[0]!
     .split('/')
     .filter(Boolean)
-    .map((s) => decodeURIComponent(s));
+    .map(safeDecode);
   const [page, ...params] = segments;
   return { page: page ?? DEFAULT_ROUTE, params };
 }
@@ -24,11 +32,14 @@ export function buildHash(page: string, ...params: (string | number)[]): string 
 }
 
 export class Router {
+  #win: Window | undefined;
+
   location = $state<Location>(parseHash(''));
   route = $derived<PageRoute | undefined>(findRoute(this.location.page));
 
   /** Starts listening to hashchange; returns the cleanup function. */
   start(win: Window = window): () => void {
+    this.#win = win;
     const sync = () => (this.location = parseHash(win.location.hash));
     sync();
     win.addEventListener('hashchange', sync);
@@ -37,8 +48,9 @@ export class Router {
 
   navigate(page: string, ...params: (string | number)[]) {
     const hash = buildHash(page, ...params);
-    if (window.location.hash === hash) return;
-    window.location.hash = hash;
+    const win = this.#win ?? window;
+    if (win.location.hash === hash) return;
+    win.location.hash = hash;
   }
 }
 

@@ -3,7 +3,7 @@ id: T-003
 title: Svelte 5 + Vite + Bun scaffold with app shell, router and embedding
 milestone: M0
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: [T-001]
 owner: claude-sonnet-5-5
 branch: task/T-003-web-scaffold
@@ -67,43 +67,46 @@ svelte-check 0/0, eslint + prettier clean, vitest 4 files / 35 tests pass). `bun
 not swallowed, build size checked manually). Shell, router, registry and embed are clean and well-scoped.
 
 **Findings**
-- [ ] [major] .gitignore:16-19: the root `.gitignore` is outside the task `paths` (`web/**`, `internal/api/static/**`), which breaks
+- [x] [major] .gitignore:16-19: the root `.gitignore` is outside the task `paths` (`web/**`, `internal/api/static/**`), which breaks
   hard rule 1. → Revert it and add `internal/api/static/.gitignore` with `dist/*` + `!dist/.gitkeep`. Put it next to `dist/`,
   not inside it, because `emptyOutDir` would delete it.
-- [ ] [major] web/src/lib/components/RouterView.svelte:22,44-45: on navigation `router.route` changes right away, but `Page` still holds
+- [x] [major] web/src/lib/components/RouterView.svelte:22,44-45: on navigation `router.route` changes right away, but `Page` still holds
   the previous component until the new chunk resolves. `{#key router.route.id}` then re-mounts the *old* page under the new route:
   you get a flash of the wrong page plus a second mount of the old page, which means duplicate queries/subscriptions once pages fetch data.
   The tests only pass because `findByRole` waits. → Store `{ id, component }` from the load and render it only when
   `loaded.id === router.route.id`; otherwise render `PlaceholderPage`/a loading state. Add a test that asserts the old heading is gone
   right after navigation, using a deferred `load()`.
-- [ ] [minor] web/src/lib/router/router.svelte.ts:17: `decodeURIComponent` throws `URIError` on malformed escapes (e.g. `#/search/%`).
+- [x] [minor] web/src/lib/router/router.svelte.ts:17: `decodeURIComponent` throws `URIError` on malformed escapes (e.g. `#/search/%`).
   The `hashchange` handler then throws and the router keeps the stale location. → Wrap it in try/catch and fall back to the raw segment.
   Add a parseHash test.
-- [ ] [minor] web/vite.config.ts:10,26 + web/.gitignore:2: the build goes to `internal/api/static/dist`, but docs/06 §8 and ADR-0005 say
+- [x] [minor] web/vite.config.ts:10,26 + web/.gitignore:2: the build goes to `internal/api/static/dist`, but docs/06 §8 and ADR-0005 say
   `web/dist`. The deviation is reasonable and documented in Handoff, but the spec now disagrees with the code, and `web/.gitignore`'s
   `dist` entry is dead. → Implementer: drop the dead `dist` line. **Lead**: update docs/06 §2/§8 and ADR-0005 to the new output path.
-- [ ] [minor] web/package.json:15-16: `@fontsource-variable/inter` and `@fontsource-variable/jetbrains-mono` are runtime dependencies
+- [x] [minor] web/package.json:15-16: `@fontsource-variable/inter` and `@fontsource-variable/jetbrains-mono` are runtime dependencies
   that are not in the docs/06 §1 approved list (rule 8). They match the task scope ("fonts, self-hosted") and are OFL. → **Lead**: add
   them to docs/06 §1 (along with the test/lint helpers `jsdom`, `@testing-library/jest-dom`, `@testing-library/user-event`,
   `@tailwindcss/vite`, `@eslint/js`, `globals`, `@types/node`). No code change needed if the lead approves.
-- [ ] [minor] web/src/lib/stores/theme.svelte.ts:7,16 + web/index.html:10: the theme is persisted in localStorage, which conflicts with
+- [x] [minor] web/src/lib/stores/theme.svelte.ts:7,16 + web/index.html:10: the theme is persisted in localStorage, which conflicts with
   docs/06 §4 ("not localStorage"). The pre-paint read is a legitimate need, but the debt isn't tied to a task. → Name the owning task
   in the comment (`TODO(T-0xx)`), or have the lead record an exception in docs/06 §4 (e.g. a localStorage mirror for pre-paint only,
   with the backend settings as the source of truth).
-- [ ] [minor] web/src/lib/components/{TopBar.svelte:32,CommandPalette.svelte:100,StatusBar.svelte:6,Sidebar.svelte:18}: `text-[11px]`
+- [x] [minor] web/src/lib/components/{TopBar.svelte:32,CommandPalette.svelte:100,StatusBar.svelte:6,Sidebar.svelte:18}: `text-[11px]`
   hard-codes a type size 4 times; docs/06 §6 requires tokens for typography. → Add `--text-xs: 11px` to tokens.css, map it in `@theme`,
   and use `text-xs`.
-- [ ] [nit] web/src/lib/components/TopBar.svelte:32: `Ctrl K` is hard-coded and wrong on macOS. → Derive `⌘K` vs `Ctrl K` from the platform
+- [x] [nit] web/src/lib/components/TopBar.svelte:32: `Ctrl K` is hard-coded and wrong on macOS. → Derive `⌘K` vs `Ctrl K` from the platform
   (or from the binding, once shortcuts become rebindable).
-- [ ] [nit] web/src/lib/components/CommandPalette.svelte:37: Enter during IME composition runs the command. → Ignore `e.isComposing`.
-- [ ] [nit] internal/api/static/static.go:60: `http.ServeFileFS` returns 400 when the raw `r.URL.Path` contains `..`, even though
+- [x] [nit] web/src/lib/components/CommandPalette.svelte:37: Enter during IME composition runs the command. → Ignore `e.isComposing`.
+- [x] [nit] internal/api/static/static.go:60: `http.ServeFileFS` returns 400 when the raw `r.URL.Path` contains `..`, even though
   `name` is already cleaned (e.g. `/x/../favicon.svg`). That's harmless behind ServeMux, which redirects to the clean path. →
   Optionally serve via `http.ServeContent` on the opened file, or add a test pinning the current behaviour.
-- [ ] [nit] web/src/lib/router/router.svelte.ts:40-41: `navigate` uses the global `window`, while `start(win)` is injectable. → Keep the
+- [x] [nit] web/src/lib/router/router.svelte.ts:40-41: `navigate` uses the global `window`, while `start(win)` is injectable. → Keep the
   `win` from `start` for symmetry/testing.
-- [ ] [nit] web/eslint.config.js:7: the `../internal/api/static/dist/` ignore is a no-op (it's outside the eslint base path). → Remove it.
-- [ ] [nit] web/package.json: `test:e2e` runs `playwright test`, but Playwright isn't installed yet, so the script fails if called.
+- [x] [nit] web/eslint.config.js:7: the `../internal/api/static/dist/` ignore is a no-op (it's outside the eslint base path). → Remove it.
+- [x] [nit] web/package.json: `test:e2e` runs `playwright test`, but Playwright isn't installed yet, so the script fails if called.
   Acceptable, since T-007 owns E2E; note it in the T-007 task.
 
 **Verdict**: `changes_requested`. Fix both majors (root `.gitignore` out of lane; RouterView stale-page re-mount), plus the URIError
 and `text-[11px]` minors. The dependency-list and output-path minors are lead doc actions and don't block re-review.
+
+
+**Implementer reply (round 2)**: both majors, URIError, text-xs, IME, ⌘K, router `win`, eslint ignore fixed (+2 tests, 37 total). Lead items (docs/06 §1/§2/§8, ADR-0005 output path, theme exception) and the T-007 note on `test:e2e` are left open; `static.go` `..` behaviour left as is.

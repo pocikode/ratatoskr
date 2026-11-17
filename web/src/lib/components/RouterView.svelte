@@ -4,7 +4,7 @@
   import { router } from '$lib/router/router.svelte';
   import PlaceholderPage from './PlaceholderPage.svelte';
 
-  let Page = $state.raw<Component | null>(null);
+  let loaded = $state.raw<{ id: string; component: Component } | null>(null);
   let failed = $state(false);
 
   // Lazy page load; `cancelled` drops results of superseded navigations.
@@ -13,13 +13,13 @@
     let cancelled = false;
     failed = false;
     if (!route) {
-      Page = null;
+      loaded = null;
       return;
     }
     route
       .load()
       .then((m) => {
-        if (!cancelled) Page = m.default;
+        if (!cancelled) loaded = { id: route.id, component: m.default };
       })
       .catch(() => {
         if (!cancelled) failed = true;
@@ -40,10 +40,9 @@
     </section>
   {:else if failed}
     <p role="alert" class="text-danger">Failed to load {router.route.title}.</p>
-  {:else if Page}
-    {#key router.route.id}
-      <Page />
-    {/key}
+  {:else if loaded && loaded.id === router.route.id}
+    {@const Page = loaded.component}
+    <Page />
   {:else}
     <PlaceholderPage title={router.route.title} />
   {/if}

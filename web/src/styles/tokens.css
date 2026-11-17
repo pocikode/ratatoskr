@@ -2,6 +2,7 @@
 :root {
   --font-ui: 'Inter Variable', system-ui, sans-serif;
   --font-code: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --fs-xs: 11px;
   --text-base: 13px;
   --leading-dense: 1.35;
   --radius: 6px;

@@ -13,8 +13,8 @@ function readStored(): Theme {
 }
 
 /**
- * Theme preference. Stored in localStorage until the backend settings API exists (T-007+);
- * it must be readable before first paint, which index.html also does.
+ * Theme preference. TODO(T-007): backend settings become the source of truth (docs/06 §4);
+ * keep a localStorage mirror only for the pre-paint read in index.html.
  */
 export class ThemeState {
   current = $state<Theme>('dark');

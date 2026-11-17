@@ -3,6 +3,10 @@ import { buildHash, parseHash } from './router.svelte';
 import { routes } from './routes';
 
 describe('hash router', () => {
+  it('survives malformed percent escapes', () => {
+    expect(parseHash('#/search/%')).toEqual({ page: 'search', params: ['%'] });
+  });
+
   it('defaults to sitemap on an empty hash', () => {
     expect(parseHash('')).toEqual({ page: 'sitemap', params: [] });
     expect(parseHash('#/')).toEqual({ page: 'sitemap', params: [] });
