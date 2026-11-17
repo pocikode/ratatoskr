@@ -15,8 +15,17 @@ import (
 // extra route.
 func mountDebug(mux *http.ServeMux) {
 	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+	// cmdline exposes the process arguments, and --debug may bind a
+	// non-loopback address: authentication has to cover /debug/pprof before
+	// --auth-token is un-gated.
+	//
+	// TODO(T-007): wrap /debug/pprof in the auth middleware (or drop cmdline).
 	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)
 	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+	// `go tool pprof` resolves addresses by POSTing to symbol, which also
+	// answers GET with the ?0x… query form. Both are registered method-scoped so
+	// they don't widen the other profiles.
 	mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("POST /debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 }
