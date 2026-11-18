@@ -3,9 +3,9 @@ id: T-010
 title: rawhttp - lenient byte-preserving HTTP/1.x reader and writer
 milestone: M1
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-001]
-owner: ""
+owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-010-rawhttp
 paths:
   - internal/rawhttp/**
@@ -34,6 +34,12 @@ spec:
 - [ ] No use of `net/http` types in the public API.
 
 ## Plan (implementer, ≤15 lines)
+1. `message.go`: `Header{Name,Value}`, `Message` (head bytes + header spans + framing), `Raw/Head/Headers/Header/Body/DecodedBody/Framing/ContentLength/Close/Warnings/Truncated/WriteTo`.
+2. `read.go`: `Limits` (head 1 MiB, body capture 64 MiB), `ReadRequest`, `ReadResponse(br, method, limits)`, lenient start-line/header parsing, warnings instead of fixes.
+3. Framing follows net/http where input is ambiguous: chunked wins over CL (warn), identical duplicate CL deduped (warn), conflicting CL is an error.
+4. `chunked.go`: one lenient state machine, raw mode (framing passed through) and decode mode; `body.go`: capture-capped reader + `truncated`.
+5. `builder.go`: edits method/target/status/headers/body and reuses every untouched raw line.
+6. `testdata/*.txtar` golden round-trips (≥30, escaped wire bytes, `-update`), chunked/builder unit tests, `FuzzReadRequest`/`FuzzReadResponse` + seed corpus, benchmark + 0-alloc header iteration test.
 
 ## Out-of-scope change needed (if any)
 
