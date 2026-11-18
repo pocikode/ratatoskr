@@ -120,7 +120,9 @@ var datetimeLayouts = []string{
 	time.RFC1123Z,
 	"Mon, 2 Jan 2006 15:04:05 -0700",
 	"2 Jan 2006 15:04:05 -0700",
-	time.RFC1123,
+	"Mon, 02 Jan 2006 15:04:05 GMT", // RFC 7231 IMF-fixdate; time.RFC1123 would take any zone abbreviation as UTC
+	"2006-01-02T15:04Z07:00",
+	"2006-01-02T15:04:05.999999999Z0700",
 	"2006-01-02 15:04:05.999999999",
 }
 

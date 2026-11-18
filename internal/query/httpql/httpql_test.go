@@ -47,7 +47,9 @@ func TestParseCanonical(t *testing.T) {
 		{`row.id.eq:1 AND (row.id.eq:2 OR row.id.eq:3)`, `row.id.eq:1 AND (row.id.eq:2 OR row.id.eq:3)`},
 		{`row.id.eq:1 OR (row.id.eq:2 OR row.id.eq:3)`, `row.id.eq:1 OR (row.id.eq:2 OR row.id.eq:3)`},
 		{`((row.id.eq:1))`, `row.id.eq:1`},
-		{"req.host.eq:\"a\" // trailing\nAND /* x */ finding.title.cont:\"xss\"", `req.host.eq:"a" AND finding.title.cont:"xss"`},
+		{"req.host.eq:\"a\" // trailing\nAND /* x */ req.note.cont:\"xss\"", `req.host.eq:"a" AND req.note.cont:"xss"`},
+		{`req.created_at.lt:"2024-01-31T13:00+01:00"`, `req.created_at.lt:"2024-01-31T12:00:00Z"`},
+		{`req.created_at.lt:"2024-01-31T14:00:00+0200"`, `req.created_at.lt:"2024-01-31T12:00:00Z"`},
 		{`(resp.code.eq:200)AND(resp.len.lt:10)`, `resp.code.eq:200 AND resp.len.lt:10`},
 	}
 	for _, tt := range tests {
@@ -153,6 +155,8 @@ func TestParseErrors(t *testing.T) {
 		{`req.tls.eq:yes`, `yes`, `is not a boolean`},
 		{`req.created_at.gt:"yesterday"`, `"yesterday"`, `is not a datetime`},
 		{`req.created_at.gt:"0000-01-01T00:00:00+01:00"`, `"0000-01-01T00:00:00+01:00"`, `is not a datetime`},
+		{`req.created_at.lt:"Wed, 31 Jan 2024 12:00:00 EST"`, `"Wed, 31 Jan 2024 12:00:00 EST"`, `is not a datetime`},
+		{`finding.title.cont:"xss"`, `finding`, `unknown namespace "finding"`},
 		{`req.path.regex:"(a"`, `"(a"`, `invalid regex`},
 		{`req.path.eq:"abc`, `"abc`, `unterminated string`},
 		{`req.path.eq:"a\qb"`, `\q`, `unknown escape`},
@@ -202,5 +206,20 @@ func TestQueryTooLong(t *testing.T) {
 	_, err := Parse(strings.Repeat(" ", core.MaxQueryLen+1))
 	if qe, ok := errors.AsType[*core.Error](err); !ok || qe.Span.Start != core.MaxQueryLen {
 		t.Fatalf("err = %v, want span starting at MaxQueryLen", err)
+	}
+}
+
+func TestParseFindings(t *testing.T) {
+	t.Parallel()
+	const q = `finding.title.cont:"xss" AND finding.reporter.eq:"me" AND req.host.eq:"a"`
+	n, err := ParseFindings(q)
+	if err != nil {
+		t.Fatalf("ParseFindings(%q): %v", q, err)
+	}
+	if got := n.String(); got != q {
+		t.Errorf("String() = %s, want %s", got, q)
+	}
+	if _, ok := Language.Fields["finding.title"]; ok {
+		t.Error("FindingsLanguage leaked finding.* into Language")
 	}
 }

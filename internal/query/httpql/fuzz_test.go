@@ -16,7 +16,11 @@ func FuzzParseHTTPQL(f *testing.F) {
 	f.Fuzz(func(t *testing.T, src string) {
 		n, err := Parse(src)
 		if err != nil {
-			if qe, ok := errors.AsType[*core.Error](err); !ok || qe.Span.Start < 0 || qe.Span.Start > qe.Span.End || qe.Span.End > len(src) {
+			qe, ok := errors.AsType[*core.Error](err)
+			if !ok {
+				t.Fatalf("error %v is %T, want *core.Error", err, err)
+			}
+			if qe.Span.Start < 0 || qe.Span.Start > qe.Span.End || qe.Span.End > len(src) {
 				t.Fatalf("span %v outside input of %d bytes", qe.Span, len(src))
 			}
 			return
