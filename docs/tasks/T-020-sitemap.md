@@ -3,9 +3,9 @@ id: T-020
 title: Sitemap tree (backend derivation + page)
 milestone: M1
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-016, T-094]
-owner: ""
+owner: "codex (GPT-6)"
 branch: task/T-020-sitemap
 paths:
   - internal/history/sitemap*.go
@@ -40,6 +40,11 @@ Read the expanded F-SITE-1 for the derivation rules. Key points:
 - [ ] Delete node deletes underlying requests after confirmation.
 
 ## Plan (implementer, ≤15 lines)
+1. Reuse history query/scope filtering to derive stable, lazy sitemap nodes and exact HTTPQL selectors.
+2. Wire the existing GraphQL contract; cover counts, ordering, malformed IDs, deletion and the 10k-row budget.
+3. Replace the placeholder with the tree, shared traffic table/viewers, scope/query controls and confirmed node deletion.
+4. Reuse history subscriptions with throttled refresh; test expansion, filtering and deletion in the page.
+5. Run `make check`, fill Handoff and set `in_review`.
 
 ## Out-of-scope change needed (if any)
 RESOLVED by lead (T-094): `internal/api/graphql/schema/sitemap.graphqls` did not exist (lead-owned, AGENTS.md rule 5; task notes say lead adds it first). Lead needs to add a contract (e.g. `sitemapRoots(scope, query)`, lazy `sitemapChildren(nodeId)`, `deleteSitemapNode`, live `sitemapUpdated` subscription), with stub resolvers as in T-091. Then run `make gen`, and T-020 can proceed. Also: `history` has no sitemap derivation yet; T-090 note says to move `And`/`Or` helpers into `internal/query/core` when this task adds a third copy.
