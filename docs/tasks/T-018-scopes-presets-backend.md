@@ -3,9 +3,9 @@ id: T-018
 title: Scopes and filter presets backend with preset expansion
 milestone: M1
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-015]
-owner: ""
+owner: "claude-sonnet-5-5"
 branch: task/T-018-scopes-presets-backend
 paths:
   - internal/scope/**
@@ -27,8 +27,15 @@ Schema for scopes/filters will be added by the lead to `scope.graphqls`/`filter.
 - [ ] Import/export JSON round-trip.
 
 ## Plan (implementer, ≤15 lines)
+- `internal/query/preset.go`: `ExpandPresets(lang, node, lookup)` AST substitution, cycle detection, depth 8.
+- `internal/scope`: rule parser (`host[:port][/path]`, IPv6 `[::1]:80`, IDN→punycode), `Matcher` (deny wins, empty allow = all), `Service` CRUD/duplicate over `scope_presets`.
+- `internal/filterpreset`: `Service` CRUD/reorder/import/export JSON over `filter_presets`, validates alias + query, rejects cycles, `Expand(query)` helper.
+- Resolvers: schema files `scope.graphqls`/`filter.graphqls` do not exist yet (lead) -> resolvers not written (see out-of-scope).
+- `scope_presets` has no sort_order column -> reorder of scopes needs a migration (store paths not mine).
 
 ## Out-of-scope change needed (if any)
+- Lead: add `internal/api/graphql/schema/scope.graphqls` + `filter.graphqls` (absent on main) so resolvers `scope*.go`/`filter*.go` can be written.
+- Lead: migration `scope_presets.sort_order` for F-SCOPE-1 reorder (internal/store/migrations).
 
 ## Handoff (implementer)
 
