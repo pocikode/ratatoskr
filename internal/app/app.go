@@ -281,17 +281,24 @@ func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
 		mountDebug(mux, auth)
 	}
 
+	// A nil *ca.Service in the rest.Certificates parameter would be a non-nil
+	// interface, so both mounts are guarded by this one value.
+	var certs rest.Certificates
+	if a.ca != nil {
+		certs = a.ca
+	}
+
 	mux.Handle("/api/", api.NewHandler(api.Options{
 		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now(), Projects: a.project},
 		Auth:      auth,
 		Logger:    a.log,
-		CA:        a.ca,
+		CA:        certs,
 	}))
 
-	if a.ca != nil {
+	if certs != nil {
 		// F-NET-2 also offers the certificate on the bare origin, where a browser
 		// installs it: http://ratatoskr.localhost/ca.crt.
-		caFiles := rest.CAHandler(a.ca)
+		caFiles := rest.CAHandler(certs)
 		mux.Handle("GET /ca.crt", caFiles)
 		mux.Handle("GET /ca.der", caFiles)
 	}
