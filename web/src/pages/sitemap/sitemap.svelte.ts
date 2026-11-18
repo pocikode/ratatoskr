@@ -1,6 +1,6 @@
 import type { Client } from '@urql/core';
 import { SvelteSet } from 'svelte/reactivity';
-import { onEnd, pipe, subscribe, type Source } from 'wonka';
+import { onEnd, pipe, subscribe, tap, type Source } from 'wonka';
 import {
   HistoryCompletionsDocument,
   HistoryRequestAddedDocument,
@@ -24,6 +24,15 @@ import { buildDetail, type HistoryDetail } from '../http-history/detail';
 
 export type SitemapNode = SitemapNodesQuery['sitemapNodes'][number];
 export type TreeRow = { node: SitemapNode; depth: number; position: number; siblings: number };
+
+function childGroups(parentId: string, nodes: SitemapNode[], recursive: boolean) {
+  const children: Record<string, SitemapNode[]> = { [parentId]: [] };
+  for (const child of nodes) {
+    if (recursive && child.hasChildren) children[child.id] = [];
+    (children[child.parentId ?? ''] ??= []).push(child);
+  }
+  return children;
+}
 
 export class SitemapState {
   query = $state('');
@@ -67,6 +76,8 @@ export class SitemapState {
   private detailToken = 0;
   private scopeToken = 0;
   private refreshToken = 0;
+  private rowsDirty = false;
+  private readonly recursiveRoots = new SvelteSet<string>();
   private stops: Array<() => void> = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
   private lastRefresh = 0;
@@ -89,6 +100,7 @@ export class SitemapState {
     this.scopes = [];
     this.children = {};
     this.expanded.clear();
+    this.recursiveRoots.clear();
     this.busy.clear();
     this.clearTable();
     this.target = null;
@@ -149,6 +161,7 @@ export class SitemapState {
     this.scopeId = scopeId;
     this.children = { '': result.data.sitemapNodes };
     this.expanded.clear();
+    this.recursiveRoots.clear();
     this.busy.clear();
     this.clearTable();
     this.target = result.data.sitemapNodes[0] ?? null;
@@ -185,18 +198,17 @@ export class SitemapState {
         (recursive ? ' Expand level by level.' : '');
       return;
     }
-    const children = { ...this.children, [node.id]: [] as SitemapNode[] };
-    for (const child of result.data.sitemapNodes) {
-      const parent = child.parentId ?? '';
-      if (recursive && child.hasChildren) children[child.id] = [];
-      (children[parent] ??= []).push(child);
-    }
-    this.children = children;
+    this.children = {
+      ...this.children,
+      ...childGroups(node.id, result.data.sitemapNodes, recursive),
+    };
     this.expanded.add(node.id);
-    if (recursive)
+    if (recursive) {
+      this.recursiveRoots.add(node.id);
       result.data.sitemapNodes.forEach((child) => {
         if (child.hasChildren) this.expanded.add(child.id);
       });
+    }
     this.message = null;
   }
 
@@ -224,35 +236,45 @@ export class SitemapState {
     this.selection.clear();
     this.detail = null;
     this.detailLoading = false;
+    this.rowsDirty = false;
   }
 
-  async loadRows(more = false): Promise<void> {
+  async loadRows(more = false, count = 1000): Promise<void> {
     if (!this.selected) return;
     const token = ++this.tableToken;
     this.tableLoading = true;
-    const result = await this.client
-      .query(
-        SitemapRequestsDocument,
-        {
-          query: this.selected.query,
-          scopeId: this.scopeId,
-          after: more ? this.cursor : null,
-          sort: requestSort(this.sort),
-        },
-        { requestPolicy: 'network-only' },
-      )
-      .toPromise();
-    if (token !== this.tableToken) return;
+    const rows: HistoryRowFragment[] = [];
+    let cursor = more ? this.cursor : null;
+    let total: number;
+    do {
+      const result = await this.client
+        .query(
+          SitemapRequestsDocument,
+          {
+            query: this.selected.query,
+            scopeId: this.scopeId,
+            after: cursor,
+            sort: requestSort(this.sort),
+          },
+          { requestPolicy: 'network-only' },
+        )
+        .toPromise();
+      if (token !== this.tableToken) return;
+      if (result.error || !result.data) {
+        this.tableLoading = false;
+        this.rowsDirty = true;
+        this.message = result.error?.message ?? 'Loading requests failed';
+        return;
+      }
+      const connection = result.data.requests;
+      rows.push(...connection.edges.map((edge) => edge.node));
+      total = connection.totalCount;
+      cursor = connection.pageInfo.hasNextPage ? (connection.pageInfo.endCursor ?? null) : null;
+    } while (!more && rows.length < count && cursor);
     this.tableLoading = false;
-    if (result.error || !result.data) {
-      this.message = result.error?.message ?? 'Loading requests failed';
-      return;
-    }
-    const connection = result.data.requests;
-    const rows = connection.edges.map((edge) => edge.node);
     this.rows = more ? [...this.rows, ...rows] : rows;
-    this.total = connection.totalCount;
-    this.cursor = connection.pageInfo.hasNextPage ? (connection.pageInfo.endCursor ?? null) : null;
+    this.total = total;
+    this.cursor = cursor;
     const id = this.selection.anchor;
     if (id && !this.rows.some((row) => row.id === id)) {
       this.selection.clear();
@@ -280,15 +302,28 @@ export class SitemapState {
     const token = ++this.refreshToken;
     const epoch = this.epoch;
     this.lastRefresh = Date.now();
-    const parents = [
-      ...new SvelteSet([
-        '',
-        ...this.expanded,
-        ...(this.selected?.parentId ? [this.selected.parentId] : []),
-      ]),
-    ];
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- T-020: local worklist with no reactive consumers.
+    const parents = new Set([
+      '',
+      ...this.visible.filter(({ node }) => this.expanded.has(node.id)).map(({ node }) => node.id),
+      ...(this.selected?.parentId ? [this.selected.parentId] : []),
+      ...(this.confirmation?.node.parentId ? [this.confirmation.node.parentId] : []),
+    ]);
+    const omitDescendants = (parentId: string) => {
+      for (const child of this.children[parentId] ?? []) {
+        parents.delete(child.id);
+        omitDescendants(child.id);
+      }
+    };
+    for (const parentId of parents) {
+      if (this.recursiveRoots.has(parentId)) omitDescendants(parentId);
+    }
+    const branches = [...parents].map((parentId) => ({
+      parentId,
+      recursive: this.recursiveRoots.has(parentId),
+    }));
     const results = await Promise.all(
-      parents.map((parentId) =>
+      branches.map(({ parentId, recursive }) =>
         this.client
           .query(
             SitemapNodesDocument,
@@ -296,7 +331,7 @@ export class SitemapState {
               parentId: parentId || null,
               query: this.applied,
               scopeId: this.scopeId,
-              recursive: false,
+              recursive,
             },
             { requestPolicy: 'network-only' },
           )
@@ -309,16 +344,25 @@ export class SitemapState {
       this.message = failure.error?.message ?? 'Refreshing the sitemap failed';
       return;
     }
-    this.children = {
-      ...this.children,
-      ...Object.fromEntries(results.map((result, i) => [parents[i], result.data!.sitemapNodes])),
-    };
+    const children = { ...this.children };
+    results.forEach((result, i) => {
+      const { parentId, recursive } = branches[i]!;
+      Object.assign(children, childGroups(parentId, result.data!.sitemapNodes, recursive));
+    });
+    this.children = children;
     const nodes = results.flatMap((result) => result.data!.sitemapNodes);
     if (this.target) this.target = nodes.find((node) => node.id === this.target?.id) ?? null;
+    if (this.confirmation) {
+      const node = nodes.find((node) => node.id === this.confirmation?.node.id);
+      this.confirmation = node ? { ...this.confirmation, node } : null;
+    }
     if (this.selected) {
       this.selected = nodes.find((node) => node.id === this.selected?.id) ?? null;
-      if (this.selected) await this.loadRows();
-      else this.clearTable();
+      if (!this.selected) this.clearTable();
+      else if (this.selected.requestCount !== this.total || this.rowsDirty) {
+        this.rowsDirty = false;
+        await this.loadRows(false, this.rows.length);
+      }
     }
   }
 
@@ -348,7 +392,12 @@ export class SitemapState {
     const variables = { query: this.applied, scopeId: this.scopeId };
     const streams: Source<unknown>[] = [
       this.client.subscription(HistoryRequestAddedDocument, variables),
-      this.client.subscription(HistoryRequestUpdatedDocument, variables),
+      pipe(
+        this.client.subscription(HistoryRequestUpdatedDocument, variables),
+        tap(() => {
+          this.rowsDirty = true;
+        }),
+      ),
       this.client.subscription(HistoryRequestsDeletedDocument, {}),
     ];
     this.stops = streams.map((stream) => {
@@ -380,13 +429,15 @@ export class SitemapState {
 
   async addHostToScope(): Promise<void> {
     const scope = this.scopes.find((scope) => scope.id === this.scopeId);
-    if (!scope || !this.target || scope.allow.includes(this.target.host)) return;
+    if (!scope || !this.target) return;
+    const host = this.target.host.includes(':') ? `[${this.target.host}]` : this.target.host;
+    if (scope.allow.includes(host)) return;
     const epoch = this.epoch;
     const result = await this.client
       .mutation(UpdateScopePresetDocument, {
         id: scope.id,
         name: scope.name,
-        allow: [...scope.allow, this.target.host],
+        allow: [...scope.allow, host],
         deny: scope.deny,
       })
       .toPromise();

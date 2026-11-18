@@ -3,7 +3,7 @@ id: T-020
 title: Sitemap tree (backend derivation + page)
 milestone: M1
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-016, T-094]
 owner: "codex (GPT-6)"
 branch: task/T-020-sitemap
@@ -42,11 +42,11 @@ Read the expanded F-SITE-1 for the derivation rules. Key points:
 - [x] Delete node deletes underlying requests after confirmation. Page test checks cancel/confirm and unchanged node selector; GraphQL test verifies history deletion.
 
 ## Plan (implementer, ≤15 lines)
-1. Reuse history query/scope filtering to derive stable, lazy sitemap nodes and exact HTTPQL selectors.
-2. Wire the existing GraphQL contract; cover counts, ordering, malformed IDs, deletion and the 10k-row budget.
-3. Replace the placeholder with the tree, shared traffic table/viewers, scope/query controls and confirmed node deletion.
-4. Reuse history subscriptions with throttled refresh; test expansion, filtering and deletion in the page.
-5. Run `make check`, fill Handoff and set `in_review`.
+1. Batch live refreshes for recursively expanded subtrees, including overlapping expansion roots.
+2. Preserve loaded request pages when selected-node counts change; avoid unnecessary table reloads.
+3. Bracket IPv6 scope rules, refresh pending deletion counts, and use a plain Set for local deduplication.
+4. Add state regressions for the review fixes; record the shared-filter parse nit's scope limitation inline.
+5. Run `make check`, update Handoff/Review, commit scoped changes and set `in_review`.
 
 ## Out-of-scope change needed (if any)
 2026-11-19 (Codex): UI implementation needs `web/src/lib/api/generated/**` added to `paths` for
@@ -72,12 +72,18 @@ RESOLVED by lead (T-094): `internal/api/graphql/schema/sitemap.graphqls` did not
   menu for copy URL, add host to active scope and confirmed delete using the unchanged node query and captured scope.
 - Live: reuse the three history subscriptions; throttle root/expanded-node refetches to once per second, restart ended
   streams, invalidate stale results and clear selections/confirmations on project switches. No new dependencies/schema changes.
+- Review revision: refresh each Shift-expanded subtree once, omit covered/hidden expansions and retain correct parent
+  grouping; preserve loaded request pages on count changes or request updates, leave unchanged rows untouched otherwise;
+  bracket IPv6 scope rules and refresh pending deletion counts without changing the captured scope.
 - Tests: service coverage for all node kinds, scope/filter/count agreement, comments, special paths/hosts, malformed IDs,
   ordering, deletion and recursive cap; real GraphQL integration for count agreement, lazy children, deletion and errors;
-  eight page/state tests for selection/viewers, expansion, filter arguments, confirmation/cancel, paging, live throttling,
-  stale expansion results, cleanup and project reset. jsdom Range geometry shim is local to the page tests.
-- Verified: `make gen`, `make check` (Go modernization/vet/lint/race tests; web types/lint/format; 36 files / 219 tests),
-  `make build`, `go test ./internal/history -run '^$' -bench BenchmarkSitemapRoots -benchtime=3x -count=1`
+  ten page/state tests for selection/viewers, expansion, filter arguments, confirmation/cancel, paging, live throttling,
+  overlapping recursive roots, collapsed branches, live count/note changes, IPv6 scope rules, stale expansion results,
+  cleanup and project reset. jsdom Range geometry shim is local to the page tests.
+- Verified for the review revision: `make check` (Go modernization/vet/lint/race tests; web types/lint/format;
+  36 files / 221 tests), targeted `bun run test src/pages/sitemap` (10 tests), and `git diff --check`.
+  Original implementation also verified: `make gen`, `make build`,
+  `go test ./internal/history -run '^$' -bench BenchmarkSitemapRoots -benchtime=3x -count=1`
   (~54.8 ms/op for 10k rows / 200 hosts; benchmark asserts each load < 500 ms), and `git diff --check`.
 - Verification caveat: an earlier full race run caught an intermittent existing SQLite function-registration race:
   `internal/store/funcs.go:124` vs direct driver open in `internal/scope/service_test.go:142`. These files are unchanged
@@ -86,6 +92,8 @@ RESOLVED by lead (T-094): `internal/api/graphql/schema/sitemap.graphqls` did not
 - Not run: browser E2E/visual checks (Playwright is not installed/configured in this checkout) or `make test-int`;
   the added real-handler GraphQL integration and component tests cover this task's behavior. No proxy/raw-traffic changes.
 - Review/approval remains pending; no PR opened.
+- Follow-ups outside this task: the History page's existing IPv6 scope-rule bug; optional shared-filter optimization
+  to expose whether the original bar parsed empty and avoid the harmless second parse. No backend changes in this revision.
 
 ## Review (reviewer)
 Reviewed 2026-11-19 (Claude Code, reviewer). Scope: `git diff main...HEAD` (15 files). All changed files are inside `paths`;
@@ -96,7 +104,7 @@ IPv6 labels, query-bar composition (`(node) and (bar⏎)`, empty/comment-only ba
 `MaxQueryLen` and malformed IDs all match and are tested; the count == `requests(query: n.query)` invariant is tested
 across bars, scopes and all four kinds. Preset references in the bar still work (parsed, expanded later by `List`/`Delete`).
 
-- [ ] [major] web/src/pages/sitemap/sitemap.svelte.ts:196-199,283-305 — after a Shift-click, every descendant with
+- [x] [major] web/src/pages/sitemap/sitemap.svelte.ts:196-199,283-305 — after a Shift-click, every descendant with
   children is added to `expanded` (up to ~5000), and `refresh()` sends one `sitemapNodes` query per expanded node via
   `Promise.all`. Each call rebuilds the whole tree server-side (full `GROUP BY` over filtered history,
   internal/history/sitemap.go:110-112; ~55 ms at 10k rows). Shift-click a host with 1000 directories while the proxy is
@@ -104,20 +112,40 @@ across bars, scopes and all four kinds. Preset references in the bar still work 
   expanded with Shift (`recursiveRoots`); in `refresh()` fetch each of them once with `recursive: true` (rebuild
   `children` like `toggle` does) and skip expanded nodes that sit under one. Add a state test: Shift-expand a subtree
   with N directories, emit `requestAdded`, assert ≤ (1 + recursive roots + other expanded) `SitemapNodes` calls.
-- [ ] [minor] web/src/pages/sitemap/sitemap.svelte.ts:318-321 — each live refresh calls `loadRows()` with `more=false`,
+  - Implementer: fixed. Track recursive expansion roots, omit covered descendants and hidden expansions from refresh
+    calls, and regroup flat recursive results by parent. The live regression checks exactly three calls for roots,
+    overlapping recursive expansions, and one unrelated expanded host; it also checks collapse and filter reset.
+- [x] [minor] web/src/pages/sitemap/sitemap.svelte.ts:318-321 — each live refresh calls `loadRows()` with `more=false`,
   so rows paged in beyond the first 1000 are dropped and the table jumps back once per second during capture. →
   Reload only when the refreshed `selected.requestCount` changed, and then request `first: rows.length` (or keep the
   current pages) instead of resetting to page one.
-- [ ] [minor] web/src/pages/sitemap/sitemap.svelte.ts:383-389 — "Add host to scope" appends `target.host` raw. For an
+  - Implementer: fixed by preserving the loaded page count and reloading through existing 1000-row cursor pages
+    (the API's maximum). Unchanged counts leave the row array untouched, except after `requestUpdated`: those events
+    must still refresh notes/responses with unchanged counts. Tests cover unchanged counts, a same-count note update,
+    and deletion after loading beyond page one. Failed table loads remain eligible for retry on the next refresh.
+- [x] [minor] web/src/pages/sitemap/sitemap.svelte.ts:383-389 — "Add host to scope" appends `target.host` raw. For an
   IPv6 host (`::1`, which the tree supports) `scope.ParseRule` (internal/scope/match.go:45-54) finds `:` at index 0 →
   "empty host" error, the action always fails. → Send `` `[${host}]` `` when the host contains `:`. Same bug exists in
   web/src/pages/http-history/history.svelte.ts:119 (out of lane: lead to file a follow-up / shared helper).
-- [ ] [nit] web/src/pages/sitemap/sitemap.svelte.ts:284 — `new SvelteSet` used only to dedupe a local array; reactivity
+  - Implementer: fixed in Sitemap, with coverage for `[::1]` and duplicate prevention. The History page remains a
+    lead follow-up outside this task's paths.
+- [x] [nit] web/src/pages/sitemap/sitemap.svelte.ts:284 — `new SvelteSet` used only to dedupe a local array; reactivity
   is not needed → `new Set`.
-- [ ] [nit] web/src/pages/sitemap/sitemap.svelte.ts:41,317 — the confirm dialog shows the count captured when it opened;
+  - Implementer: fixed. The local Set has a T-020 justification for the Svelte reactivity lint rule, which otherwise
+    rejects it even though the worklist has no reactive consumers.
+- [x] [nit] web/src/pages/sitemap/sitemap.svelte.ts:41,317 — the confirm dialog shows the count captured when it opened;
   refreshes update `target` but not `confirmation.node`, so with live traffic the dialog under-reports what `Delete`
   removes. → In `refresh()`, also swap `confirmation.node` for its refreshed copy (keep `scopeId`).
-- [ ] [nit] internal/history/sitemap.go:97-105 — the bar is parsed a second time after `s.filter` already parsed it;
+  - Implementer: fixed. Refetch the confirmation node's parent when needed, replace its node while retaining the
+    captured scope, and dismiss the dialog if the node disappeared. The live test checks the refreshed count/scope.
+- [x] [nit] internal/history/sitemap.go:97-105 — the bar is parsed a second time after `s.filter` already parsed it;
   harmless, but `filter` could return whether the parsed node is nil to avoid the duplicate parse.
+  - Implementer: not changed; recommend retaining this harmless parse in T-020. `s.filter` combines the bar with the
+    scope and expands preset references, so its resulting AST cannot identify an empty original bar. Exposing that
+    information requires changing shared `internal/history/service.go`, outside this task's paths. The current parse
+    preserves the tested whitespace/comment-only composition semantics; a shared-filter optimization can follow separately.
 
 Verdict: **changes_requested** — fix the major (refresh fan-out after Shift-expand); minors recommended in the same pass.
+
+Implementer revision (2026-11-19, Codex): five findings fixed, the harmless shared-filter parse nit retained with the
+scope rationale above. Final `make check`: green (36 web test files / 221 tests). Ready for re-review.
