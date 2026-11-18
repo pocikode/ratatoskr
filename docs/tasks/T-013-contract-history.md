@@ -92,3 +92,16 @@ for first+last, first/last outside 1..1000, offset < 0 and limit outside 1..4194
 DESC + live adds); one shared live timer, ref-counted (new test with two subscribers); descriptions for `source`, `port`
 (connection target, 443/80 implied), `method`, `edges`, `pageInfo`, `node`, `Completion.kind`; docs/03 note in Out-of-scope.
 `make check` green twice in a row.
+
+### Re-review (dfac05b)
+Reviewed `3fa836c..dfac05b` and the full `main...HEAD` diff again, by claude-code/opus-5.5 (reviewer).
+- Paths: still all 15 files inside `paths`. `make gen` → no diff. `make check` → green (Go + web, 73 tests). The mock suite ran 5 times in a row with no failures, so the flaky test is fixed.
+- Every earlier finding was fixed and has a test: `vi.waitFor`, `validate()` before execute, `BAD_INPUT` checks, ID cursors, one shared ref-counted timer, field descriptions, docs/03 note.
+- The schema does not change in this round apart from new descriptions. The contract still matches F-HIST-1..4, arch §6 and docs/04 §7.
+
+Findings:
+- [ ] [minor] web/src/lib/api/mocks/history.ts:379-381 — A cursor whose row was deleted sends the reader back to the start, so rows come back twice. Probe with count 10: delete row 3, then `requests(first: 3, after: "3")` returns 1, 2, 4. Rows 1 and 2 were already loaded, so they are duplicated. In T-017, deleting the last loaded row and then scrolling brings back the `each_key_duplicate` crash that the earlier cursor fix removed. A real keyset backend would continue after the deleted row (keyset = the cursor stores the row's sort key, not a list position). The Handoff lists this as a known limit, but the UI will hit it in a normal flow. → Keep deleted rows in a `Map` (do not drop them from cursor lookup), pull the sort comparator out as `cmp`, and find the position by comparing: `start = after ? idx((r) => cmp(r, cur(after)) > 0) : 0`, `end = before ? idx((r) => cmp(r, cur(before)) >= 0) : list.length`, where `idx` returns `list.length` when nothing matches. This handles both inserts and deletes in about 5 lines. Add a test: delete the cursor row, then check that the next page has no repeated IDs.
+- [ ] [minor] web/src/lib/api/mocks/history.ts:381 — The `before` side does not match the Handoff. Probe: after deleting row 3, `requests(last: 3, before: "3")` returns no rows with `hasPreviousPage: false`. The Handoff says the reader "restarts from the first page". Scrolling up just stops without an error. → The keyset fix above solves this too. If you do not fix it, correct the Handoff text.
+- [ ] [nit] web/src/lib/api/mocks/history.ts:107 — `Number(offset)` accepts any value. `body(offset: "abc")` returns `""` without an error, but the server rejects a bad `Int64` literal. → `if (!Number.isInteger(start) || start < 0) throw badInput(...)`.
+
+Verdict: **approve**. No blocker or major findings remain. The two minors only affect the mock and can go into this branch or into T-017, at the lead's choice.
