@@ -763,12 +763,21 @@ func TestSlowSubscriberIsResyncedNotBlocking(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Nobody reads ch. Publishing far beyond every buffer must not block.
+	// Nobody reads ch. The primed Added events fill the stream's output and
+	// park its goroutine; the flood then overflows the bus buffer. The flood is
+	// Updated events, which SubscribeAdded drops without a DB read, so the
+	// drain below stays fast under -race. Publishing must never block.
+	const primed = 32
+
+	for range primed {
+		e.bus.Publish(history.Event{Kind: history.Added, RequestID: id})
+	}
+
 	published := make(chan struct{})
 
 	go func() {
 		for range 5 * events.SubBuffer {
-			e.bus.Publish(history.Event{Kind: history.Added, RequestID: id})
+			e.bus.Publish(history.Event{Kind: history.Updated, RequestID: id})
 		}
 
 		close(published)
@@ -781,26 +790,31 @@ func TestSlowSubscriberIsResyncedNotBlocking(t *testing.T) {
 	}
 
 	// The bus tells a lagging subscriber at its next publish; the stream then
-	// ends instead of silently losing events.
+	// ends instead of silently losing events. Everything queued before the
+	// overflow is still delivered, in order.
 	got := 0
 	deadline := time.After(10 * time.Second)
 
 	for {
 		select {
-		case _, ok := <-ch:
+		case r, ok := <-ch:
 			if !ok {
-				if got >= 5*events.SubBuffer {
-					t.Fatal("no events were dropped")
+				if got != primed {
+					t.Fatalf("got %d rows before the stream ended, want the %d primed ones", got, primed)
 				}
 
 				return
+			}
+
+			if r.ID != id {
+				t.Fatalf("got row %d, want %d", r.ID, id)
 			}
 
 			got++
 		case <-deadline:
 			t.Fatal("stream never ended")
 		default:
-			e.bus.Publish(history.Event{Kind: history.Added, RequestID: id})
+			e.bus.Publish(history.Event{Kind: history.Updated, RequestID: id})
 		}
 	}
 }

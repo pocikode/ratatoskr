@@ -46,6 +46,7 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | T-090 | History `scopeId` + `preset:` expansion: scope preset → HTTPQL AST, wire into `history.Service` (follow-up of T-016) | B | T-016, T-018 |
 | T-091 | Contract: scope presets + filter presets (schema, stubs, mocks) (follow-up of T-018) | L | T-018 |
 | T-092 | Scope/filter preset resolvers, app wiring, scope reorder migration | B | T-091, T-090 |
+| T-093 | Fix CI flakes: UI hand-off shutdown race, slow-subscriber test timing | B | — |
 
 ## M2 — Intercept, Replay, Match & Replace, Environment
 

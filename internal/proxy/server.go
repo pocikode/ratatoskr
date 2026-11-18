@@ -433,10 +433,14 @@ func (c *session) handOffToUI(head []byte) bool {
 
 	rc := &replayConn{Conn: c.conn, r: io.MultiReader(bytes.NewReader(head), c.br)}
 
+	// Untrack first: once sent, the UI server may already be serving the
+	// connection, and a shutdown closeAll must not close it under that request.
+	// If the hand-off fails, serveConn closes it (handedOff stays false).
+	c.s.untrack(c.idle.Conn)
+
 	select {
 	case c.ui.ch <- rc:
 		c.handedOff = true
-		c.s.untrack(c.idle.Conn)
 	case <-c.ui.done:
 	case <-c.ctx.Done():
 	}
