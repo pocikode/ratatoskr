@@ -157,3 +157,15 @@ Reviewer: Claude Code (reviewer agent), 2026-11-18. Branch `task/T-015-httpql-sq
 5. `Not` returns `false` on error.
 6. `SubKey` matching uses non-allocating `equalFoldASCII`.
 7. Handoff sentence corrected.
+
+**Re-review (round 2)** — Claude Code (reviewer agent), 2026-11-18. Branch @ `a0421a0`.
+- Diff scope: still only `internal/query/**` and this file. OK.
+- `make check`: green (go fix, vet, golangci-lint, `go test -race ./...`, web check + 141 web tests). `make test-int` not needed.
+- Finding 1: fixed. `likeMatch` cuts both operands at the first NUL, just as SQLite does. `binary-nul.txtar` runs on both back-ends (confirmed in `-v` output) and pins `like`/`nlike` against `cont`/`regex`.
+- Finding 2: fixed. `checkLike` uses the same `> 50000` byte test as SQLite's `nPat > SQLITE_LIMIT_LIKE_PATTERN_LENGTH`, counted on the full value before the NUL cut, again like SQLite. Both `Compile` and `Eval` call it, and a test covers each.
+- Findings 3, 5, 6, 7: fixed as asked. Finding 4: recorded as a follow-up, which is correct because the file is out of lane.
+
+**New findings**
+- [ ] [nit] internal/query/httpql/eval.go:22-36 — `And`/`Or` short-circuit, so a query error in the right-hand clause shows up only for some messages. Example: `req.host.eq:"nope" AND preset:"x"` (or a like pattern over 50k) gives `false, nil` for most messages, but `Compile` always fails. This can't happen with a parser-built, preset-expanded AST from today's callers. → T-016/T-018: validate the tree once (e.g. `Compile` it, or walk it to find a `Preset`) before `Eval` runs per message. Note this in the T-016 follow-up. No change needed here.
+
+**Verdict: approve.** No blockers or majors are left. Status stays `in_review` until the operator merges.
