@@ -12,6 +12,8 @@
   let { store = defaultStore, start = true }: { store?: ProjectStore; start?: boolean } = $props();
 
   const Folder = iconFor('folder')!;
+  const NEW = '\0new';
+  const MANAGE = '\0manage';
   let search = $state('');
   let open = $state(false);
 
@@ -27,9 +29,15 @@
 <Combobox.Root
   type="single"
   bind:open
-  value={store.current?.id ?? ''}
+  bind:value={
+    () => store.current?.id ?? '',
+    (id) => {
+      if (id === NEW) void registry.run('project.create');
+      else if (id === MANAGE) router.navigate('workspace');
+      else if (id && id !== store.current?.id) void store.select(id);
+    }
+  }
   inputValue={open ? search : (store.current?.name ?? '')}
-  onValueChange={(id) => id && id !== store.current?.id && void store.select(id)}
   onOpenChange={(o) => {
     if (!o) search = '';
   }}
@@ -48,8 +56,13 @@
       class="w-44 rounded-token border border-line bg-subtle py-1 pr-2 pl-7 hover:bg-hover"
       oninput={(e) => (search = e.currentTarget.value)}
       onfocus={() => (open = true)}
+      onclick={() => (open = true)}
     />
+    {#if store.current?.isTemporary}
+      <span class="ml-1 rounded-token border border-warn px-1 text-xs text-warn">temporary</span>
+    {/if}
   </div>
+  {#if store.error}<p role="alert" class="sr-only">{store.error}</p>{/if}
   <Combobox.Portal>
     <Combobox.Content
       sideOffset={4}
@@ -68,6 +81,16 @@
         </Combobox.Item>
       {:else}
         <p class="px-2 py-1 text-muted">No projects match</p>
+      {/each}
+      <div class="my-1 border-t border-line"></div>
+      {#each [{ value: NEW, label: 'New project…' }, { value: MANAGE, label: 'Manage projects' }] as { value, label } (value)}
+        <Combobox.Item
+          {value}
+          {label}
+          class="cursor-default rounded-token px-2 py-1 outline-none data-highlighted:bg-hover"
+        >
+          {label}
+        </Combobox.Item>
       {/each}
     </Combobox.Content>
   </Combobox.Portal>

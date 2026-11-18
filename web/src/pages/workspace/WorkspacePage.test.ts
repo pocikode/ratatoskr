@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { ProjectStore, type Project } from '$lib/stores/project.svelte';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { registry } from '$lib/commands';
+import { ProjectStore, projectCommands, type Project } from '$lib/stores/project.svelte';
 import WorkspacePage from './WorkspacePage.svelte';
 
 const proj = (id: string, name: string, o: Partial<Project> = {}): Project => ({
@@ -28,6 +29,7 @@ function setup(list: Project[]) {
     subscription: () => ({ subscribe: () => ({ unsubscribe: vi.fn() }) }),
   };
   const store = new ProjectStore(() => client as never);
+  onTestFinished(registry.register(...projectCommands(store, () => {}))); // normally registered by the top-bar switcher
   render(WorkspacePage, { store });
   return { store, mutations, user: userEvent.setup() };
 }

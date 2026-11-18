@@ -1,6 +1,6 @@
 // Project list, selection and the reset signal for project-scoped stores (T-009, F-WSP-1).
-import { SvelteSet } from 'svelte/reactivity';
 import type { CombinedError } from '@urql/core';
+import { onEnd, pipe, subscribe } from 'wonka';
 import { getApi } from '$lib/api/client';
 import {
   CreateProjectDocument,
@@ -31,12 +31,26 @@ export class ProjectStore {
   epoch = $state(0);
   current = $derived(this.projects.find((p) => p.isSelected) ?? null);
 
-  #resets = new SvelteSet<() => void>();
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- T-009: never read reactively
+  #resets = new Set<() => void>();
+  #seq = 0;
 
   readonly getClient: () => Client;
+  /** Socket lifecycle source; refetches after a reconnect, when events may have been missed. */
+  readonly getWs: () => Pick<ReturnType<typeof getApi>['ws'], 'on'> | undefined;
 
-  constructor(getClient: () => Client = () => getApi().client) {
+  constructor(
+    getClient: () => Client = () => getApi().client,
+    getWs: ProjectStore['getWs'] = () => getApi().ws,
+  ) {
     this.getClient = getClient;
+    this.getWs = getWs;
+  }
+
+  /** Opens a dialog and clears any stale error so it doesn't leak into it. */
+  openDialog(d: NonNullable<ProjectDialog>) {
+    this.error = null;
+    this.dialog = d;
   }
 
   /** Registers a store reset callback, run when another project gets selected. */
@@ -48,23 +62,53 @@ export class ProjectStore {
   /** Loads the list and follows `projectChanged`. Returns the cleanup. */
   start(): () => void {
     void this.refresh();
-    const sub = this.getClient()
-      .subscription(ProjectChangedDocument, {})
-      .subscribe((r) => {
-        if (!r.data) return;
-        if (r.data.projectChanged.kind === 'SELECTED') {
-          this.epoch++;
-          for (const fn of this.#resets) fn();
-        }
-        void this.refresh();
-      });
-    return () => sub.unsubscribe();
+    let sub: { unsubscribe: () => void } | undefined;
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    // The server ends the stream when the client lags; resubscribe and refetch then.
+    const listen = () => {
+      sub = pipe(
+        this.getClient().subscription(ProjectChangedDocument, {}),
+        onEnd(() => {
+          // Delay so a server that keeps rejecting the stream is not hammered.
+          if (!stopped) retry = setTimeout(relisten, 1000);
+        }),
+        subscribe((r) => {
+          if (!r.data) return;
+          if (r.data.projectChanged.kind === 'SELECTED') {
+            this.epoch++;
+            for (const fn of this.#resets) fn();
+          }
+          void this.refresh();
+        }),
+      );
+    };
+    const relisten = () => {
+      if (stopped) return;
+      sub?.unsubscribe();
+      listen();
+      void this.refresh();
+    };
+    listen();
+    let connected = false;
+    const off = this.getWs()?.on('connected', () => {
+      if (connected) void this.refresh();
+      connected = true;
+    });
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      sub?.unsubscribe();
+      off?.();
+    };
   }
 
   async refresh(): Promise<void> {
+    const n = ++this.#seq;
     const r = await this.getClient()
       .query(ProjectsDocument, {}, { requestPolicy: 'network-only' })
       .toPromise();
+    if (n !== this.#seq) return; // a newer refresh superseded this one
     if (r.data) {
       this.projects = r.data.projects;
       this.error = null;
@@ -114,7 +158,7 @@ export function projectCommands(store: ProjectStore, navigate: (id: string) => v
       group: 'Project',
       run: () => {
         navigate('workspace');
-        store.dialog = { kind: 'create' };
+        store.openDialog({ kind: 'create' });
       },
     },
     ...store.projects
@@ -128,5 +172,46 @@ export function projectCommands(store: ProjectStore, navigate: (id: string) => v
           await store.select(p.id);
         },
       })),
+  ];
+}
+
+/** Per-row actions; take the target project from the command context. */
+export function projectRowCommands(store: ProjectStore): Command[] {
+  const row = (
+    id: string,
+    title: string,
+    run: (p: Project) => void | Promise<unknown>,
+    when: (p: Project) => boolean = () => true,
+  ): Command => ({
+    id: `project.${id}`,
+    title,
+    group: 'Project',
+    when: (ctx) => !!ctx.project && when(ctx.project),
+    run: async (ctx) => {
+      await run(ctx.project!);
+    },
+  });
+  return [
+    row(
+      'select',
+      'Select project',
+      (p) => store.select(p.id),
+      (p) => !p.isSelected,
+    ),
+    row('rename', 'Rename project…', (p) => store.openDialog({ kind: 'rename', project: p })),
+    row('duplicate', 'Duplicate project', (p) => store.duplicate(p.id)),
+    row(
+      'setDefault',
+      'Set project as default',
+      (p) => store.setDefault(p.id),
+      (p) => !p.isTemporary && !p.isDefault,
+    ),
+    row(
+      'clearDefault',
+      'Clear default project',
+      () => store.setDefault(null),
+      (p) => p.isDefault,
+    ),
+    row('delete', 'Delete project…', (p) => store.openDialog({ kind: 'delete', project: p })),
   ];
 }

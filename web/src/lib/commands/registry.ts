@@ -1,8 +1,11 @@
 import type { IconName } from '../utils/icons';
+import type { Project } from '../stores/project.svelte';
 
 export interface CommandContext {
   /** Extended by later tasks (selected rows, active page …). */
   page?: string;
+  /** Target of per-row project commands. */
+  project?: Project;
 }
 
 export interface Command {
