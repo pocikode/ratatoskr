@@ -28,6 +28,17 @@ func BenchmarkHeaderIteration(b *testing.B) {
 	}
 }
 
+// BenchmarkObsFold holds a big fold block to linear time (T-010 review).
+func BenchmarkObsFold(b *testing.B) {
+	wire := "GET / HTTP/1.1\r\nX-Fold: first\r\n" + strings.Repeat(" x\r\n", 50_000) + "\r\n"
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := ReadRequest(bufio.NewReader(strings.NewReader(wire)), DefaultLimits); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // TestHeaderIterationDoesNotAllocate holds the capture path to the budget in
 // docs/05-go-conventions.md: iterating parsed headers costs nothing.
 func TestHeaderIterationDoesNotAllocate(t *testing.T) {

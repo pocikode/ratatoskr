@@ -1,7 +1,8 @@
 # Golden request corpus (F-NET-3): every wire message must round-trip byte for
 # byte through ReadRequest -> drain body -> Raw. `raw` overrides the expected
-# bytes when framing legitimately stops short of the wire, `rest` is what is
-# left in the reader.
+# bytes when framing legitimately stops short of the wire (a body the message
+# does not own, a blank line before the start line that RFC 9112 §2.2 lets a
+# parser ignore), `rest` is what is left in the reader.
 -- 001-get/kind --
 request
 -- 001-get/wire --
@@ -185,12 +186,12 @@ request
 -- 032-unterminated-head/error --
 unexpected EOF
 
--- 033-empty-head/kind --
+-- 033-blank-line-only/kind --
 request
--- 033-empty-head/wire --
+-- 033-blank-line-only/wire --
 "\r\n"
--- 033-empty-head/error --
-malformed
+-- 033-blank-line-only/error --
+EOF
 
 -- 034-query-target/kind --
 request
@@ -223,3 +224,26 @@ request
 request
 -- 038-padded-start-line/wire --
 "GET   /path   HTTP/1.1\r\nHost: a\r\n\r\n"
+
+-- 039-space-before-colon/kind --
+request
+-- 039-space-before-colon/wire --
+"POST /sb HTTP/1.1\r\nHost: a\r\nTransfer-Encoding : chunked\r\n\r\n2\r\nhi\r\n0\r\n\r\n"
+-- 039-space-before-colon/warnings --
+space-before-colon
+
+-- 040-leading-blank-line/kind --
+request
+-- 040-leading-blank-line/wire --
+"\r\nPOST /stray HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nhi"
+-- 040-leading-blank-line/raw --
+"POST /stray HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nhi"
+-- 040-leading-blank-line/warnings --
+leading-blank-line
+
+-- 041-short-length-body/kind --
+request
+-- 041-short-length-body/wire --
+"POST /short HTTP/1.1\r\nHost: a\r\nContent-Length: 10\r\n\r\nabc"
+-- 041-short-length-body/error --
+unexpected EOF

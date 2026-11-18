@@ -53,16 +53,20 @@ func FuzzReadResponse(f *testing.F) {
 }
 
 // checkMessage drains the body and asserts the reader never invents, drops or
-// reorders bytes.
+// reorders bytes: Raw and Head must appear in the input exactly as sent, and
+// anything dropped before them must be the blank lines RFC 9112 §2.2 lets a
+// parser skip.
 func checkMessage(t *testing.T, m *Message, wire []byte) {
 	t.Helper()
 	if _, err := io.Copy(io.Discard, m.DecodedBody()); err != nil {
 		return
 	}
-	if raw := m.Raw(); !bytes.HasPrefix(wire, raw) {
-		t.Fatalf("Raw() is not a prefix of the input for %q", wire)
+	check := func(name string, got []byte) {
+		i := bytes.Index(wire, got)
+		if i < 0 || len(bytes.Trim(wire[:i], "\r\n")) != 0 {
+			t.Fatalf("%s is not the input minus leading blank lines for %q", name, wire)
+		}
 	}
-	if head := m.Head(); !bytes.HasPrefix(wire, head) {
-		t.Fatalf("Head() is not a prefix of the input for %q", wire)
-	}
+	check("Raw()", m.Raw())
+	check("Head()", m.Head())
 }

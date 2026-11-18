@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -261,5 +262,122 @@ func TestEmptyReader(t *testing.T) {
 	t.Parallel()
 	if _, err := ReadRequest(bufio.NewReader(strings.NewReader("")), DefaultLimits); !errors.Is(err, io.EOF) {
 		t.Fatalf("error = %v, want io.EOF", err)
+	}
+}
+
+// TestObsFoldLarge is the regression test for the O(n²) fold accumulation: the
+// wire is under the 1 MiB head limit, but re-copying the value per fold line
+// would take minutes.
+func TestObsFoldLarge(t *testing.T) {
+	t.Parallel()
+	const folds = 200_000
+	wire := "GET / HTTP/1.1\r\nHost: a\r\nX-Fold: first\r\n" + strings.Repeat(" x\r\n", folds) + "\r\n"
+	req := request(t, wire)
+
+	want := "first" + strings.Repeat(" x", folds)
+	if got, ok := req.Header("X-Fold"); !ok || got != want {
+		t.Errorf("X-Fold value is %d bytes, want %d", len(got), len(want))
+	}
+	for _, h := range req.Headers() {
+		if h.Name == "X-Fold" && !strings.HasSuffix(h.Raw, " x\r\n") {
+			t.Errorf("X-Fold raw is %d bytes, want the whole fold block", len(h.Raw))
+		}
+	}
+}
+
+func TestShortLengthBody(t *testing.T) {
+	t.Parallel()
+	const wire = "POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\nabc"
+
+	if _, err := io.ReadAll(request(t, wire).Body()); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("Body() error = %v, want io.ErrUnexpectedEOF", err)
+	}
+	if _, err := request(t, wire).WriteTo(io.Discard); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("WriteTo error = %v, want io.ErrUnexpectedEOF", err)
+	}
+	if _, err := io.ReadAll(request(t, "POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc").Body()); err != nil {
+		t.Errorf("complete body: error = %v, want nil", err)
+	}
+}
+
+func TestHeaderCountLimit(t *testing.T) {
+	t.Parallel()
+	head := func(fields int) string {
+		var b strings.Builder
+		b.WriteString("GET / HTTP/1.1\r\n")
+		for range fields {
+			b.WriteString("a:\r\n")
+		}
+		b.WriteString("\r\n")
+		return b.String()
+	}
+	if _, err := ReadRequest(bufio.NewReader(strings.NewReader(head(maxHeaders+1))), DefaultLimits); !errors.Is(err, ErrHeadTooLarge) {
+		t.Errorf("%d fields: error = %v, want ErrHeadTooLarge", maxHeaders+1, err)
+	}
+	if _, err := ReadRequest(bufio.NewReader(strings.NewReader(head(maxHeaders))), DefaultLimits); err != nil {
+		t.Errorf("%d fields: error = %v, want nil", maxHeaders, err)
+	}
+}
+
+func TestSpaceBeforeColon(t *testing.T) {
+	t.Parallel()
+	req := request(t, "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding : chunked\r\n\r\n2\r\nhi\r\n0\r\n\r\n")
+	if got, ok := req.Header("Transfer-Encoding"); !ok || got != "chunked" {
+		t.Errorf("Header(Transfer-Encoding) = %q, %v", got, ok)
+	}
+	if req.Framing() != FramingChunked {
+		t.Errorf("framing = %v, want chunked", req.Framing())
+	}
+	if !slices.Contains(req.Warnings(), WarnSpaceBeforeColon) {
+		t.Errorf("warnings = %q, want %q", req.Warnings(), WarnSpaceBeforeColon)
+	}
+	if want := "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding : chunked\r\n\r\n"; !bytes.HasPrefix(req.Raw(), []byte(want)) {
+		t.Errorf("Raw() lost the odd spacing: %q", req.Raw())
+	}
+}
+
+func TestLeadingBlankLine(t *testing.T) {
+	t.Parallel()
+	br := bufio.NewReader(strings.NewReader("\r\nGET / HTTP/1.1\r\nHost: a\r\n\r\nGET /next HTTP/1.1\r\nHost: a\r\n\r\n"))
+	first, err := ReadRequest(br, DefaultLimits)
+	if err != nil {
+		t.Fatalf("ReadRequest: %v", err)
+	}
+	if first.Target() != "/" {
+		t.Errorf("target = %q, want /", first.Target())
+	}
+	if !slices.Contains(first.Warnings(), WarnLeadingBlankLine) {
+		t.Errorf("warnings = %q, want %q", first.Warnings(), WarnLeadingBlankLine)
+	}
+	if want := "GET / HTTP/1.1\r\nHost: a\r\n\r\n"; string(first.Raw()) != want {
+		t.Errorf("Raw() = %q, want %q", first.Raw(), want)
+	}
+	second, err := ReadRequest(br, DefaultLimits)
+	if err != nil {
+		t.Fatalf("second ReadRequest: %v", err)
+	}
+	if second.Target() != "/next" {
+		t.Errorf("second target = %q, want /next", second.Target())
+	}
+}
+
+func TestStatusLineReason(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		wire, version, reason string
+		status                int
+	}{
+		{wire: "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", version: "HTTP/1.1", status: 200, reason: "OK"},
+		// The code also appears in the version: the reason starts after the
+		// code field, not at the first match.
+		{wire: "HTTP/200 200 OK\r\nContent-Length: 0\r\n\r\n", version: "HTTP/200", status: 200, reason: "OK"},
+		{wire: "HTTP/1.1 204\r\n\r\n", version: "HTTP/1.1", status: 204, reason: ""},
+		{wire: "HTTP/1.1 200   spaced reason\r\nContent-Length: 0\r\n\r\n", version: "HTTP/1.1", status: 200, reason: "spaced reason"},
+	}
+	for _, tt := range tests {
+		res := response(t, "", tt.wire)
+		if res.Version() != tt.version || res.Status() != tt.status || res.Reason() != tt.reason {
+			t.Errorf("%q: got %q %d %q", tt.wire, res.Version(), res.Status(), res.Reason())
+		}
 	}
 }

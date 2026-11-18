@@ -107,3 +107,26 @@ func TestBuilderAddsHeadersToEmptyBlock(t *testing.T) {
 		t.Errorf("wrote %q, want %q", got, want)
 	}
 }
+
+// TestBuilderWrongKindStartLine keeps a rewrite rule that sets the wrong
+// start-line field from panicking, and from editing the line it cannot own.
+func TestBuilderWrongKindStartLine(t *testing.T) {
+	t.Parallel()
+	const wire = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi"
+	if got := response(t, "", wire).Builder().SetMethod("POST").SetTarget("/x").Bytes(); string(got) != wire {
+		t.Errorf("method/target on a response wrote %q, want %q", got, wire)
+	}
+	const reqWire = "POST / HTTP/1.1\r\nContent-Length: 2\r\n\r\nhi"
+	if got := request(t, reqWire).Builder().SetStatus(500, "Server Error").Bytes(); string(got) != reqWire {
+		t.Errorf("status on a request wrote %q, want %q", got, reqWire)
+	}
+}
+
+func TestBuilderSynthHeadersKeepBareLF(t *testing.T) {
+	t.Parallel()
+	req := request(t, "GET / HTTP/1.1\nHost: a\n\n")
+	got := req.Builder().AddHeader("X-New", "1").Bytes()
+	if want := "GET / HTTP/1.1\nHost: a\nX-New: 1\n\n"; string(got) != want {
+		t.Errorf("wrote %q, want %q", got, want)
+	}
+}
