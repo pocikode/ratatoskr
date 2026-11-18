@@ -23,6 +23,9 @@ spec:
 The :8080 listener routes proxy traffic vs UI traffic, MITMs TLS using `internal/ca`, forwards through `rawhttp` with a keep-alive pool,
 and captures every request/response into the project DB (batched) emitting `RequestAdded/RequestUpdated` events.
 
+## Notes from lead
+- T-006 also edits `internal/app/app.go` (project service wiring). Start from a `main` that includes T-006, or rebase onto it before review.
+
 ## Acceptance criteria
 - [ ] `curl -x` HTTP and HTTPS (with `--cacert`) through the proxy return identical bodies to direct requests (integration test against testutil servers).
 - [ ] Malformed requests from the golden corpus are forwarded byte-exact to a raw TCP test server.

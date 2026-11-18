@@ -3,13 +3,18 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: blocked
+status: changes_requested
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
 paths:
   - internal/project/**
   - internal/api/graphql/resolvers/project*.go
+  # added by lead 2026-11-18 (review round 1 major, round 1 minor):
+  - internal/api/graphql/resolvers/resolver.go
+  - internal/app/app.go
+  - internal/app/app_test.go
+  - internal/store/migrations/instance/0002_*.sql
 spec:
   - docs/01-feature-spec.md#F-WSP-1
   - docs/03-architecture.md §5.1
@@ -27,6 +32,11 @@ The schema part (`project.graphqls`) is added by the lead in T-007's follow-up c
 - [x] Deleting the selected project falls back to the default or a new temp project.
 - [x] Switching closes the old DB handle (no open handles remain on the old DB file — test).
 - [x] Temp project removed on clean shutdown unless renamed/saved.
+
+### Lead decisions (2026-11-18, answers the round 1–4 questions)
+1. **`paths`**: `resolvers/resolver.go` is added retroactively (the `Deps.Projects` field is accepted as is). `internal/app/app.go` (+ `app_test.go`) is added: **do the wiring in this task** — `project.Open` after `store.OpenInstance`, pass it as `resolvers.Deps.Projects`, `Close()` it on shutdown (before the instance DB closes). Add an app-level test that `projects` answers without NOT_IMPLEMENTED. T-011 and T-027 also own `internal/app/**`; they are `todo` and rebase on T-006.
+2. **Temporary flag**: not a settings key. Add migration `internal/store/migrations/instance/0002_projects.sql` that rebuilds `projects` with `id INTEGER PRIMARY KEY AUTOINCREMENT` and `is_temporary INTEGER NOT NULL DEFAULT 0` (create new table, copy rows, drop old, rename; STRICT). AUTOINCREMENT because project IDs are GraphQL node IDs and directory names and must never be reused (fixes the Handoff limitation). Drop `tempKey`/`project.temporary` handling; crash-recovery purge uses `WHERE is_temporary = 1`. docs/03 §5.1 updated.
+3. **Subscription end**: `projectChanged` schema doc now says the server may end it and clients must resubscribe + refetch (`make gen` run by lead).
 
 ## Plan (implementer, ≤15 lines)
 - `internal/project.Service` owns the registry in `instance.db` (`projects` table) and the one open `project.db` (`projects/<id>/` via `os.Root`).
