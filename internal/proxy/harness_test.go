@@ -50,6 +50,12 @@ type rig struct {
 func startProxy(t testing.TB, opts ...func(*proxy.Deps)) *rig {
 	t.Helper()
 
+	return startProxyOn(t, "127.0.0.1:0", opts...)
+}
+
+func startProxyOn(t testing.TB, listen string, opts ...func(*proxy.Deps)) *rig {
+	t.Helper()
+
 	root, err := os.OpenRoot(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +75,7 @@ func startProxy(t testing.TB, opts ...func(*proxy.Deps)) *rig {
 		t.Fatal(err)
 	}
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -118,16 +118,14 @@ func New(deps Deps) *Server {
 // listenerInfo is what the origin-form check needs to know about the listener.
 type listenerInfo struct {
 	port int
-	ip   netip.Addr // zero when the listener address is not an IP literal
 }
 
 // Serve accepts on ln until ctx ends, then closes every connection and returns
 // nil. It returns an error only when accepting fails. Serve owns ln.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
 	port, _ := strconv.Atoi(portStr)
-	ip, _ := netip.ParseAddr(host)
-	info := listenerInfo{port: port, ip: ip.Unmap()}
+	info := listenerInfo{port: port}
 
 	ui := &chanListener{ch: make(chan net.Conn), done: make(chan struct{}), addr: ln.Addr()}
 	handler := s.deps.UI
@@ -401,8 +399,14 @@ func (c *session) isUIHost(hostport string) bool {
 	}
 
 	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
 
-	return err == nil && (ip.IsLoopback() || ip.Unmap() == c.info.ip)
+	// Compare with the address the client connected to: the listen address may be 0.0.0.0.
+	local, lerr := netip.ParseAddrPort(c.conn.LocalAddr().String())
+
+	return ip.IsLoopback() || lerr == nil && ip.Unmap() == local.Addr().Unmap()
 }
 
 // serveUIAbsolute serves `GET http://ratatoskr.localhost/ca.crt`-style requests

@@ -120,9 +120,11 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn)
 	stop := context.AfterFunc(c.ctx, func() { _ = up.Close() })
 	defer stop()
 
-	_ = up.SetWriteDeadline(time.Now().Add(c.s.deps.HeaderTimeout))
+	// Per-write idle deadline: slow uploads may outlast HeaderTimeout, stalled ones may not.
+	_, err := out.WriteTo(&netx.IdleConn{Conn: up, Idle: c.s.deps.IdleTimeout})
+	_ = up.SetWriteDeadline(time.Time{}) // tunnels and pooled reuse must not inherit it
 
-	if _, err := out.WriteTo(up); err != nil {
+	if err != nil {
 		return nil, err
 	}
 

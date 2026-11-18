@@ -487,3 +487,134 @@ func TestUpgradeSurvivesIdleTimeout(t *testing.T) {
 		}
 	}
 }
+
+// A short HeaderTimeout must not cut client->server data after an upgrade.
+func TestUpgradeClientWriteAfterHeaderTimeout(t *testing.T) {
+	t.Parallel()
+
+	r := startProxy(t, func(d *proxy.Deps) { d.HeaderTimeout = 300 * time.Millisecond })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+
+		br := bufio.NewReader(c)
+
+		for l, _ := br.ReadString('\n'); l != "\r\n" && l != ""; l, _ = br.ReadString('\n') {
+		}
+
+		_, _ = io.WriteString(c, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: x\r\nConnection: Upgrade\r\n\r\n")
+
+		line, _ := br.ReadString('\n')
+		_, _ = io.WriteString(c, line)
+	}()
+
+	conn, err := net.Dial("tcp", r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	_, _ = fmt.Fprintf(conn, "GET http://%s/ws HTTP/1.1\r\nHost: %s\r\nUpgrade: x\r\nConnection: Upgrade\r\n\r\n", ln.Addr(), ln.Addr())
+
+	br := bufio.NewReader(conn)
+
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if line == "\r\n" {
+			break
+		}
+	}
+
+	time.Sleep(600 * time.Millisecond) //nolint:forbidigo // T-011: real sockets, real deadlines
+
+	_, _ = io.WriteString(conn, "hello\n")
+
+	if got, err := br.ReadString('\n'); err != nil || got != "hello\n" {
+		t.Fatalf("echo = %q, %v", got, err)
+	}
+}
+
+// An upload slower than HeaderTimeout overall but steady must succeed.
+func TestSlowUploadOutlastsHeaderTimeout(t *testing.T) {
+	t.Parallel()
+
+	r := startProxy(t, func(d *proxy.Deps) { d.HeaderTimeout = 300 * time.Millisecond })
+
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		b, _ := io.ReadAll(req.Body)
+		_, _ = fmt.Fprintf(w, "%d", len(b))
+	}))
+	t.Cleanup(up.Close)
+
+	conn, err := net.Dial("tcp", r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	_, _ = fmt.Fprintf(conn, "POST %s/u HTTP/1.1\r\nHost: %s\r\nContent-Length: 10\r\nConnection: close\r\n\r\n", up.URL, up.Listener.Addr())
+
+	for range 10 {
+		time.Sleep(80 * time.Millisecond) //nolint:forbidigo // T-011: real sockets, real deadlines
+
+		_, _ = io.WriteString(conn, "x")
+	}
+
+	b, _ := io.ReadAll(conn)
+	if !strings.Contains(string(b), "200 OK") || !strings.HasSuffix(string(b), "10") {
+		t.Fatalf("response = %q", b)
+	}
+}
+
+// With a wildcard listener, the UI answers the address the client connected to.
+func TestWildcardListenerServesUIOnLocalIP(t *testing.T) {
+	t.Parallel()
+
+	r := startProxyOn(t, "0.0.0.0:0")
+	_, port, _ := net.SplitHostPort(r.addr)
+
+	addrs, _ := net.InterfaceAddrs()
+
+	for _, a := range addrs {
+		ipn, ok := a.(*net.IPNet)
+		if !ok || ipn.IP.To4() == nil || ipn.IP.IsLoopback() {
+			continue
+		}
+
+		conn, err := net.Dial("tcp", net.JoinHostPort(ipn.IP.String(), port))
+		if err != nil {
+			continue
+		}
+		defer conn.Close()
+
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+		_, _ = fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s:%s\r\nConnection: close\r\n\r\n", ipn.IP, port)
+
+		if b, _ := io.ReadAll(conn); !bytes.HasSuffix(b, []byte("ui:/")) {
+			t.Fatalf("reply %q", b)
+		}
+
+		return
+	}
+
+	t.Skip("no non-loopback IPv4 address")
+}
