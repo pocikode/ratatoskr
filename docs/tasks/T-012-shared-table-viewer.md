@@ -3,7 +3,7 @@ id: T-012
 title: Shared TrafficTable (virtualized) and MessageViewer components
 milestone: M1
 role: frontend
-status: blocked
+status: changes_requested
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-012-shared-table-viewer
@@ -14,6 +14,7 @@ paths:
   - web/src/lib/editor/**
   - web/package.json
   - web/bun.lock
+  - web/src/lib/router/routes.ts  # dev-only gallery route block only (lead, 2026-11-18)
 spec:
   - docs/02-ui-layout.md §2, §3.1, §9
   - docs/01-feature-spec.md#F-HIST-1, #F-HIST-2
@@ -61,6 +62,12 @@ MessageViewer modes: Raw, Pretty (JSON/XML/HTML/JS), Hex, Table (headers/params)
   **Question for the lead:** add `web/src/lib/router/routes.ts` to this task's `paths` (the 10-line dev-only block is
   ready to restore), or route the gallery another way (e.g. behind an existing page) — or drop the AC. Until then
   `DevComponentsPage.svelte` + its smoke test exist but nothing links to them.
+
+  **Lead decision (2026-11-18): approved.** `web/src/lib/router/routes.ts` is added to `paths`, limited to the
+  reverted 10-line `if (import.meta.env.DEV) { routes.push(...) }` block at the end of the file. Do not change existing
+  routes or `CATEGORIES`. The `bun run build` check (no gallery string in `dist/`) stays required and goes in the
+  Handoff. No other open task owns this file (T-003 is done). Restore the block, tick the gallery AC, run `make check`,
+  then set `in_review`.
 
 ## Handoff (implementer)
 ### Review round 1 — responses
