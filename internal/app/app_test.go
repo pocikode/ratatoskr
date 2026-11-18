@@ -3,7 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/pocikode/ratatoskr/internal/config"
 	"github.com/pocikode/ratatoskr/internal/logging"
+	"github.com/pocikode/ratatoskr/internal/store"
 )
 
 // newTestApp builds an instance over a temp data dir. handler, when not nil,
@@ -514,6 +517,71 @@ func TestIsLoopback(t *testing.T) {
 	for _, tt := range tests {
 		if got := isLoopback(tt.addr); got != tt.want {
 			t.Errorf("isLoopback(%q) = %v, want %v", tt.addr, got, tt.want)
+		}
+	}
+}
+
+// TestWiresScopeAndPresetExpansion covers T-090: a scopeId and a preset: in a
+// history query work in the running app instead of NOT_FOUND / BAD_QUERY.
+func TestWiresScopeAndPresetExpansion(t *testing.T) {
+	t.Parallel()
+
+	a, _ := newTestApp(t, nil)
+
+	db := a.project.DB()
+
+	var scopeID int64
+
+	err := db.Write(t.Context(), func(tx *sql.Tx) error {
+		res, err := tx.Exec(`INSERT INTO scope_presets(name, allow_json, deny_json) VALUES ('only in', '["in.test"]', '[]')`)
+		if err != nil {
+			return err
+		}
+
+		if scopeID, err = res.LastInsertId(); err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(`INSERT INTO filter_presets(name, alias, clause) VALUES ('OnlyIn', 'only-in', 'req.host.eq:"in.test"')`)
+
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.InsertRequests(t.Context(), []store.Request{
+		{Source: "proxy", Host: "in.test", Port: 80, Method: "GET", Path: "/", Raw: []byte("GET / HTTP/1.1\r\n\r\n"), CreatedAt: 1000},
+		{Source: "proxy", Host: "out.test", Port: 80, Method: "GET", Path: "/", Raw: []byte("GET / HTTP/1.1\r\n\r\n"), CreatedAt: 1000},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	gql := func(query string) string {
+		req := httptest.NewRequest(http.MethodPost, "/api/graphql", strings.NewReader(fmt.Sprintf(`{"query":%q}`, query)))
+		req.Host = "localhost:8080" // the Host check is on for a loopback listener (T-027)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Ratatoskr", "1")
+
+		rec := httptest.NewRecorder()
+		a.handler.ServeHTTP(rec, req)
+
+		return rec.Body.String()
+	}
+
+	tests := []struct {
+		name, query, want string
+	}{
+		{"scope filters", fmt.Sprintf(`{ requests(scopeId: "%d") { totalCount } }`, scopeID), `"totalCount":1`},
+		{"unknown scope", `{ requests(scopeId: "999") { totalCount } }`, `"code":"NOT_FOUND"`},
+		{"malformed scope", `{ requests(scopeId: "abc") { totalCount } }`, `"code":"NOT_FOUND"`},
+		{"preset expands", `{ requests(query: "preset:only-in") { totalCount } }`, `"totalCount":1`},
+		{"unknown preset", `{ requests(query: "preset:nope") { totalCount } }`, `"code":"BAD_QUERY"`},
+	}
+
+	for _, tt := range tests {
+		if body := gql(tt.query); !strings.Contains(body, tt.want) {
+			t.Errorf("%s: body %s does not contain %s", tt.name, body, tt.want)
 		}
 	}
 }

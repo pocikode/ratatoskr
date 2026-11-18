@@ -29,12 +29,14 @@ import (
 	"github.com/pocikode/ratatoskr/internal/ca"
 	"github.com/pocikode/ratatoskr/internal/config"
 	"github.com/pocikode/ratatoskr/internal/events"
+	"github.com/pocikode/ratatoskr/internal/filterpreset"
 	"github.com/pocikode/ratatoskr/internal/history"
 	"github.com/pocikode/ratatoskr/internal/logging"
 	"github.com/pocikode/ratatoskr/internal/netx"
 	"github.com/pocikode/ratatoskr/internal/project"
 	"github.com/pocikode/ratatoskr/internal/proxy"
 	"github.com/pocikode/ratatoskr/internal/rawhttp"
+	"github.com/pocikode/ratatoskr/internal/scope"
 	"github.com/pocikode/ratatoskr/internal/store"
 )
 
@@ -133,7 +135,11 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		return nil, err
 	}
 
-	a.history = history.NewService(history.ServiceDeps{DB: a.project.DB, Bus: &a.events})
+	a.history = history.NewService(history.ServiceDeps{
+		DB: a.project.DB, Bus: &a.events,
+		Scope:      scope.New(a.project.DB).Node,
+		ExpandText: filterpreset.New(a.project.DB).ExpandText,
+	})
 	a.capture = history.New(history.Deps{DB: a.project.DB, Bus: &a.events, Logger: a.log})
 	a.handler = a.buildHandler(buildInfo(opts.Version, opts.Commit))
 
