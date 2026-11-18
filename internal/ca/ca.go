@@ -9,6 +9,7 @@
 package ca
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -79,9 +80,10 @@ type Service struct {
 	// mu serializes Regenerate and Import.
 	mu sync.Mutex
 
-	cacheMu sync.Mutex
-	cache   *lru.Cache[string, *tls.Certificate]
-	group   singleflight.Group
+	// cache holds issued leaves. lru.Cache is safe for concurrent use, so the
+	// hot handshake path takes only its internal lock.
+	cache *lru.Cache[string, *tls.Certificate]
+	group singleflight.Group
 }
 
 // Open loads the root CA from instance.db, generating and storing one on first
@@ -152,7 +154,9 @@ func (s *Service) loadOrCreate(ctx context.Context) (*rootCA, error) {
 
 	keyDER, err := s.seal.open(keyEnc, []byte(keyAAD))
 	if err != nil {
-		return nil, fmt.Errorf("ca: open stored root key (secret.key changed?): %w", err)
+		return nil, fmt.Errorf("ca: cannot open the stored root CA key: secret.key no longer matches instance.db; "+
+			"restore the original secret.key, or remove the ca row from instance.db to generate a new root CA "+
+			"(every client must then re-trust the new one): %w", err)
 	}
 
 	root, err := parseRoot(certPEM, keyDER)
@@ -243,11 +247,10 @@ func (s *Service) issueOnce(key string, iss *issuer, name string) (*tls.Certific
 		}
 
 		// A root replaced while we were signing makes this leaf unusable; do not
-		// cache it under the new generation.
+		// cache it under the new generation. A concurrent Purge can only drop
+		// this entry, which the next request re-issues.
 		if s.cur.Load() == iss {
-			s.cacheMu.Lock()
 			s.cache.Add(key, cert)
-			s.cacheMu.Unlock()
 		}
 
 		return cert, nil
@@ -286,19 +289,16 @@ func (s *Service) TLSConfig() *tls.Config {
 }
 
 // CertPEM returns the current root certificate in PEM form.
-func (s *Service) CertPEM() []byte { return copyPEM(s.cur.Load().pem) }
+func (s *Service) CertPEM() []byte { return bytes.Clone(s.cur.Load().pem) }
 
 // CertDER returns the current root certificate in DER form.
-func (s *Service) CertDER() []byte { return copyPEM(s.cur.Load().cert.Raw) }
+func (s *Service) CertDER() []byte { return bytes.Clone(s.cur.Load().cert.Raw) }
 
 // Generation counts how many roots this service has served; it starts at 1 and
 // grows on every [Service.Regenerate] and [Service.Import].
 func (s *Service) Generation() uint64 { return s.cur.Load().gen }
 
 func (s *Service) cached(key string) (*tls.Certificate, bool) {
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
-
 	return s.cache.Get(key)
 }
 
@@ -322,7 +322,10 @@ func (s *Service) Regenerate(ctx context.Context) error {
 }
 
 // Import replaces the root CA with an operator-supplied PEM certificate and
-// private key (PKCS#8, SEC1 or PKCS#1) and drops every cached leaf.
+// private key (PKCS#8, SEC1 or PKCS#1) and drops every cached leaf. The
+// certificate must be a CA that can sign certificates and the key must be ECDSA
+// or RSA (browsers do not accept Ed25519 certificate signatures); anything else
+// is rejected with [ErrInvalidCA].
 func (s *Service) Import(ctx context.Context, certPEM, keyPEM []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -367,7 +370,7 @@ func (s *Service) Export() (certPEM, keyPEM []byte, err error) {
 		return nil, nil, err
 	}
 
-	return copyPEM(iss.pem), key, nil
+	return bytes.Clone(iss.pem), key, nil
 }
 
 // replace stores root, makes it current under a new generation and purges the
@@ -380,9 +383,7 @@ func (s *Service) replace(ctx context.Context, root *rootCA) error {
 	old := s.cur.Load()
 	s.cur.Store(&issuer{cert: root.cert, key: root.key, pem: root.pem, gen: old.gen + 1})
 
-	s.cacheMu.Lock()
 	s.cache.Purge()
-	s.cacheMu.Unlock()
 
 	return nil
 }

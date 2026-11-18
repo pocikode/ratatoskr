@@ -11,6 +11,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -268,6 +269,9 @@ func TestImportRejectsBadMaterial(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	noSignCert, noSignKey := noCertSignCA(t)
+	edCert, edKey := ed25519CA(t)
+
 	tests := []struct {
 		name    string
 		certPEM []byte
@@ -277,6 +281,9 @@ func TestImportRejectsBadMaterial(t *testing.T) {
 		{name: "no key", certPEM: certPEM, keyPEM: []byte("not a key")},
 		{name: "mismatched key", certPEM: certPEM, keyPEM: foreignKey},
 		{name: "non-CA certificate", certPEM: leafPEM(t, src, "leaf.example"), keyPEM: leafKeyPEM(t, src, "leaf.example")},
+		// Browsers reject leaves from these roots even though x509.Verify accepts them.
+		{name: "CA without KeyUsageCertSign", certPEM: noSignCert, keyPEM: noSignKey},
+		{name: "Ed25519 CA", certPEM: edCert, keyPEM: edKey},
 	}
 
 	for _, tc := range tests {
@@ -414,7 +421,15 @@ func TestMissingSecretKeyFailsLoudly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := ca.Open(t.Context(), ca.Deps{Instance: e.inst, Root: e.root}); err == nil {
+	_, err := ca.Open(t.Context(), ca.Deps{Instance: e.inst, Root: e.root})
+	if err == nil {
 		t.Fatal("Open with a foreign secret.key succeeded")
+	}
+
+	// The error is the operator's only clue at start-up: it must name the fix.
+	for _, want := range []string{"secret.key", "instance.db"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Open() error = %q, want it to mention %q and the way out", err, want)
+		}
 	}
 }

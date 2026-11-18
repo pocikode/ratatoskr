@@ -1,7 +1,6 @@
 package ca
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -91,13 +90,19 @@ func parseRoot(certPEM, keyDER []byte) (*rootCA, error) {
 		return nil, fmt.Errorf("%w: certificate is not a CA", ErrInvalidCA)
 	}
 
+	// x509.Verify ignores KeyUsage, but browsers and OS trust stores do not: a
+	// root without KeyUsageCertSign issues leaves every client rejects.
+	if cert.KeyUsage != 0 && cert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return nil, fmt.Errorf("%w: certificate cannot sign certificates (no KeyUsageCertSign)", ErrInvalidCA)
+	}
+
 	key, err := parseKeyDER(keyDER)
 	if err != nil {
 		return nil, err
 	}
 
-	if !supportsKey(key) {
-		return nil, fmt.Errorf("%w: unsupported private key type %T", ErrInvalidCA, key.Public())
+	if err := checkKeyType(key); err != nil {
+		return nil, err
 	}
 
 	if !publicKeysEqual(cert, key) {
@@ -168,7 +173,7 @@ func marshalKeyDER(key crypto.Signer) ([]byte, error) {
 	return der, nil
 }
 
-// keyPEM renders a private key as an unencrypted PKCS#8 PEM block.
+// marshalKeyPEM renders key as an unencrypted PKCS#8 PEM block.
 func marshalKeyPEM(key crypto.Signer) ([]byte, error) {
 	der, err := marshalKeyDER(key)
 	if err != nil {
@@ -236,17 +241,17 @@ func errExpired(cert *x509.Certificate, now time.Time) error {
 	return nil
 }
 
-// supportsKey reports whether we can actually sign with key. Import accepts
-// every crypto.Signer, but a key type we cannot use must fail loudly now rather
-// than at the first handshake.
-func supportsKey(key crypto.Signer) bool {
+// checkKeyType reports whether browsers accept certificates signed with key.
+// Go can sign with Ed25519, but no major browser or OS trust store verifies
+// Ed25519 certificate signatures, so such a root would produce leaves that fail
+// on every client.
+func checkKeyType(key crypto.Signer) error {
 	switch key.Public().(type) {
-	case *ecdsa.PublicKey, *rsa.PublicKey, ed25519.PublicKey:
-		return true
+	case *ecdsa.PublicKey, *rsa.PublicKey:
+		return nil
+	case ed25519.PublicKey:
+		return fmt.Errorf("%w: Ed25519 CA keys are not accepted by browsers; use ECDSA P-256 or RSA", ErrInvalidCA)
 	}
 
-	return false
+	return fmt.Errorf("%w: unsupported private key type %T", ErrInvalidCA, key.Public())
 }
-
-// copyPEM returns a copy so callers cannot mutate the snapshot.
-func copyPEM(b []byte) []byte { return bytes.Clone(b) }
