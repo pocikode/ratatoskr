@@ -127,3 +127,19 @@ explains the deviation from `api.Options` (one wrap covers `/debug/pprof`) well,
 - [major] `TestHosts` moved to `internal/api/middleware/host_test.go`; `middleware_test.go` is back to its original content.
 - [nit] `isLoopback` now uses `ip.Unmap().IsLoopback()`.
 - [minor] left unticked: docs/03 §8 wording is a lead change (no code change).
+
+### Re-review (round 2)
+Reviewed `fa44f85` against `main`. Changed files: `internal/api/middleware/host.go`, `host_test.go`,
+`internal/app/app.go`, `app_test.go`, `internal/config/config.go`, `config_test.go` and this task file. All are in
+`paths`. `internal/api/middleware/middleware_test.go` no longer differs from `main`. `make check`: green (exit 0).
+`make test-int` not needed: proxy, store and rawhttp are untouched.
+
+Round 1 is resolved. The major one: `TestHosts` now lives in `internal/api/middleware/host_test.go` (matches
+`host*.go`) and reuses `okHandler` from the package's test files. The nit: `isLoopback` uses `ip.Unmap().IsLoopback()`
+(`app.go:372`), so it matches the guard. `--listen [::ffff:127.0.0.1]:…` now turns the guard on and no longer
+triggers `warnIfExposed`. The minor (add `ratatoskr.localhost` to docs/03 §8) stays open for the lead. It is a doc
+change only and does not block.
+
+No new findings.
+
+Verdict: **approve**. The status stays `in_review`, and the operator sets `done` after the merge.
