@@ -3,7 +3,7 @@ id: T-017
 title: HTTP History page with HTTPQL query bar
 milestone: M1
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-012, T-013]
 owner: "opencode/deepseek-v4.1-flash-1017"
 branch: task/T-017-http-history-page
@@ -188,3 +188,30 @@ file that was deleted again); nothing was committed besides this section.
 ### Verdict
 `changes_requested` — 1 blocker, 3 major. Fix the cURL quoting, the single-line filter (+ Enter while pending), the
 `BAD_QUERY` applied-state rollback and the truncation flag, each with a regression test; minors can ride along.
+
+### Round 2 — claude-code/opus-5.5 · 2026-11-18 · @ 8900571
+**Scope:** unchanged, all files within `paths` or the approved out-of-scope list. **`make check`:** green (163/163 vitest,
+svelte-check 0/0, Go unchanged). Round-1 fixes verified: cURL quoting (+test), single-line filter from the start doc
+(+paste test), Enter only deferred on `'active'`, `applied` committed on success, span lead offset, decoded-size
+truncation (+test), `untrack(start)`, `detailLoading` reset, history-step reset.
+
+- [ ] [major] web/src/pages/http-history/history.svelte.ts:77,133,138 — regression from the `applied` fix: while
+  `apply()`'s `reload(next)` is in flight, `setSort` (column header click) or `history.reload` calls `reload()` with the
+  **old** `applied`, bumps `reloadToken`, and the new query's result is dropped at line 87. The bar shows the new filter,
+  the table shows unfiltered rows with no error — the user believes they are filtered. Window = one `requests` round
+  trip (1000 rows). → keep the in-flight candidate: `private sent = ''`; `apply` sets `this.sent = next`; default
+  `reload(query = this.sent)`; on `BAD_QUERY` reset `this.sent = this.applied`. Test: `apply('x')`, `setSort(...)` before
+  resolving, assert `applied === 'x'` and the last `requests` call had `query: 'x'`.
+- [ ] [minor] web/src/pages/http-history/history.svelte.ts:130-132 — `apply()` clears `pending` (and the selection)
+  before the server accepts. On `BAD_QUERY` the old rows are kept but the buffered "↓ N new" rows are gone from both
+  lists (still counted in `total`) until the next reload. → delete line 132 (a successful `reload` already sets
+  `pending = []` at line 116); optionally move `selection.clear()`/`detail = null` to the success path too.
+- [ ] [minor] web/src/pages/http-history/commands.ts:88 — the round-1 `//` comment strip has no regression test
+  (requested). → add a command test with `applied = 'req.method.eq:"GET" // x'` asserting the resulting query is
+  `(req.method.eq:"GET") AND req.host.eq:"…"`. (Comments containing `"` are not stripped — acceptable, note it.)
+- [ ] [nit] web/src/lib/components/QueryBar/QueryBar.svelte:70-73 — the filter's replacement spec drops the original
+  `userEvent`, so a multi-line paste does not reset `historyStep`, and the cursor is placed using a `newDoc` offset
+  (pre-collapse) → add `userEvent: tr.annotation(Transaction.userEvent)` to the returned spec.
+
+### Verdict (round 2)
+`changes_requested` — 1 major (in-flight query dropped by sort/reload). Minors can ride along.
