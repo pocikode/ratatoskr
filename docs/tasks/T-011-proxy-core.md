@@ -3,9 +3,9 @@ id: T-011
 title: Proxy core - listener multiplexing, CONNECT, MITM, forwarding, capture
 milestone: M1
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-005, T-008, T-010]
-owner: ""
+owner: "claude (sonnet 5.5)"
 branch: task/T-011-proxy-core
 paths:
   - internal/proxy/**
@@ -36,6 +36,13 @@ and captures every request/response into the project DB (batched) emitting `Requ
 - [ ] Capture can be paused when no project is open (requests still forwarded).
 
 ## Plan (implementer, ≤15 lines)
+1. `internal/events`: generic `Bus[T]`, per-subscriber buffer 1024, non-blocking publish, slow subscribers get a `Stale` marker.
+2. `internal/netx`: dialer with timeouts + keep-alive `Pool` keyed host:port:tls:sni (idle timers, per-key cap, no goroutines).
+3. `internal/history/capture.go`: batched writer (50 ms / 200 rows) into project.db requests/responses/*_headers; paused when no project DB; emits Added/Updated on a Bus. Upstream errors are stored as the synthetic 502 response (no schema change).
+4. `internal/proxy`: accept loop; per-conn goroutine tied to ctx. First request decides: CONNECT (TLS sniffed -> MITM via ca.TLSConfig with CONNECT-host SNI fallback, else plain), absolute-form -> forward, origin-form with listener/`ratatoskr.localhost` Host -> UI (conn replayed into an `http.Server` via a chan listener; absolute-form `ratatoskr.localhost` GET/HEAD rewritten to origin-form).
+5. Forward only through rawhttp + netx; absolute-form target rewritten to origin-form with `Builder.SetTarget`, everything else byte-exact; 1xx relayed, 101 tunnelled raw; stale pooled conn retried once for bodyless requests; errors -> 502 page + record.
+6. `internal/testutil`: raw TCP server, HTTP/TLS upstreams. Tests: unit, byte-exact corpus, capture, integration (`-tags integration`): 200x50 leak + latency, HTTP/HTTPS parity.
+7. `internal/app`: serve the listener through `proxy.Server` (UI handler as fallback). Multi `--listen` / `--ui-listen` stay gated (follow-up).
 
 ## Out-of-scope change needed (if any)
 
