@@ -3,7 +3,7 @@ id: T-017
 title: HTTP History page with HTTPQL query bar
 milestone: M1
 role: frontend
-status: in_review
+status: done
 depends_on: [T-012, T-013]
 owner: "opencode/deepseek-v4.1-flash-1017"
 branch: task/T-017-http-history-page
