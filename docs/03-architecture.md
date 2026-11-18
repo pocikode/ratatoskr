@@ -198,7 +198,7 @@ Indexes: `requests(host)`, `(created_at)`, `(source)`, `(method)`, `responses(co
 - Guests are decided by the TCP peer address. A reverse proxy on the same host makes every client it forwards a loopback
   peer, so `--allow-guests` must not be combined with one (documented in `--help`; no `X-Forwarded-For` trust).
 - DNS rebinding: when the UI listener is bound to a loopback address, requests whose `Host` (port stripped) is not
-  `localhost`, a loopback IP literal or the configured listen host are rejected with 421 before CSRF/auth (T-027).
+  `localhost`, `ratatoskr.localhost` (F-NET-2), a loopback IP literal or the configured listen host are rejected with 421 before CSRF/auth (T-027).
   `CrossOriginProtection` and the WS origin check cannot catch rebinding, because the attacker's origin equals `Host`.
 - Response preview served from a separate origin-like path with `Content-Security-Policy: sandbox`.
 - Secrets (AI keys, secret env vars, CA key) encrypted at rest with XChaCha20-Poly1305 using a key file `secret.key` (0600).

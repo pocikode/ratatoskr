@@ -3,7 +3,7 @@ id: T-027
 title: DNS rebinding defence (Host allowlist on loopback) and --allow-guests reverse-proxy warning
 milestone: M0
 role: backend
-status: in_review
+status: done
 depends_on: [T-007]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-027-host-allowlist
@@ -107,7 +107,7 @@ approve is hard rule 1, and fixing it means moving one file.
       (`internal/api/*_test.go` does not match the `middleware/` subdirectory). Hard rule 1. → Move `TestHosts` into a new
       `internal/api/middleware/host_test.go`; it matches the existing `host*.go` path and can reuse `okHandler` from the
       same package. Another fix: the lead adds the file to `paths`.
-- [ ] [minor] internal/app/app.go:328 — `ratatoskr.localhost` is allowed, but docs/03 §8 only lists `localhost`, loopback
+- [x] [minor] internal/app/app.go:328 — `ratatoskr.localhost` is allowed, but docs/03 §8 only lists `localhost`, loopback
       literals and the configured listen host. The choice is right: F-NET-2's `/ca.crt` through the proxy needs it, and
       `.localhost` cannot be rebound (RFC 6761). But the code goes beyond the spec. → Lead: add "and `ratatoskr.localhost`
       (F-NET-2)" to the DNS-rebinding bullet in docs/03 §8. No code change.
@@ -143,3 +143,5 @@ change only and does not block.
 No new findings.
 
 Verdict: **approve**. The status stays `in_review`, and the operator sets `done` after the merge.
+
+Lead: docs/03 §8 now lists `ratatoskr.localhost` (F-NET-2). Reviewer approved; status `done`.
