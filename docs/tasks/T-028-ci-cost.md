@@ -53,5 +53,26 @@ CI stops spending runner minutes on changes that cannot break the build, while e
 - Follow-ups (proposed tasks): stub "skipped" job if `make check` becomes a required check.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: approve
+- Checked: diff is limited to the 4 files in `paths`. PR #9 CI is green with exactly one check, `make check (ubuntu-latest)`,
+  which proves the PR side of AC3. Local `make check`: all Go steps pass (fix-check, vet, lint, `go test -race`); `web-check`
+  fails with `svelte-check: command not found` because this checkout has no `web/node_modules`. That is an environment
+  problem, not a regression, since the diff touches nothing under `web/`. actionlint is not installed locally, so I took
+  the handoff's actionlint result on trust.
+- AC1: `paths-ignore` skips a run only when *every* changed file matches. Per GitHub filter semantics, `**/*.md` also
+  matches root `README.md`/`AGENTS.md`. Nothing that builds embeds or reads `docs/**` or `*.md`: the only `go:embed`s
+  are `web/dist` and the SQL migrations. AC2: `ready_for_review` is in `types`, and the job `if:` skips draft PRs. A
+  skipped job reports as "Skipped", which branch protection treats as passing. AC3: `fromJSON` matrix is correct, and
+  the job-level `if:` does not depend on `matrix`. AC4: documented in docs/07 §8.
+- `concurrency: ci-${{ github.ref }}`: a `workflow_dispatch` run on a branch (`refs/heads/…`) and the PR run
+  (`refs/pull/N/merge`) are in separate groups, so a manual macOS run does not cancel the PR check. Good.
 - Findings:
+  - [ ] [minor] .github/workflows/ci.yml:8,11 — `'**/*.md'` also ignores Markdown under `web/`, but `web` `bun run check`
+    runs `prettier --check .`, which formats `.md` files (`web/.prettierignore` does not exclude them). No `web/**/*.md`
+    exists today. Once one is added, a PR that changes only that file skips CI and could turn `main` red. → either add
+    `'!web/**/*.md'` after `'**/*.md'`, or add `*.md` to `web/.prettierignore` (needs a frontend task). Alternatively,
+    record it under Known limitations.
+  - [ ] [nit] docs/07-agent-workflow.md:65 — the new bullet line is ~230 chars, while the rest of §8 wraps near 130.
+    → reflow to match the neighbouring lines.
+  - [ ] [nit] docs/tasks/T-028-ci-cost.md AC list — the `make check` box is still unchecked even though PR #9 CI is
+    green. → tick it when the operator merges.
