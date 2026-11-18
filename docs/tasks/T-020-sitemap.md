@@ -23,10 +23,11 @@ Contract landed in T-094 (`sitemap.graphqls`, stub `resolvers/sitemap.go`, mock 
 Read the expanded F-SITE-1 for the derivation rules. Key points:
 - One query: `sitemapNodes(parentId, query, scopeId, recursive)`. No sitemap subscription and no delete mutation: the page
   reuses `requestAdded`/`requestUpdated`/`requestsDeleted` (refetch roots + expanded nodes, ≤ 1/s) and
-  `deleteRequests(query: "(<node.query>) and (<bar>)", scopeId)`.
+  `deleteRequests(query: <combined>, scopeId)`, where `<combined>` is `node.query` alone for an empty/whitespace bar
+  (HTTPQL rejects `()`), else `(<node.query>) and (<bar>)`. Use one helper for table and delete.
 - Backend: `SitemapNode.query` is server-built HTTPQL (e.g. `req.path.regex` with quoted segments). Test the invariant
-  `requests(query: "(n.query) and (q)", scopeId).totalCount == n.requestCount` for HOST/DIRECTORY/FILE/QUERY nodes,
-  including `/a//b/`, `*` paths, IPv6 hosts and regex metacharacters in segments. Perf budget: roots for 10k requests /
+  `requests(query: <combined(n.query, q)>, scopeId).totalCount == n.requestCount`, with `q` both empty and
+  non-empty, for HOST/DIRECTORY/FILE/QUERY nodes, including `/a//b/`, `*` paths, IPv6 hosts and regex metacharacters in segments. Perf budget: roots for 10k requests /
   200 hosts < 500 ms (benchmark).
 - Replace the stub in `internal/api/graphql/resolvers/sitemap.go` (inside this task's `paths`).
 

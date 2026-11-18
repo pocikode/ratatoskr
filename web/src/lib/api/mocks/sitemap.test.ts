@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMockClient } from './exchange';
+import { createHistoryMock, makeRequest } from './history';
+import { createSitemapMock } from './sitemap';
 
 const client = () => createMockClient({ count: 300, liveIntervalMs: 0 });
 const FIELDS = 'id parentId kind label url requestCount hasChildren query';
@@ -50,8 +52,55 @@ describe('sitemap mock', () => {
     expect(await total(c, `(${n.query}) and ("static")`)).toBe(n.requestCount);
   });
 
-  it('rejects a malformed parentId', async () => {
-    const res = await client().query(`{ sitemapNodes(parentId: "nope") { id } }`, {}).toPromise();
-    expect(res.error?.graphQLErrors[0]?.extensions.code).toBe('BAD_INPUT');
+  it('uses the node query alone for an empty bar and rejects an empty group, like HTTPQL', async () => {
+    const c = client();
+    const [host] = await nodes(c);
+    expect(await total(c, host!.query)).toBe(host!.requestCount);
+    const res = await c
+      .query(`query ($q: String) { requests(query: $q) { totalCount } }`, {
+        q: `(${host!.query}) and ()`,
+      })
+      .toPromise();
+    expect(res.error?.graphQLErrors[0]?.extensions.code).toBe('BAD_QUERY');
+  });
+
+  it('keeps requests without path segments on the host, query nodes only under path nodes', () => {
+    const h = createHistoryMock({ count: 0, liveIntervalMs: 0 });
+    const row = (i: number, path: string, query: string) => ({
+      ...makeRequest(i),
+      host: 'example.test',
+      port: 443,
+      tls: true,
+      path,
+      query,
+    });
+    const rows = [row(1, '/', 'x=1'), row(2, '*', 'x=2'), row(3, '/a', 'x=3')];
+    const { sitemapNodes } = createSitemapMock(rows, h.matcher).root;
+    const all = sitemapNodes({ recursive: true });
+    expect(all.map((n) => [n.kind, n.label, n.requestCount])).toEqual([
+      ['HOST', 'https://example.test:443', 3],
+      ['FILE', 'a', 1],
+      ['QUERY', '?x', 1],
+    ]);
+  });
+
+  it('rejects a malformed parentId but returns [] for a well-formed absent node', async () => {
+    const c = client();
+    for (const id of [
+      'nope',
+      '[]',
+      '[1]',
+      '[true,2,{}]',
+      '[true,"h",1,[]]',
+      '[true,"h",1,["a"],[1]]',
+    ]) {
+      const res = await c
+        .query(`query ($id: ID) { sitemapNodes(parentId: $id) { id } }`, { id })
+        .toPromise();
+      expect(res.error?.graphQLErrors[0]?.extensions.code, id).toBe('BAD_INPUT');
+    }
+    expect(await nodes(c, `(parentId: ${JSON.stringify('[true,"gone.test",1,["a"]]')})`)).toEqual(
+      [],
+    );
   });
 });

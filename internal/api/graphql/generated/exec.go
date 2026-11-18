@@ -2042,9 +2042,11 @@ type SitemapNode {
   """
   An HTTPQL expression that selects exactly the requests at or below this node,
   ignoring the call's ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + `. Clients treat it as opaque and
-  combine it as ` + "`" + `(<node query>) and (<query bar>)` + "`" + `, passing the same ` + "`" + `scopeId` + "`" + `,
-  for ` + "`" + `requests` + "`" + ` (the node's table) and ` + "`" + `deleteRequests` + "`" + ` (delete node); the
-  result count then equals ` + "`" + `requestCount` + "`" + `. Always parses; never empty.
+  combine it with the query bar, passing the same ` + "`" + `scopeId` + "`" + `, for ` + "`" + `requests` + "`" + `
+  (the node's table) and ` + "`" + `deleteRequests` + "`" + ` (delete node): the node query alone
+  when the bar is empty or whitespace (HTTPQL rejects ` + "`" + `()` + "`" + `), otherwise
+  ` + "`" + `(<node query>) and (<query bar>)` + "`" + `. The result count then equals
+  ` + "`" + `requestCount` + "`" + `. Always parses; never empty.
   """
   query: String!
 }

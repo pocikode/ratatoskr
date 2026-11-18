@@ -69,9 +69,10 @@ function chain(r: MockRequest): Desc[] {
     });
   });
   const names = namesOf(r.query);
-  if (names.length) {
+  // Query nodes hang under path nodes only; requests without segments stay on the host (F-SITE-1).
+  if (segs.length && names.length) {
     const label = `?${names.join('&')}`;
-    const exact = `^/*${segs.map(reEsc).join('/+')}/*$`;
+    const exact = `^/+${segs.map(reEsc).join('/+')}/*$`;
     const all = `^&*(?:(?:${names.map(reEsc).join('|')})(?:=[^&]*)?(?:&+|$))+$`;
     out.push({
       id: JSON.stringify([...key, segs, names]),
@@ -90,11 +91,16 @@ function chain(r: MockRequest): Desc[] {
   return out;
 }
 
+const badQuery = (msg: string) => new GraphQLError(msg, { extensions: { code: 'BAD_QUERY' } });
+
 /**
- * Splits `(<node query>) and (<rest>)` as the Sitemap page builds it. Returns null when the
- * text does not start with a node query this mock produced.
+ * Splits a node query alone, or `(<node query>) and (<rest>)`, as the Sitemap page builds it.
+ * Returns null when the text does not start with a node query this mock produced. Like the
+ * real parser, an empty `()` group is BAD_QUERY.
  */
 export function nodeFilter(text: string): { match: Pred; rest: string } | null {
+  const whole = registry.get(text);
+  if (whole) return { match: whole, rest: '' };
   if (!text.startsWith('(')) return null;
   let depth = 0;
   let inStr = false;
@@ -111,12 +117,29 @@ export function nodeFilter(text: string): { match: Pred; rest: string } | null {
       const rest = text
         .slice(i + 1)
         .trim()
-        .replace(/^and\s+/i, '')
-        .replace(/^\(([\s\S]*)\)$/, '$1');
-      return { match, rest };
+        .replace(/^and\s+/i, '');
+      const group = /^\(([\s\S]*)\)$/.exec(rest);
+      if (group && !group[1]!.trim()) throw badQuery('empty parentheses');
+      return { match, rest: group ? group[1]! : rest };
     }
   }
   return null;
+}
+
+const strs = (v: unknown) =>
+  Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === 'string');
+
+/** Shape of ids built by chain(): [tls, host, port] (+ [segments] (+ [names])). */
+function validId(v: unknown): boolean {
+  if (!Array.isArray(v) || v.length < 3 || v.length > 5) return false;
+  const [tls, host, port, segs, names] = v as unknown[];
+  return (
+    typeof tls === 'boolean' &&
+    typeof host === 'string' &&
+    Number.isInteger(port) &&
+    (v.length < 4 || strs(segs)) &&
+    (v.length < 5 || strs(names))
+  );
 }
 
 /** Sitemap root resolver over `rows`, filtered with the history mock's `matcher`. */
@@ -172,7 +195,7 @@ export function createSitemapMock(rows: MockRequest[], matcher: (query: unknown)
       sitemapNodes({ parentId, query, recursive }: Args): MockSitemapNode[] {
         if (parentId != null) {
           try {
-            if (!Array.isArray(JSON.parse(String(parentId)))) throw new Error();
+            if (!validId(JSON.parse(String(parentId)))) throw new Error();
           } catch {
             throw new GraphQLError(`malformed sitemap node id ${String(parentId)}`, {
               extensions: { code: 'BAD_INPUT' },
