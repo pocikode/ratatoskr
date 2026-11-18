@@ -2,7 +2,7 @@
 
 Ratatoskr is an MIT-licensed web security proxy (fork of Hetty) targeting feature parity with Caido.
 Backend **Go 1.27** single binary · Frontend **Svelte 5 SPA** built with **Bun** · Storage **SQLite** · API **GraphQL**.
-These rules apply to every AI agent (Claude Code, OpenCode, any model). They override your defaults.
+These rules apply to every AI agent (Claude Code, OpenCode, Codex, any model). They override your defaults.
 
 ## Read before doing anything
 1. This file (always).

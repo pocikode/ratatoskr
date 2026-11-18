@@ -1,6 +1,6 @@
 # 07 — Multi-Agent Workflow
 
-Several AI agents (Claude Code and OpenCode, different models) work on this repo **in parallel**. This document is
+Several AI agents (Claude Code, OpenCode and Codex, different models) work on this repo **in parallel**. This document is
 the protocol that keeps them from colliding and keeps quality consistent. A human ("operator") assigns tasks and merges.
 
 ## 1. Roles
@@ -13,10 +13,10 @@ the protocol that keeps them from colliding and keeps quality consistent. A huma
 | **reviewer** | `reviewer.md` | review notes in the task file only | edit code | **different model family from the implementer** |
 | **qa** | `qa.md` | tests only (`*_test.go`, `testdata/**`, `web/**/*.test.ts`, `web/tests/e2e/**`) | change production code | any solid model; can run in parallel with implementation |
 
-Cross-model review is mandatory: if Claude implemented it, a non-Claude model reviews it in OpenCode, and vice versa.
+Cross-model review is mandatory: if Claude implemented it, a non-Claude model reviews it in OpenCode or Codex, and vice versa.
 
 ## 2. Single source of truth
-- `AGENTS.md` (root) — read automatically by OpenCode and by Claude Code (via `CLAUDE.md` → `@AGENTS.md` import).
+- `AGENTS.md` (root) — read automatically by OpenCode, Codex and Claude Code (via `CLAUDE.md` → `@AGENTS.md` import). Role agents: `.claude/agents/*.md`, `.opencode/agents/*.md`, `.codex/agents/*.toml`; commands: `.claude/commands`, `.opencode/commands`, Codex skills in `.agents/skills` (invoke as `$task T-###`).
 - Specs in `docs/`. **If code and spec disagree, stop and report** — the lead updates the spec first.
 - Each agent session loads only: `AGENTS.md` + its task file + the spec sections the task links. Don't read all docs.
 
@@ -32,7 +32,7 @@ Cross-model review is mandatory: if Claude implemented it, a non-Claude model re
 ```
 # operator, once per task:
 git worktree add ../ratatoskr-T-014 -b task/T-014-httpql-parser main
-cd ../ratatoskr-T-014 && claude        # or: opencode
+cd ../ratatoskr-T-014 && claude        # or: opencode, codex
 ```
 - One agent ↔ one worktree ↔ one task ↔ one branch. Never two agents in the same worktree.
 - Rebase on `main` before review: `git fetch && git rebase origin/main`. Generated files conflicting? Re-run `make gen`, never hand-merge.
