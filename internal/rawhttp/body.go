@@ -1,6 +1,9 @@
 package rawhttp
 
-import "io"
+import (
+	"errors"
+	"io"
+)
 
 // noBody is the reader of a message without a body.
 var noBody io.Reader = emptyReader{}
@@ -33,4 +36,27 @@ func (m *Message) capture(p []byte) {
 		p = p[:room]
 	}
 	m.captured = append(m.captured, p...)
+}
+
+// lengthReader reads a Content-Length body. A peer that closes before the
+// declared bytes arrive is an error, not a clean EOF: forwarding the short body
+// as complete is how a truncated message gets mistaken for a whole one.
+type lengthReader struct {
+	r      io.Reader
+	remain int64
+}
+
+func (l *lengthReader) Read(p []byte) (int, error) {
+	if l.remain <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > l.remain {
+		p = p[:l.remain]
+	}
+	n, err := l.r.Read(p)
+	l.remain -= int64(n)
+	if l.remain > 0 && errors.Is(err, io.EOF) {
+		return n, io.ErrUnexpectedEOF
+	}
+	return n, err
 }

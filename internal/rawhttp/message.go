@@ -52,6 +52,8 @@ const (
 	WarnContentLengthWithTransferEncoding = "content-length-with-transfer-encoding"
 	WarnMultipleTransferEncodings         = "multiple-transfer-encodings"
 	WarnTransferEncodingOnHTTP10          = "transfer-encoding-on-http10"
+	WarnSpaceBeforeColon                  = "space-before-colon"
+	WarnLeadingBlankLine                  = "leading-blank-line"
 )
 
 // Errors returned by the readers. Every parse or framing error wraps one of
@@ -62,13 +64,15 @@ var (
 	// ErrFraming means the body boundaries are ambiguous (conflicting
 	// Content-Length values, an unsupported Transfer-Encoding).
 	ErrFraming = errors.New("rawhttp: ambiguous body framing")
-	// ErrHeadTooLarge means the head exceeded Limits.MaxHeadBytes.
+	// ErrHeadTooLarge means the head exceeded Limits.MaxHeadBytes or held more
+	// header fields than the reader keeps.
 	ErrHeadTooLarge = errors.New("rawhttp: head too large")
 )
 
-// A Header is one header field of a message, with its name and value exactly
-// as sent (only the optional leading and trailing whitespace of the value is
-// trimmed, as RFC 9110 §5.5 requires of a parser).
+// A Header is one header field of a message, with its name and value as sent,
+// save the whitespace RFC 9110 §5.5 allows around a value and RFC 9112 §5.1
+// forbids between a name and its colon: both are trimmed, and the latter is
+// recorded as [WarnSpaceBeforeColon].
 type Header struct {
 	Name  string
 	Value string
@@ -211,7 +215,7 @@ func (m *Message) WriteTo(w io.Writer) (int64, error) {
 func (m *Message) framingReader() io.Reader {
 	switch m.framing {
 	case FramingLength:
-		return io.LimitReader(m.br, m.length)
+		return &lengthReader{r: m.br, remain: m.length}
 	case FramingChunked:
 		return &chunkedReader{br: m.br, emitFraming: true}
 	case FramingClose:

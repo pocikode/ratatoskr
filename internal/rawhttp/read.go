@@ -14,10 +14,14 @@ import (
 type Limits struct {
 	// MaxHeadBytes caps the start line plus every header field.
 	MaxHeadBytes int
-	// MaxBodyBytes caps how many body bytes are kept for [Message.Raw].
-	// Non-positive means "capture nothing".
+	// MaxBodyBytes caps how many body bytes are kept for [Message.Raw]. A
+	// negative value disables capture; zero applies [DefaultLimits].
 	MaxBodyBytes int64
 }
+
+// maxHeaders bounds the structured header view, so a head packed with one-letter
+// fields cannot turn the 1 MiB budget into tens of megabytes of Header values.
+const maxHeaders = 1000
 
 // DefaultLimits are the budgets from docs/03-architecture.md §4: a 1 MiB head
 // and a 64 MiB body capture cap.
@@ -66,7 +70,7 @@ func responseMethod(method string) string {
 
 func readHead(m *Message, br *bufio.Reader, limits Limits, k kind, method string) error {
 	limits = limits.normalized()
-	raw, err := readHeadBytes(br, limits.MaxHeadBytes)
+	raw, skipped, err := readHeadBytes(br, limits.MaxHeadBytes)
 	if err != nil {
 		return err
 	}
@@ -79,6 +83,9 @@ func readHead(m *Message, br *bufio.Reader, limits Limits, k kind, method string
 		captureLimit: limits.MaxBodyBytes,
 		length:       -1,
 	}
+	if skipped {
+		m.warn(WarnLeadingBlankLine)
+	}
 	if err := m.parseHead(); err != nil {
 		return err
 	}
@@ -90,29 +97,30 @@ func readHead(m *Message, br *bufio.Reader, limits Limits, k kind, method string
 }
 
 // readHeadBytes reads up to and including the empty line that ends a message
-// head.
-func readHeadBytes(br *bufio.Reader, budget int) ([]byte, error) {
-	line, err := readLine(br, budget)
-	if err != nil {
-		return nil, err
-	}
-	raw := line
-	// A blank first line is not a start line; let the parser reject it as
-	// malformed instead of waiting for a head that will never come.
-	if isBlank(line) {
-		return raw, nil
-	}
+// head. Blank lines before the start line are skipped, not kept in the head:
+// RFC 9112 §2.2 lets a parser ignore them, and keep-alive clients do send a
+// stray one after a body. skipped reports that there was at least one.
+func readHeadBytes(br *bufio.Reader, budget int) (raw []byte, skipped bool, err error) {
+	used := 0
 	for {
-		line, err := readLine(br, budget-len(raw))
-		if errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("rawhttp: head: %w", io.ErrUnexpectedEOF)
-		}
+		line, err := readLine(br, budget-used)
 		if err != nil {
-			return nil, err
+			if len(raw) == 0 {
+				return nil, skipped, err
+			}
+			if errors.Is(err, io.EOF) {
+				return nil, skipped, fmt.Errorf("rawhttp: head: %w", io.ErrUnexpectedEOF)
+			}
+			return nil, skipped, err
+		}
+		used += len(line)
+		if len(raw) == 0 && isBlank(line) {
+			skipped = true
+			continue
 		}
 		raw = append(raw, line...)
 		if isBlank(line) {
-			return raw, nil
+			return raw, skipped, nil
 		}
 	}
 }
@@ -175,6 +183,20 @@ func (m *Message) parseHead() error {
 	m.lineEnd = next
 
 	cur, curStart := -1, 0
+	var value []byte // value of the field at cur, obs-folds included
+
+	// endHeader records the field's value and its raw bytes once its last line
+	// is known: a block of folds then costs one append per line, not a copy of
+	// the whole field each time (T-010 review, blocker).
+	endHeader := func(end int) {
+		if cur < 0 {
+			return
+		}
+		m.headers[cur].Value = string(value)
+		m.headers[cur].Raw = string(m.raw[curStart:end])
+		cur, value = -1, value[:0]
+	}
+
 	for at := next; ; {
 		lineEnd, next, bare, ok := lineAt(m.raw, at)
 		if !ok {
@@ -185,6 +207,7 @@ func (m *Message) parseHead() error {
 		}
 		switch line := m.raw[at:lineEnd]; {
 		case len(line) == 0:
+			endHeader(at)
 			m.bodyAt = at
 			return nil
 		case line[0] == ' ' || line[0] == '\t':
@@ -195,20 +218,31 @@ func (m *Message) parseHead() error {
 			if cur < 0 {
 				m.warn(WarnMalformedHeader)
 			} else {
-				m.headers[cur].Value += " " + string(trimOWS(line))
-				m.headers[cur].Raw = string(m.raw[curStart:next])
+				value = append(append(value, ' '), trimOWS(line)...)
 			}
 		default:
-			name, value, found := bytes.Cut(line, []byte(":"))
-			if !found || len(name) == 0 {
+			endHeader(at)
+			name, rest, found := bytes.Cut(line, []byte(":"))
+			if !found {
 				m.warn(WarnMalformedHeader)
 				break
 			}
-			m.headers = append(m.headers, Header{
-				Name:  string(name),
-				Value: string(trimOWS(value)),
-				Raw:   string(m.raw[at:next]),
-			})
+			if trimmed := trimOWS(name); len(trimmed) != len(name) {
+				// RFC 9112 §5.1 rejects a space between the name and the
+				// colon; frame on the name the peer meant instead of ignoring
+				// the field (a smuggling vector).
+				m.warn(WarnSpaceBeforeColon)
+				name = trimmed
+			}
+			if len(name) == 0 {
+				m.warn(WarnMalformedHeader)
+				break
+			}
+			if len(m.headers) >= maxHeaders {
+				return ErrHeadTooLarge
+			}
+			value = append(value[:0], trimOWS(rest)...)
+			m.headers = append(m.headers, Header{Name: string(name)})
 			cur, curStart = len(m.headers)-1, at
 		}
 		at = next
@@ -218,10 +252,10 @@ func (m *Message) parseHead() error {
 func trimOWS(b []byte) []byte { return bytes.Trim(b, " \t") }
 
 func (m *Message) parseStartLine(line []byte) error {
-	fields := bytes.Fields(line)
 	if m.kind == kindResponse {
-		return m.parseStatusLine(line, fields)
+		return m.parseStatusLine(line)
 	}
+	fields := bytes.Fields(line)
 	if len(fields) < 2 {
 		return fmt.Errorf("rawhttp: %w: request line %q", ErrMalformed, line)
 	}
@@ -238,23 +272,36 @@ func (m *Message) parseStartLine(line []byte) error {
 	return nil
 }
 
-func (m *Message) parseStatusLine(line []byte, fields [][]byte) error {
-	if len(fields) < 2 {
+func (m *Message) parseStatusLine(line []byte) error {
+	versionStart, versionEnd := nextField(line, 0)
+	codeStart, codeEnd := nextField(line, versionEnd)
+	if versionStart == versionEnd || codeStart == codeEnd {
 		return fmt.Errorf("rawhttp: %w: status line %q", ErrMalformed, line)
 	}
-	code, err := parseCode(fields[1])
+	code, err := parseCode(line[codeStart:codeEnd])
 	if err != nil {
 		return fmt.Errorf("rawhttp: %w: status line %q", ErrMalformed, line)
 	}
-	m.version = string(fields[0])
+	m.version = string(line[versionStart:versionEnd])
 	m.status = code
-	if i := bytes.Index(line, fields[1]); i >= 0 {
-		m.reason = string(trimOWS(line[i+len(fields[1]):]))
-	}
+	m.reason = string(trimOWS(line[codeEnd:]))
 	if m.version != "HTTP/1.1" && m.version != "HTTP/1.0" {
 		m.warn(WarnBadVersion)
 	}
 	return nil
+}
+
+// nextField returns the span of the space- or tab-separated field at or after
+// at. An empty span means the line has no field left.
+func nextField(line []byte, at int) (start, end int) {
+	for at < len(line) && (line[at] == ' ' || line[at] == '\t') {
+		at++
+	}
+	start = at
+	for at < len(line) && line[at] != ' ' && line[at] != '\t' {
+		at++
+	}
+	return start, at
 }
 
 func parseCode(b []byte) (int, error) {
@@ -335,6 +382,9 @@ func (m *Message) frame() error {
 	return nil
 }
 
+// noResponseBody reports the responses that never carry a body. A 2xx answer to
+// CONNECT turns the connection into a tunnel rather than a message body; the
+// connection loop (T-011) owns that, so it is not handled here.
 func noResponseBody(status int, method string) bool {
 	return status/100 == 1 || status == 204 || status == 304 || method == "HEAD"
 }
