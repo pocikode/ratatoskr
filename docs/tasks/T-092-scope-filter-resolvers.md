@@ -88,3 +88,24 @@ Reviewer: claude-opus-5-5 · 2026-11-18 · branch `task/T-092-scope-filter-resol
   - [ ] [nit] internal/scope/service.go:266 — `scope.Reorder` and `filterpreset.Reorder` check input in different ways and return
     different error messages for the same mistake. Both are correct. Aligning them is a possible follow-up outside this task's
     paths, so no action is needed here.
+
+### Round 2
+Reviewer: claude-opus-5-5 · 2026-11-18 · branch `task/T-092-scope-filter-resolvers` @ ad40bd8
+
+**Checks**
+- `make check`: green (exit 0). `make test-int`: green (exit 0).
+- Paths: all 11 changed files are now inside `paths` (the test file is now `scope_filter_test.go`).
+- Round 1 fixes confirmed: the round-trip test compares name, alias and query in order. Both delete mutations return the
+  normalized ID (`strconv.FormatInt(n, 10)`).
+- Callers: `scope_presets` is only used in `internal/scope/service.go`, and the embedded migration loader
+  (`internal/store/migrate.go`, `migrations/project/*.sql`) picks up `0002` automatically. No other caller breaks.
+- Rollback: the "unknown" reorder case (`{idA, idB, "99"}`) updates two rows and then fails. The test that follows confirms
+  the order did not change, so the `Write` transaction rolls back.
+
+- Verdict: approve
+- Findings:
+  - [ ] [nit] docs/tasks/T-092-scope-filter-resolvers.md:36-39 — the acceptance criteria boxes are still unticked, but each one
+    is covered (see the round 1 AC note). → Tick them when you mark the task done.
+  - [ ] [nit] internal/scope/service_test.go:975 — the migration test runs the raw `.sql` files from disk, not the embedded
+    migrator, so it checks the SQL but not how the migrator orders and applies the files. The migrator already has its own tests in
+    `internal/store`, so no action is needed.
