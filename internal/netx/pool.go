@@ -95,13 +95,13 @@ func (p *Pool) Get(ctx context.Context, key Key) (c *Conn, reused bool, err erro
 func (p *Pool) Fresh(ctx context.Context, key Key) (*Conn, error) { return p.dial(ctx, key) }
 
 func (p *Pool) take(key Key) *Conn {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	for {
+		c := p.pop(key)
+		if c == nil {
+			return nil
+		}
 
-	for conns := p.idle[key]; len(conns) > 0; conns = p.idle[key] {
-		c := conns[len(conns)-1] // most recently used is the likeliest alive
-		p.idle[key] = conns[:len(conns)-1]
-
+		// Probe outside the lock: it waits on a read timeout.
 		if c.timer.Stop() && c.alive() {
 			return c
 		}
@@ -109,8 +109,21 @@ func (p *Pool) take(key Key) *Conn {
 		// hung up while the connection sat idle.
 		_ = c.Close()
 	}
+}
 
-	return nil
+func (p *Pool) pop(key Key) *Conn {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	conns := p.idle[key]
+	if len(conns) == 0 {
+		return nil
+	}
+
+	c := conns[len(conns)-1] // most recently used is the likeliest alive
+	p.idle[key] = conns[:len(conns)-1]
+
+	return c
 }
 
 func (p *Pool) dial(ctx context.Context, key Key) (*Conn, error) {

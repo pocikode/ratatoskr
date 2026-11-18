@@ -3,6 +3,8 @@ package proxy_test
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +17,7 @@ import (
 
 	"golang.org/x/tools/txtar"
 
+	"github.com/pocikode/ratatoskr/internal/netx"
 	"github.com/pocikode/ratatoskr/internal/proxy"
 	"github.com/pocikode/ratatoskr/internal/testutil"
 )
@@ -381,5 +384,106 @@ func TestStalledUpstreamBodyTimesOut(t *testing.T) {
 
 	if _, err := io.ReadAll(conn); err != nil { // EOF means the proxy closed on its own
 		t.Fatalf("proxy did not close the stalled session: %v", err)
+	}
+}
+
+// Only the listener's own address is Ratatoskr; another host on the same port
+// (Tomcat, Jenkins) must be forwarded.
+func TestForeignIPOnListenerPortIsForwarded(t *testing.T) {
+	t.Parallel()
+
+	dialed := make(chan string, 1)
+	r := startProxy(t, func(d *proxy.Deps) {
+		d.Pool = &netx.Pool{DialContext: func(_ context.Context, _, addr string) (net.Conn, error) {
+			dialed <- addr
+
+			return nil, errors.New("no route")
+		}}
+	})
+	_, port, _ := net.SplitHostPort(r.addr)
+
+	conn, err := net.Dial("tcp", r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	_, _ = fmt.Fprintf(conn, "GET http://192.0.2.10:%s/x HTTP/1.1\r\nHost: 192.0.2.10:%s\r\nConnection: close\r\n\r\n", port, port)
+
+	b, _ := io.ReadAll(conn)
+	if bytes.Contains(b, []byte("ui:")) {
+		t.Fatalf("went to the UI: %q", b)
+	}
+
+	if got := <-dialed; got != "192.0.2.10:"+port {
+		t.Fatalf("dialed %q", got)
+	}
+}
+
+// A 101 tunnel must outlive several idle periods: the deadlines set while the
+// head was written are cleared.
+func TestUpgradeSurvivesIdleTimeout(t *testing.T) {
+	t.Parallel()
+
+	r := startProxy(t, func(d *proxy.Deps) { d.IdleTimeout = 200 * time.Millisecond })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+
+		_, _ = bufio.NewReader(c).ReadString('\n')
+		_, _ = io.WriteString(c, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: x\r\nConnection: Upgrade\r\n\r\n")
+
+		tick := time.NewTicker(150 * time.Millisecond)
+		defer tick.Stop()
+
+		for range 6 {
+			<-tick.C
+
+			if _, err := io.WriteString(c, "ping\n"); err != nil {
+				return
+			}
+		}
+	}()
+
+	conn, err := net.Dial("tcp", r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	_, _ = fmt.Fprintf(conn, "GET http://%s/ws HTTP/1.1\r\nHost: %s\r\nUpgrade: x\r\nConnection: Upgrade\r\n\r\n", ln.Addr(), ln.Addr())
+
+	br := bufio.NewReader(conn)
+
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if line == "\r\n" {
+			break
+		}
+	}
+
+	for i := range 6 {
+		if line, err := br.ReadString('\n'); err != nil || line != "ping\n" {
+			t.Fatalf("ping %d: %q, %v", i, line, err)
+		}
 	}
 }

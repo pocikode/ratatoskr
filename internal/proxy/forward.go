@@ -120,6 +120,8 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn)
 	stop := context.AfterFunc(c.ctx, func() { _ = up.Close() })
 	defer stop()
 
+	_ = up.SetWriteDeadline(time.Now().Add(c.s.deps.HeaderTimeout))
+
 	if _, err := out.WriteTo(up); err != nil {
 		return nil, err
 	}
@@ -163,7 +165,7 @@ func (c *session) upgrade(entry *history.Entry, req *rawhttp.Request, resp *rawh
 	c.finish(entry, req, resp)
 
 	c.idle.Idle = 0
-	_ = c.conn.SetReadDeadline(time.Time{})
+	_ = c.conn.SetDeadline(time.Time{})
 
 	stop := context.AfterFunc(c.ctx, func() { _ = up.Close() })
 	defer stop()

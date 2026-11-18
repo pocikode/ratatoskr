@@ -3,7 +3,7 @@ id: T-011
 title: Proxy core - listener multiplexing, CONNECT, MITM, forwarding, capture
 milestone: M1
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-005, T-008, T-010]
 owner: "claude (sonnet 5.5)"
 branch: task/T-011-proxy-core
@@ -57,7 +57,7 @@ and captures every request/response into the project DB (batched) emitting `Requ
 **Verify:** `make check`; `go test -race -tags integration ./internal/proxy` (200x50 clients, goroutine count back to baseline, p99 added < 5 ms).
 **Decisions / limitations:**
 - Upstream TLS is not verified (`InsecureSkipVerify`, justified nolint): a pentest proxy must reach broken targets. A Settings toggle is a follow-up.
-- No pending row: an exchange is inserted once complete, so `Added` and `Updated` are published together. The pending state arrives with intercept (T-0xx).
+- No pending row: an exchange is inserted once complete, so `Added` and `Updated` are published together. The pending state deferred to T-031.
 - Upstream errors have no schema column: the synthetic 502 page is stored as the response (error text is in its body).
 - `http://ratatoskr.localhost/...` through the proxy supports GET/HEAD only (request is replayed into the UI server).
 - Absolute-form targets are rewritten to origin-form for the origin server; inside a CONNECT tunnel bytes are forwarded untouched.
@@ -184,32 +184,39 @@ Scope: all changed files are inside `paths` (`internal/store/requests.go` is lim
 (exit 0). `make test-int` green (exit 0). All six round-2 findings are fixed and tested. `store.InsertRequestTx` is used by capture
 and has a rollback test. I confirmed three new problems with temporary tests (now deleted).
 
-- [ ] [major] internal/proxy/forward.go:165-166 — On a 101 upgrade the client side clears only the **read** deadline. The 101 head
+- [x] [major] internal/proxy/forward.go:165-166 — On a 101 upgrade the client side clears only the **read** deadline. The 101 head
   was just written through `netx.IdleConn` while `Idle > 0`, so a write deadline of now+IdleTimeout (2 min) stays on the socket.
   Every WebSocket through the proxy therefore dies 2 minutes after the upgrade, at the first server→client frame after that.
   Behind MITM it is the same, and a write timeout on `tls.Conn` is permanent. Temp test: `IdleTimeout=200ms`, the upstream answers 101
   and then sends "ping" every 150 ms. The client got one ping, then the proxy closed the connection.
   → Use `_ = c.conn.SetDeadline(time.Time{})` instead of `SetReadDeadline` at :166. Also add a test where `IdleTimeout` is short
   and the tunnel lives through several idle periods.
-- [ ] [major] internal/proxy/server.go:390-393 (used at :359) — `isUIHost` treats **any** IP literal on the listener port as Ratatoskr.
+- [x] [major] internal/proxy/server.go:390-393 (used at :359) — `isUIHost` treats **any** IP literal on the listener port as Ratatoskr.
   On the default `127.0.0.1:8080`, `curl -x … http://192.168.1.20:8080/` (Tomcat, Jenkins and many dev servers run on 8080) is
   sent to the UI and never forwarded. Temp test: `GET http://192.0.2.10:<listen-port>/x` returned `ui:/x`. F-NET-1 says
   "Host = listener address".
   → Keep the listener IP in `listenerInfo` and match only `addr.IsLoopback() || addr == listenerIP` (plus `localhost`). Add the
   192.0.2.10 case to `TestSelfTargetWithPaddedPortIsUI` (expect a forward/502, not `ui:`).
-- [ ] [major] internal/netx/pool.go:105 — `alive()` waits ≥100 µs for its read to time out, which is the success path, and it does
+- [x] [major] internal/netx/pool.go:105 — `alive()` waits ≥100 µs for its read to time out, which is the success path, and it does
   this while holding `p.mu`. That one mutex covers every host. So each reuse of a pooled connection queues all other `Get`/`Put`
   calls behind it. Temp test: 64 concurrent `Get`s on 64 idle connections → the slowest waited 8.9-9.8 ms. That is above the
   5 ms p99 budget (AC 3) for a browser loading one page. → Pop the connection under the lock, unlock, then probe. If it is dead,
   close it and lock again for the next one. Probes then run in parallel, and the code is no longer.
-- [ ] [minor] internal/proxy/server.go:416 — `handOffToUI` clears only the read deadline. After an earlier proxied response on
+- [x] [minor] internal/proxy/server.go:416 — `handOffToUI` clears only the read deadline. After an earlier proxied response on
   the same connection, the write deadline (last write + 2 min) goes with the connection to the UI server, which never resets it (no
   `WriteTimeout`). An origin-form keep-alive UI connection then fails its writes after 2 min. → `_ = c.conn.SetDeadline(time.Time{})`.
-- [ ] [minor] internal/proxy/forward.go:123 — Writes to the upstream have no deadline (`netx.Conn` writes bypass `IdleConn`).
+- [x] [minor] internal/proxy/forward.go:123 — Writes to the upstream have no deadline (`netx.Conn` writes bypass `IdleConn`).
   If an upstream accepts the connection but never reads, and the request body is bigger than the socket buffers (for example a
   4 MB upload), the session blocks until `Serve` ends. → Before `out.WriteTo(up)`, call
   `up.SetWriteDeadline(time.Now().Add(c.s.deps.HeaderTimeout))`, or send writes through `IdleConn` too.
-- [ ] [nit] docs/tasks/T-011-proxy-core.md:60 — Handoff still says "arrives with intercept (T-0xx)". → "deferred to T-031", as the lead asked.
+- [x] [nit] docs/tasks/T-011-proxy-core.md:60 — Handoff still says "deferred to T-031". → "deferred to T-031", as the lead asked.
 - [ ] [nit] The lead's spec edits (docs/01 F-NET-1/F-NET-2, docs/03 §4, docs/08 T-031) are uncommitted in the worktree and not on this
   branch. The 421 and loop-guard behaviour rests on them. → The lead must commit them before merge. I did not touch them.
 
+**Implementer reply (round 3):** all findings addressed; branch rebased onto main (T-014 merged).
+- 101 upgrade and UI hand-off now call `SetDeadline(time.Time{})`. Test `TestUpgradeSurvivesIdleTimeout` (IdleTimeout 200 ms, pings every 150 ms x6).
+- `isUIHost` matches `localhost`, loopback, or the listener's own IP on the listener port. Test `TestForeignIPOnListenerPortIsForwarded` (192.0.2.10:<port> is dialed, not sent to the UI).
+- `Pool.take` pops under the lock and probes outside it, so probes run in parallel.
+- Upstream writes get a `HeaderTimeout` write deadline before `out.WriteTo(up)`.
+- Handoff wording fixed ("deferred to T-031").
+- Nit 2 (lead's uncommitted spec edits in docs/01, 03, 08): left untouched in the worktree; lead must commit them.

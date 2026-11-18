@@ -116,14 +116,18 @@ func New(deps Deps) *Server {
 }
 
 // listenerInfo is what the origin-form check needs to know about the listener.
-type listenerInfo struct{ port int }
+type listenerInfo struct {
+	port int
+	ip   netip.Addr // zero when the listener address is not an IP literal
+}
 
 // Serve accepts on ln until ctx ends, then closes every connection and returns
 // nil. It returns an error only when accepting fails. Serve owns ln.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	host, portStr, _ := net.SplitHostPort(ln.Addr().String())
 	port, _ := strconv.Atoi(portStr)
-	info := listenerInfo{port: port}
+	ip, _ := netip.ParseAddr(host)
+	info := listenerInfo{port: port, ip: ip.Unmap()}
 
 	ui := &chanListener{ch: make(chan net.Conn), done: make(chan struct{}), addr: ln.Addr()}
 	handler := s.deps.UI
@@ -387,10 +391,18 @@ func (c *session) isUIHost(hostport string) bool {
 		return true
 	}
 
-	// Host = listener address: localhost or an IP literal on our port.
-	_, ipErr := netip.ParseAddr(host)
+	// Host = listener address: localhost, loopback or the listener's own IP on our port.
+	if port != c.info.port {
+		return false
+	}
 
-	return port == c.info.port && (ipErr == nil || strings.EqualFold(host, "localhost"))
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip, err := netip.ParseAddr(host)
+
+	return err == nil && (ip.IsLoopback() || ip.Unmap() == c.info.ip)
 }
 
 // serveUIAbsolute serves `GET http://ratatoskr.localhost/ca.crt`-style requests
@@ -413,7 +425,7 @@ func (c *session) serveUIAbsolute(req *rawhttp.Request, path string) bool {
 // request already read) followed by whatever is still buffered.
 func (c *session) handOffToUI(head []byte) bool {
 	c.idle.Idle = 0
-	_ = c.conn.SetReadDeadline(time.Time{})
+	_ = c.conn.SetDeadline(time.Time{})
 
 	rc := &replayConn{Conn: c.conn, r: io.MultiReader(bytes.NewReader(head), c.br)}
 
