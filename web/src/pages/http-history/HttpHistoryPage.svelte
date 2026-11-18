@@ -64,7 +64,7 @@
         if (cancelled) return;
         history.useClient(createMockClient({ count: 500 }));
       }
-      if (!cancelled) stop = history.start();
+      if (!cancelled) stop = untrack(() => history.start());
     })();
     return () => {
       cancelled = true;

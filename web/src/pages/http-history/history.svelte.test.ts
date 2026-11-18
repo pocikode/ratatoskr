@@ -73,7 +73,7 @@ describe('HistoryState', () => {
       expect(state.error).toEqual({ message: 'resp.code.cont is a type error', from: 5, to: 12 }),
     );
 
-    expect(state.applied).toBe('resp.code.cont:"2"');
+    expect(state.applied).toBe(''); // rolled back: a later sort must not resend it
     stop();
   });
 

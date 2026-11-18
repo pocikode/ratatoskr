@@ -68,7 +68,7 @@
     if (!tr.docChanged || tr.newDoc.lines === 1) return tr;
     const text = tr.newDoc.toString().replace(/\s*\n\s*/g, ' ');
     return {
-      changes: { from: 0, to: tr.newDoc.length, insert: text },
+      changes: { from: 0, to: tr.startState.doc.length, insert: text },
       selection: { anchor: Math.min(tr.newSelection.main.head, text.length) },
     };
   });
@@ -86,7 +86,8 @@
   }
 
   function submit(editor: EditorView): boolean {
-    if (completionStatus(editor.state) !== null) return false; // the popup owns Enter
+    if (completionStatus(editor.state) === 'active') return false; // the popup owns Enter
+    historyStep = -1;
     onsubmit?.(editor.state.doc.toString());
     return true;
   }
@@ -145,7 +146,13 @@
             ]),
             // Page state is the source of truth; the editor only reports document changes.
             EditorView.updateListener.of((update) => {
-              if (update.docChanged) value = update.state.doc.toString();
+              if (!update.docChanged) return;
+              value = update.state.doc.toString();
+              // Typing (not history recall) restarts ↑ from the newest entry.
+              if (
+                update.transactions.some((t) => t.isUserEvent('input') || t.isUserEvent('delete'))
+              )
+                historyStep = -1;
             }),
             EditorView.contentAttributes.of({
               'aria-label': label,

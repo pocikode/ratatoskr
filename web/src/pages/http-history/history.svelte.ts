@@ -74,26 +74,29 @@ export class HistoryState {
     this.stops = [];
   }
 
-  async reload(): Promise<void> {
+  async reload(query = this.applied): Promise<void> {
     const token = ++this.reloadToken;
     this.loading = true;
     const result = await this.client
       .query(
         HistoryRequestsDocument,
-        { query: this.applied || null, first: PAGE, sort: requestSort(this.sort) },
+        { query: query || null, first: PAGE, sort: requestSort(this.sort) },
         { requestPolicy: 'network-only' },
       )
       .toPromise();
     if (token !== this.reloadToken) return; // a newer query replaced this one
     this.loading = false;
 
+    // The bar text may carry leading whitespace that was trimmed before sending.
+    const lead =
+      this.query.trim() === query ? this.query.length - this.query.trimStart().length : 0;
     const badQuery = badQuerySpan(result.error);
     if (badQuery) {
       this.error = {
         message: result.error?.graphQLErrors[0]?.message ?? 'Invalid query',
         // The span is into the query that was sent, which may differ from the bar text.
-        from: byteToDoc(this.applied, badQuery.start),
-        to: byteToDoc(this.applied, badQuery.end),
+        from: lead + byteToDoc(query, badQuery.start),
+        to: lead + byteToDoc(query, badQuery.end),
       };
       return; // the table keeps its rows (T-017 AC)
     }
@@ -104,6 +107,10 @@ export class HistoryState {
     const connection = result.data?.requests;
     if (!connection) return;
 
+    if (query !== this.applied) {
+      this.applied = query;
+      if (query) this.history = [...this.history.slice(-(MAX_HISTORY - 1)), query];
+    }
     this.rows = connection.edges.map((edge) => edge.node);
     this.total = connection.totalCount;
     this.pending = [];
@@ -120,12 +127,10 @@ export class HistoryState {
     if (problem) return; // keep the current rows and filter
     const next = text.trim();
     if (next === this.applied) return;
-    this.applied = next;
-    if (next) this.history = [...this.history.slice(-(MAX_HISTORY - 1)), next];
     this.selection.clear();
     this.detail = null;
     this.pending = [];
-    void this.reload();
+    void this.reload(next);
   }
 
   setSort(sort: SortState | null): void {
@@ -153,6 +158,7 @@ export class HistoryState {
   async showDetail(id: string | null): Promise<void> {
     if (!id) {
       this.detail = null;
+      this.detailLoading = false;
       return;
     }
     this.detailLoading = true;

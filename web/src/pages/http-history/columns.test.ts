@@ -72,7 +72,12 @@ describe('row presenters', () => {
       'http://api.example.com:8080/v1/users',
     );
     expect(requestCurl(row(1, { method: 'POST' }))).toBe(
-      "curl -X POST 'https://api.example.com/v1/users'",
+      "curl -X 'POST' 'https://api.example.com/v1/users'",
     );
+  });
+
+  it('quotes shell metacharacters in method and path', () => {
+    const curl = requestCurl(row(1, { method: 'A|B', path: "/x'$(id)'" }));
+    expect(curl).toBe("curl -X 'A|B' 'https://api.example.com/x'\\''$(id)'\\'''");
   });
 });

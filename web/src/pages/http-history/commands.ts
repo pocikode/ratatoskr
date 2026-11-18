@@ -84,7 +84,9 @@ export function historyCommands(state: HistoryState, deps: HistoryCommandDeps): 
         const row = selected()[0];
         if (!row) return;
         const clause = `req.host.eq:"${literal(row.host)}"`;
-        state.query = state.applied ? `(${state.applied}) AND ${clause}` : clause;
+        // A trailing `//` comment would swallow the closing paren.
+        const base = state.applied.replace(/\s*\/\/[^\n"]*$/, '');
+        state.query = base ? `(${base}) AND ${clause}` : clause;
         state.apply();
       },
     },

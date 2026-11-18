@@ -24,8 +24,16 @@ export function decodeBytes(base64: string): string {
   return decoder.decode(bytes);
 }
 
-export function requestTruncated(bodyLength: string): boolean {
-  return Number(bodyLength) > MAX_BODY;
+/** `bodyLength` is the stored (encoded) size, so the decoded body that came back decides. */
+export function requestTruncated(bodyLength: string, body = ''): boolean {
+  return Number(bodyLength) > MAX_BODY || decodedLength(body) >= MAX_BODY;
+}
+
+function decodedLength(base64: string): number {
+  if (!base64) return 0;
+  return (
+    Math.floor((base64.length * 3) / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0)
+  );
 }
 
 export function buildDetail(message: HistoryMessageFragment): HistoryDetail {
@@ -34,7 +42,7 @@ export function buildDetail(message: HistoryMessageFragment): HistoryDetail {
     id: message.id,
     request: decodeBytes(message.head) + decodeBytes(message.body),
     response: response ? decodeBytes(response.head) + decodeBytes(response.body) : null,
-    requestTruncated: requestTruncated(message.bodyLength),
-    responseTruncated: response ? requestTruncated(response.bodyLength) : false,
+    requestTruncated: requestTruncated(message.bodyLength, message.body),
+    responseTruncated: response ? requestTruncated(response.bodyLength, response.body) : false,
   };
 }

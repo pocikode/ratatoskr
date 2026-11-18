@@ -94,4 +94,14 @@ describe('QueryBar', () => {
     expect(document.querySelector('.cm-httpql-operator')).toHaveTextContent('eq');
     expect(document.querySelector('.cm-httpql-string')).toHaveTextContent('"api"');
   });
+
+  it('flattens pasted newlines into spaces', async () => {
+    const user = userEvent.setup();
+    const onsubmit = vi.fn();
+    render(QueryBar, { value: '', label: 'HTTPQL query', onsubmit });
+    await user.click(screen.getByRole('textbox'));
+    await user.paste('a\nb');
+    await user.keyboard('{Enter}');
+    expect(onsubmit).toHaveBeenCalledWith('a b');
+  });
 });

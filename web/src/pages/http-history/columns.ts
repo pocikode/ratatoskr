@@ -147,7 +147,10 @@ export function requestUrl(row: HistoryRow): string {
   return `${scheme}://${row.host}${port}${target}`;
 }
 
+/** POSIX single-quoting: captured bytes must never reach the shell unescaped. */
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
 /** Copy-ready cURL for a row. Headers and body need `head`/`body`, which rows do not load. */
 export function requestCurl(row: HistoryRow): string {
-  return `curl -X ${row.method} '${requestUrl(row)}'`;
+  return `curl -X ${shellQuote(row.method)} ${shellQuote(requestUrl(row))}`;
 }
