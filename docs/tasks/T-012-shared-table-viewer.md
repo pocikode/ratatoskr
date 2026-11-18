@@ -3,7 +3,7 @@ id: T-012
 title: Shared TrafficTable (virtualized) and MessageViewer components
 milestone: M1
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-012-shared-table-viewer
@@ -93,3 +93,34 @@ profiling later shows frame drops, swapping in tanstack is a change confined to 
 - E2E spec for `#/dev/components` and table/viewer keyboard paths with T-021 tooling.
 
 ## Review (reviewer)
+Reviewer: claude-code (reviewer agent) · 2026-11-18 · branch `task/T-012-shared-table-viewer` @ 57efcde
+
+`make check`: green (Go tests, svelte-check 0/0, eslint, prettier, vitest 18 files / 102 tests).
+`make test-int`: not run (no proxy/store/rawhttp changes).
+Scope: every file is inside `paths` **except** `web/src/lib/router/routes.ts` (see first finding).
+Load assumed: one user, up to 100k rows in the table, 5 MB bodies in the viewer (AC + docs/02 §9).
+
+### Findings
+- [ ] [blocker] web/src/lib/router/routes.ts:163-171 — Out-of-scope file changed and committed. Hard rule 1 says to write the request and stop. The note asks for lead approval, but the change was committed anyway. → Lead adds `web/src/lib/router/routes.ts` to `paths` (approval), or the implementer reverts it and sets `blocked`. The change itself is fine (dev only, 10 lines).
+- [ ] [blocker] web/src/lib/components/MessageViewer/MessageTable.svelte:20 — `{#each parsed.headers as h (h.name + h.value)}`: two identical header lines (e.g. `Set-Cookie: a=1` twice, `Vary: Accept-Encoding` twice, duplicate `Content-Length` in smuggling tests) give duplicate keys. Svelte 5 throws `each_key_duplicate` in dev **and** prod (`svelte/.../blocks/each.js:357-363`). bits-ui renders every `Tabs.Content` (hidden ones too), so the whole viewer crashes, even on the Raw tab. → Key by index `(h, i) (i)` or drop the key. Add a test with a duplicate header.
+- [ ] [major] web/src/lib/components/MessageViewer/MessageViewer.svelte:228 + MessageTable.svelte:8 — The Table tab is always mounted, and the param table has no limit. A 5 MB `application/x-www-form-urlencoded` body (e.g. `a=1&` repeated) parses to about 1.25M params and renders 1.25M `<tr>` when the viewer opens. This breaks the AC "5 MB body without freezing". → Wrap it in `{#if mode === 'table'}<MessageTable …/>{/if}` and render the first N params (e.g. 1000) plus an "N more" line. Add a test with a big form body.
+- [ ] [major] web/src/lib/components/TrafficTable/TrafficTable.svelte:85-118 — The grid `onkeydown` also gets keys from the buttons inside the grid (header sort buttons, resize handles, "Columns" trigger). Enter on a sort button sorts **and** calls `onrowopen(rows[0])`. Space on one toggles row selection and calls `preventDefault`. → Start the handler with `if (e.target !== e.currentTarget) return;`. Add a test: Enter on a header button does not call `onrowopen`.
+- [ ] [major] web/src/lib/components/TrafficTable/TableView.svelte:199 — `color ? \`var(--row-${color(row)})\` : undefined` checks that the callback exists, not what it returns. If `color(row)` returns `null`, the value is `var(--row-null)`. That is invalid at computed-value time, so the colour falls back to `currentcolor`. Every uncoloured row gets a 3px text-coloured stripe (visible in the gallery, where most rows return null). → `{@const c = color?.(row)}` … `style:border-left-color={c ? \`var(--row-${c})\` : undefined}`.
+- [ ] [minor] web/src/lib/components/TrafficTable/TrafficTable.svelte:87 — With no active row, `from` is 0, so the first ArrowDown selects row 1 and skips row 0. → If `active < 0`, ArrowDown/ArrowUp go to index 0.
+- [ ] [minor] web/src/lib/components/TrafficTable/TrafficTable.svelte:105 — Ctrl/Cmd+A selects all rows but does not call `preventDefault`, so the browser also selects all page text. → Call `e.preventDefault()` in that branch.
+- [ ] [minor] web/src/lib/components/TrafficTable/columns.ts:23-25 — Stored `ui_state` is outside data. A config without `widths` throws (`config?.widths[c.id]`). A config with a repeated hidden id (`['host','host']`) breaks `visibleCount` and `toggleColumn`, so the menu can disable the wrong checkbox. → `config?.widths?.[c.id]` and `[...new Set(config?.hidden ?? [])]`. Add one test.
+- [ ] [minor] web/src/lib/components/MessageViewer/format.ts:86,114 — Offsets are kept for up to 1000 matches, but only 200 are highlighted. After 200 Enter presses the current match has no `<mark data-current>`, so `jump` scrolls nowhere while the counter still moves. → Pick the 200 highlighted matches around `current` instead of the first 200, or use the same cap for both.
+- [ ] [minor] web/src/lib/components/MessageViewer/parse.ts:53 — `target.split('?')[1]` cuts the query at a second `?`. With `/a?x=1?y=2`, the value of `x` shows as `1` and `?y=2` is lost. → `target.slice(target.indexOf('?') + 1)` when `indexOf('?') >= 0`.
+- [ ] [minor] web/src/lib/components/SplitPane/SplitPane.test.ts:36 — paneforge already calls `onLayoutChange` on mount (`paneforge.svelte.js:97`). So `toHaveBeenCalled()` passes even if keyboard resize does nothing. → Call `onsizeschange.mockClear()` before the key press, then assert the new first size is larger than 55.
+- [ ] [minor] web/src/lib/components/MessageViewer/format.ts:63 — `hexDump` encodes the whole 5 MB body on every "Show more" to show 8 KB more. Also, since the body is a JS string, any non-UTF-8 byte shows as `ef bf bd`. For a security tool this hex view shows wrong bytes (the limitation is noted in the handoff). → Encode only `body.slice(0, maxBytes)` now. Add a follow-up task so Hex takes the body as `Uint8Array` once the History data contract exists.
+- [ ] [nit] web/src/lib/components/TrafficTable/TableView.svelte:190-197 — `selection?.has(key)` is evaluated 3 times per row. → `{@const selected = selection?.has(key) ?? false}`.
+
+### AC coverage
+- Demo route with 100k rows: yes (`DevComponentsPage.test.ts`). It depends on the out-of-scope route (blocker 1).
+- Column show/hide/reorder/resize, sort, multi-select, keyboard, context menu: covered, except mouse/keyboard resize (no test for `onwidth`/commit) and the key-bubbling bug.
+- 5 MB without freezing + Ctrl+F: the Raw path is covered; the Table path is not (major above).
+- Selection and column-config callback tests: yes.
+- Virtualization decision recorded in the Handoff: yes. It is reasoned, not benchmarked; acceptable for now, and the gallery is the manual check.
+
+### Verdict
+**changes_requested**. Fix the 2 blockers and 3 majors; the minors may go to follow-ups if noted in the Handoff.
