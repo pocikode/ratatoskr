@@ -3,7 +3,7 @@ id: T-018
 title: Scopes and filter presets backend with preset expansion
 milestone: M1
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-015]
 owner: "claude-sonnet-5-5"
 branch: task/T-018-scopes-presets-backend
@@ -52,3 +52,18 @@ Schema for scopes/filters will be added by the lead to `scope.graphqls`/`filter.
 - Preset names are matched exactly (case-sensitive).
 
 ## Review (reviewer)
+Reviewer: claude-opus-5-5 · 2026-11-18 · branch `task/T-018-scopes-presets-backend` @ 60966e1
+
+**Scope / rules**: every changed file is inside `paths`. No schema or generated files touched. No new dependencies. `make check` is green (go + web, 183 web tests). `make test-int` was not needed (proxy/store/rawhttp are unchanged).
+**AC**: all three are covered by table tests (`match_test.go`, `preset_test.go`, `service_test.go` round-trip). Leaving out resolvers is fine, because `scope.graphqls`/`filter.graphqls` are missing on main (out-of-scope was filed correctly).
+
+Findings:
+- [ ] [major] internal/filterpreset/service.go:376-380 — `Import` expands **every** preset in the project, including ones that already existed. `Delete` is allowed to leave a dangling reference (handoff §Limitations). Repro: create A, then B=`preset:a`, then delete A. From then on, every `Import` (even one with no presets) fails with BAD_QUERY `unknown preset "a"`. Import is blocked until the user fixes B by hand, and the error doesn't say which preset is broken. → Validate only the rows added in this import: remember `n := len(all)` before the loop, then `for _, p := range all[n:]`. Add a test: delete a referenced preset, then import succeeds.
+- [ ] [major] internal/scope/service.go:217 — `for i := 2; nameTaken(...) != nil; i++` treats *any* error as "name taken". If ctx is cancelled (client disconnects) or the tx fails, `nameTaken` returns an error forever, so the loop never ends. It spins on the single writer connection and every later write blocks. → Inside the loop, return early when `apperr.CodeOf(err) != apperr.Conflict` (or make `nameTaken` return `(bool, error)`).
+- [ ] [major] internal/query/preset.go:47-56 — expansion is not memoised and has no size cap, so fan-out grows exponentially within the depth limit. Repro: 8 presets where `p_i` = `preset:p_{i+1} OR …` repeated 10 times. That is 10^8 parsed nodes, so the process runs out of memory. It triggers on `Create`/`Import` (`check`/`Expand` run at save time) and on every query that uses it. `Import` takes JSON files from other people, so this is a trust boundary. → Pass a shared counter through `expand` and return a `core.Error` once total preset expansions pass a fixed cap (e.g. 1000). Add a test case "fan-out bomb rejected".
+- [ ] [minor] internal/filterpreset/service.go:98-101 — `validAlias` checks the alias by parsing `"preset:"+s`. The lexer ends a bare value at `/` and then skips comments, so `foo//x` and `foo/*x*/` pass validation. A query `preset:foo//x` then looks up `foo`, not the alias. → Replace this with a direct byte check of the spec regex `[a-z0-9][a-z0-9_-]*` (docs/04 §1). This also removes the parse trick and the `ContainsAny`/`ToLower` patch-ups. Add `"a//b"` to `TestValidation`.
+- [ ] [minor] internal/filterpreset/service.go:122-131 — the comment says "by exact name, then by alias", but the code returns the first preset in sort order whose name **or** alias matches. If preset X has alias `api` and preset Y has name `api`, `preset:api` resolves differently after `Reorder`. → Either use two passes (names first, then aliases), or have `check` reject a name that equals another preset's alias and vice versa.
+- [ ] [minor] internal/filterpreset/service.go:336 — `Create` caps the project at `maxPresets` in total, but `Import` only caps the file. 999 existing + 1000 imported = 1999. → Check `len(all)+added < maxPresets` inside the insert loop.
+- [ ] [nit] internal/scope/service.go:216-218 — the duplicate name skips `clean`, so a 200-char name plus " (copy)" goes over the 200-char limit that `Create`/`Update` enforce. → Truncate `src.Name` or run the result through `clean`.
+
+Verdict: **changes_requested**. Fix the three majors. The minors are cheap and could go in the same pass.
