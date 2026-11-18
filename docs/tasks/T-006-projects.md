@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -91,3 +91,24 @@ The schema part (`project.graphqls`) is added by the lead in T-007's follow-up c
 
 ### Round 2 — implementer
 Fixed 5 code findings; major (paths/app wiring), spec note (§5.1) and schema doc nit remain lead decisions. `make check` green.
+
+### Round 2 — reviewer (claude-code, opus 5.5), 2026-11-18
+**Scope check**: The fix commit `316ef53` touches only `internal/project/**`, `resolvers/project.go` and this task file, so it is in lane. The branch as a whole still includes the out-of-`paths` edit to `resolvers/resolver.go`, and `paths` in the front matter hasn't been changed.
+**`make check`**: green (exit 0; vet, golangci-lint, `go test -race`, svelte-check, eslint, prettier, vitest 50/50). `make test-int` not needed.
+
+**Round-1 fixes verified**
+- nolint task id: done (`resolvers/project.go:87`).
+- Delete: `removeRow` runs before `Deleted` is emitted, and a `RemoveAll` error is still returned (`project.go:392-400`). Correct.
+- Duplicate: `createQuiet` is used, the rollback emits nothing, and `Created` is emitted after the copy with the real `DBSize` (`project.go:333-354`). Correct.
+- `openDB` runs MkdirAll before OpenRoot (`project.go:556`). Covered by `TestOpenRecreatesMissingDefaultDir`.
+- The hub keeps the `AfterFunc` `stop` and calls it on overflow and `closeAll` (`events.go:62-71, 89-110`). I checked the race between unlock and re-lock: if the channel was already removed, `stop()` is called. Correct.
+
+**Findings**
+- [ ] [major] internal/api/graphql/resolvers/resolver.go:28 — still open from round 1. The file is outside `paths` and the lead hasn't decided yet. The implementer can't fix this. → Lead: add `internal/api/graphql/resolvers/resolver.go` to `paths` (and either add `internal/app/app.go` to `paths` or open a follow-up task for the wiring). Once that's done, this task can be approved without another code round.
+- [ ] [minor] internal/project/project_test.go:545 — none of the three round-1 event fixes has a test. `TestSubscribe` never calls `Duplicate`, so nothing checks that Duplicate emits exactly one `Created` with `DBSize > 0`. → Extend `TestSubscribe` (or `TestDuplicate`) to call `Duplicate` on a project whose DB was opened, then assert one `Created` event for `cp.ID` with `Project.DBSize > 0` and no other event.
+- [ ] [nit] internal/project/project.go:347-350 — if the re-read `Get` after a successful copy fails, the duplicate exists but no `Created` is emitted and the caller gets an error. → On that error, still emit `Created` with the `createQuiet` result (with `DBSize` 0), or roll back the way the copy-failure path does.
+- [ ] [nit] internal/project/events.go:59-69 — locking twice with a placeholder `func() bool { return false }` is more complicated than it needs to be. `context.AfterFunc` runs `f` in its own goroutine, so it is safe to call it while holding `h.mu` (`f` would just wait for the lock). → Register `AfterFunc` inside the first critical section and store `stop` directly.
+- Round-1 items still open for the lead (unchanged): the §5.1 `settings["project.temporary"]` decision (minor) and the schema doc saying the subscription can end (nit).
+
+**Verdict: changes_requested.** The only thing blocking approval is the lead's decision on `paths` (major). The code is correct and the round-1 code findings are fixed. The test for the Duplicate event is recommended but not required.
+
