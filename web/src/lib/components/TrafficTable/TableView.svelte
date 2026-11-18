@@ -99,12 +99,16 @@
     const handle = e.currentTarget as HTMLElement;
     const startX = e.clientX;
     const startWidth = config.widths[column.id] ?? column.width;
-    const move = (ev: PointerEvent) => onwidth(column.id, startWidth + ev.clientX - startX, false);
+    let width = startWidth;
+    const move = (ev: PointerEvent) => {
+      width = startWidth + ev.clientX - startX;
+      onwidth(column.id, width, false);
+    };
     const stop = () => {
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', stop);
       handle.removeEventListener('pointercancel', stop);
-      onwidth(column.id, config.widths[column.id] ?? column.width, true);
+      onwidth(column.id, width, true);
     };
     handle.setPointerCapture?.(e.pointerId);
     handle.addEventListener('pointermove', move);
