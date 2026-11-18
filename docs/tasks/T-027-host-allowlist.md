@@ -3,9 +3,9 @@ id: T-027
 title: DNS rebinding defence (Host allowlist on loopback) and --allow-guests reverse-proxy warning
 milestone: M0
 role: backend
-status: todo
+status: in_review
 depends_on: [T-007]
-owner: ""
+owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-027-host-allowlist
 paths:
   - internal/api/middleware/host*.go
@@ -28,15 +28,15 @@ reach the API of an instance bound to loopback, and `--allow-guests` must say th
 - Out: `X-Forwarded-*` support (not trusted), TLS for the UI.
 
 ## Acceptance criteria
-- [ ] When the UI listener is bound to a loopback address, a request whose `Host` (port stripped, case-insensitive) is
+- [x] When the UI listener is bound to a loopback address, a request whose `Host` (port stripped, case-insensitive) is
       not `localhost`, a loopback IP literal (`127.0.0.0/8`, `[::1]`) or the configured listen host gets 421 before
       CSRF/auth. Applies to `/api/**` (HTTP and the WS upgrade) and `/debug/pprof/**`; the SPA static files may stay open.
-- [ ] When bound to a non-loopback address the check is off (the token protects the instance; warning of docs/03 §8).
-- [ ] Tests: `Host: evil.example:8080` on a loopback-bound handler → 421 for POST `/api/graphql` and the WS endpoint;
+- [x] When bound to a non-loopback address the check is off (the token protects the instance; warning of docs/03 §8).
+- [x] Tests: `Host: evil.example:8080` on a loopback-bound handler → 421 for POST `/api/graphql` and the WS endpoint;
       `localhost:8080`, `127.0.0.1:8080`, `[::1]:8080` → pass.
-- [ ] `--allow-guests` help text says guests are decided by the TCP peer and that it must not be combined with a
+- [x] `--allow-guests` help text says guests are decided by the TCP peer and that it must not be combined with a
       same-host reverse proxy.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 ## Notes from lead
 - (2026-11-18, T-006) `app.New` is now `app.New(ctx, opts)`. It opens instance.db plus `project.Service` (`ctx` is wrapped in `context.WithoutCancel`). Rebase on T-006 and keep that signature.
@@ -44,9 +44,56 @@ reach the API of an instance bound to loopback, and `--allow-guests` must say th
 - The listen address is known in `internal/app`; pass the allowed hosts into `api.Options`, keep the middleware pure.
 
 ## Plan (implementer, ≤15 lines)
+1. `middleware/host.go`: `Hosts(allowed []string, next http.Handler)`; 421 unless Host (port stripped, case-folded)
+   is `localhost`, a loopback IP literal (netip, 127/8 and ::1) or one of `allowed`; empty `allowed` = check off.
+2. `app.go`: `hostAllowlist()` = nil when `cfg.Listen[0]` is not loopback, else {listen addr, proxy.UIHost}
+   (`ratatoskr.localhost` must keep working, T-008 handoff). Wrap the UI mux in `buildHandler`, so `/api/**`,
+   the WS upgrade and `/debug/pprof/**` are guarded before CSRF/auth. `/debug/pprof` is mounted on that same
+   mux (not under `/api`), so one wrap covers both; static files are guarded too, which docs/03 §8 allows.
+3. `config.go`: `--allow-guests` help = loopback TCP peer decides it, never with a same-host reverse proxy.
+4. Tests: middleware allow/deny/off table; app handler table (evil Host → 421 on graphql, WS, pprof;
+   `localhost`, `127.0.0.1`, `[::1]`, `ratatoskr.localhost` pass; non-loopback listen off); usage text.
+5. Existing app tests that call `a.handler` get `Host: localhost` (the guard is on for a 127.0.0.1 listen).
 
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
+### What changed
+- `internal/api/middleware/host.go`: pure `Hosts(allowed []string, next http.Handler)`. Rejects with 421
+  (`http.StatusMisdirectedRequest`) unless the Host (port stripped, lower-cased, IPv6 brackets trimmed) is `localhost`,
+  a `netip` loopback literal (127/8, `::1`, unmapped `::ffff:127.0.0.1`) or one of `allowed`. Empty `allowed` = off.
+  `allowed` entries may be `host:port`; only the host is kept.
+- `internal/app/app.go`: `hostAllowlist()` returns nil unless `cfg.Listen[0]` is loopback; otherwise the configured
+  listen address plus `proxy.UIHost` (`ratatoskr.localhost` — F-NET-2's CA download and the T-008 handoff require it).
+  `buildHandler` returns `middleware.Hosts(hostAllowlist(), mux)`, so the check is the outermost handler: 421 before
+  `CrossOrigin`, auth and body limits, on `/api/**`, the WS upgrade, `/debug/pprof/**` and the SPA.
+- `internal/config/config.go`: `--allow-guests` says guests are decided by the loopback TCP peer and that it must not be
+  combined with a same-host reverse proxy.
+- Tests: `TestHosts` (allow/deny/off table incl. `127.0.0.2`, mapped v6, bracketless v6, empty Host, lookalike hosts),
+  `TestHandlerHostAllowlist` (evil Host → 421 on graphql/WS/pprof/static; localhost, 127.0.0.1, `[::1]`,
+  ratatoskr.localhost pass; the app has `--auth-token`, so the 421 also proves it runs before auth),
+  `TestHandlerHostAllowlistOffWhenExposed` (0.0.0.0 listen), `TestUsage` (new wording). `TestHandler` and
+  `TestProjectsAreWired` now send `Host: localhost`, since the guard is on for their 127.0.0.1 listen.
+
+### Deviation from the lead note
+The note suggested `api.Options.AllowedHosts`. `/debug/pprof` is mounted on the app mux, not under `api.NewHandler`, so
+one wrap in `buildHandler` covers both without duplicating the middleware (or editing `pprof.go`, which is outside my
+`paths`). `api.NewHandler` is unchanged and stays unguarded on its own; every mount of it goes through `app`.
+
+### How to verify
+`make check` (green here; a fresh worktree needs `cd web && bun install --frozen-lockfile` first).
+Manual, with `--listen 127.0.0.1:8080 --debug`:
+- `curl -si -x http://127.0.0.1:8080 http://ratatoskr.localhost/api/graphql -H 'Host: evil.example'` → the guard's 421
+  ("unexpected Host header"). The shared listener's dispatch already answers a *foreign origin-form* Host with its own
+  421 (T-011); the guard is what protects the UI handler itself, e.g. once `--ui-listen` serves it directly.
+- `curl -si -X POST http://127.0.0.1:8080/api/graphql` → 415 (guard passed, CSRF next).
+- `curl -si -x http://127.0.0.1:8080 http://ratatoskr.localhost/ca.crt` → 200 (F-NET-2 still works).
+
+### Limitations / follow-ups
+- Enabled from the *configured* listen address: `--listen` on a hostname other than `localhost` that resolves to loopback
+  leaves the check off (it is treated as a network listener).
+- `--ui-listen` is still rejected by `app.New` (T-011 multiplexer). When it lands, its address must join the allowlist too.
+- The SPA and `/ca.crt` are guarded as well (docs/03 §8 allows the SPA to stay open; guarding it is harmless). A custom
+  `/etc/hosts` alias for a loopback instance now gets 421 — use `localhost`, a loopback IP or `ratatoskr.localhost`.
 
 ## Review (reviewer)

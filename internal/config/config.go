@@ -296,8 +296,9 @@ func newFlagSet(cfg *Config, dataDir string) (*ff.FlagSet, error) {
 		},
 		{
 			LongName: "allow-guests",
-			Usage:    "let localhost clients in without a token",
-			Value:    ffval.NewValueDefault(&cfg.AllowGuests, false),
+			Usage: "let clients whose TCP peer is a loopback address in without a token; " +
+				"never combine with a same-host reverse proxy, which makes every client a loopback peer",
+			Value: ffval.NewValueDefault(&cfg.AllowGuests, false),
 		},
 	}
 
