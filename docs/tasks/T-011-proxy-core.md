@@ -14,6 +14,7 @@ paths:
   - internal/events/**
   - internal/testutil/**
   - internal/app/**
+  - internal/store/requests.go   # lead 2026-11-18: InsertRequestTx only
 spec:
   - docs/01-feature-spec.md#F-NET-1, #F-NET-2, #F-NET-3
   - docs/03-architecture.md §4, §7
@@ -27,6 +28,11 @@ and captures every request/response into the project DB (batched) emitting `Requ
 - (2026-11-18, T-006) `app.New` is now `app.New(ctx, opts)`. It opens instance.db plus `project.Service` (`ctx` is wrapped in `context.WithoutCancel`). Rebase on T-006 and keep that signature.
 - T-006 also edits `internal/app/app.go` (project service wiring). Start from a `main` that includes T-006, or rebase onto it before review.
 - (2026-11-18, T-008) `internal/app/app.go` already opens `ca.Open(...)` and mounts `/ca.crt` + `/ca.der` on the UI listener: rebase, do not re-add it. Call `ca.Service.TLSConfig()` for MITM. F-NET-2's `http://ratatoskr.localhost/ca.crt` arrives through the proxy listener, so answer it there too (and let `ratatoskr.localhost` pass the loopback Host check).
+- (2026-11-18, round-2 answers)
+  - **Pending row:** deferred to T-031 (intercept engine); written in docs/03 §4 and the roadmap. Replace "lead must assign one" in Handoff with "deferred to T-031". No TODO needed in code.
+  - **`store.InsertRequestTx`:** do it in this task. `internal/store/requests.go` is added to `paths` (nothing in flight touches it). Add `func InsertRequestTx(ctx context.Context, tx *sql.Tx, r Request) (int64, error)` reusing `insertRequestSQL`; make `InsertRequests` use it; call it from capture.go and delete `insertRequest` + the `TODO(T-011-followup)`. Add a store test.
+  - **Acked as spec:** 421 for foreign origin-form Host, listener-address absolute target → UI, upstream TLS not verified, upstream error stored as the 502 response. Now in docs/01 F-NET-1/F-NET-2.
+  - **Acked as follow-ups (no spec change):** multi `--listen`/`--ui-listen` stay `ErrNotImplemented` until Settings → Network; `ratatoskr.localhost` via proxy GET/HEAD only; WS frames unrecorded until T-050; M&R/intercept hooks wire in T-035/T-031.
 
 ## Acceptance criteria
 - [x] `curl -x` HTTP and HTTPS (with `--cacert`) through the proxy return identical bodies to direct requests (integration test against testutil servers).
@@ -169,4 +175,4 @@ stricter retry rule from round 1 now hits it more often.
 - `Deps.IdleTimeout` (zero → 2 min). Tests: `TestStalledUpstreamBodyTimesOut`, `TestSelfTargetWithPaddedPortIsUI`.
 - The self-forward test exposed a real bug: an absolute `http://<listener>/` target was still forwarded. It now goes to the UI like `ratatoskr.localhost`.
 - capture.go: stale comment removed, `TODO(T-011-followup)` for `store.InsertRequestTx` (lead).
-- Pending row: no task id exists yet; lead must assign one (follow-up `T-011-followup: history.NewPending` for the intercept task).
+- Pending row: deferred to T-031 (intercept engine).

@@ -212,7 +212,7 @@ func (c *Capture) write(ctx context.Context, db *store.DB, batch []Entry) ([]int
 		for i := range batch {
 			e := &batch[i]
 
-			id, err := insertRequest(ctx, tx, requestRow(e))
+			id, err := store.InsertRequestTx(ctx, tx, requestRow(e))
 			if err != nil {
 				return err
 			}
@@ -247,21 +247,6 @@ func (c *Capture) write(ctx context.Context, db *store.DB, batch []Entry) ([]int
 	}
 
 	return ids, nil
-}
-
-// TODO(T-011-followup): replace with an exported store.InsertRequestTx; this copies store.insertRequestSQL.
-func insertRequest(ctx context.Context, tx *sql.Tx, r store.Request) (int64, error) {
-	res, err := tx.ExecContext(ctx, `INSERT INTO requests
-		(source, host, port, tls, method, path, query, ext, raw, body_offset, len,
-		 created_at, truncated, plugin_id, automate_attack_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Source, r.Host, r.Port, r.TLS, r.Method, r.Path, r.Query, r.Ext, r.Raw, r.BodyOffset,
-		len(r.Raw), r.CreatedAt, r.Truncated, r.PluginID, r.AutomateAttackID)
-	if err != nil {
-		return 0, fmt.Errorf("history: insert request: %w", err)
-	}
-
-	return res.LastInsertId()
 }
 
 const (
