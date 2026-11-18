@@ -24,6 +24,7 @@ The :8080 listener routes proxy traffic vs UI traffic, MITMs TLS using `internal
 and captures every request/response into the project DB (batched) emitting `RequestAdded/RequestUpdated` events.
 
 ## Notes from lead
+- (2026-11-18, T-006) `app.New` is now `app.New(ctx, opts)`. It opens instance.db plus `project.Service` (`ctx` is wrapped in `context.WithoutCancel`). Rebase on T-006 and keep that signature.
 - T-006 also edits `internal/app/app.go` (project service wiring). Start from a `main` that includes T-006, or rebase onto it before review.
 
 ## Acceptance criteria

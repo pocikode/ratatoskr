@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -15,6 +15,8 @@ paths:
   - internal/app/app.go
   - internal/app/app_test.go
   - internal/store/migrations/instance/0002_*.sql
+  # added by lead 2026-11-18 (review round 7 major): one-line call site `app.New(ctx, …)`
+  - cmd/ratatoskr/main.go
 spec:
   - docs/01-feature-spec.md#F-WSP-1
   - docs/03-architecture.md §5.1
@@ -37,10 +39,11 @@ The schema part (`project.graphqls`) is added by the lead in T-007's follow-up c
 1. **`paths`**: `resolvers/resolver.go` is added retroactively (the `Deps.Projects` field is accepted as is). `internal/app/app.go` (+ `app_test.go`) is added: **do the wiring in this task** — `project.Open` after `store.OpenInstance`, pass it as `resolvers.Deps.Projects`, `Close()` it on shutdown (before the instance DB closes). Add an app-level test that `projects` answers without NOT_IMPLEMENTED. T-011 and T-027 also own `internal/app/**`; they are `todo` and rebase on T-006.
 2. **Temporary flag**: not a settings key. Add migration `internal/store/migrations/instance/0002_projects.sql` that rebuilds `projects` with `id INTEGER PRIMARY KEY AUTOINCREMENT` and `is_temporary INTEGER NOT NULL DEFAULT 0` (create new table, copy rows, drop old, rename; STRICT). AUTOINCREMENT because project IDs are GraphQL node IDs and directory names and must never be reused (fixes the Handoff limitation). Drop `tempKey`/`project.temporary` handling; crash-recovery purge uses `WHERE is_temporary = 1`. docs/03 §5.1 updated.
 3. **Subscription end**: `projectChanged` schema doc now says the server may end it and clients must resubscribe + refetch (`make gen` run by lead).
+4. **`cmd/ratatoskr/main.go`** (2026-11-18, round 7): added to `paths`. Reviewer verified that the in-lane alternative fails (contextcheck reports at the call site in `main.go`). `app.New(ctx, opts)` using `context.WithoutCancel` is the accepted signature. No other active task owns `cmd/ratatoskr/**`. T-011 and T-027 are notified of the new signature.
 
 ## Plan (implementer, ≤15 lines)
 - `internal/project.Service` owns the registry in `instance.db` (`projects` table) and the one open `project.db` (`projects/<id>/` via `os.Root`).
-- Temporary flag has no column (migrations are out of lane): kept in `settings` key `project.temporary` (JSON id list). Leftover temp projects and orphan dirs are purged on `Open` (crash recovery); `Close` removes temp projects (clean shutdown).
+- ~~Temporary flag kept in `settings` key `project.temporary`~~ (superseded in round 5: `projects.is_temporary` column, migration 0002). Leftover temp projects and orphan dirs are purged on `Open` (crash recovery); `Close` removes temp projects (clean shutdown).
 - Ops: List/Get/Current/Create/Rename (saves temp)/Duplicate (VACUUM INTO + copy other files)/Delete (falls back to default or new temp)/SetDefault/Select (open new, swap, close old, SELECTED event).
 - Single mutex serialises mutations; events fan out to bounded per-subscriber channels (cap 64); an overflowing subscriber is closed so it resyncs.
 - Errors are `apperr` (NOT_FOUND, BAD_INPUT); names trimmed, non-empty, ≤200 runes.
@@ -49,7 +52,8 @@ The schema part (`project.graphqls`) is added by the lead in T-007's follow-up c
 
 ## Out-of-scope change needed (if any)
 - `internal/api/graphql/resolvers/resolver.go`: add `Deps.Projects ProjectService` (one field; unavoidable for the resolvers to reach the service).
-- `internal/app/app.go`: construct `project.Service` and pass it in `resolvers.Deps` + `Close` on shutdown. Left to a follow-up; not done here.
+- `internal/app/app.go`: construct `project.Service` and pass it in `resolvers.Deps` + `Close` on shutdown. **Resolved (round 5)**: done here; `app.go` added to `paths`.
+- `cmd/ratatoskr/main.go`: one-line call-site change `app.New(ctx, …)` (contextcheck). **Resolved (round 7)**: added to `paths` by the lead.
 
 ## Handoff (implementer)
 **What changed**
