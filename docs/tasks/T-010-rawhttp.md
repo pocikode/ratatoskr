@@ -3,7 +3,7 @@ id: T-010
 title: rawhttp - lenient byte-preserving HTTP/1.x reader and writer
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-001]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-010-rawhttp
