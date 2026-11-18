@@ -3,7 +3,7 @@ id: T-028
 title: Trim CI runs (skip docs-only and draft PRs, macOS only on main)
 milestone: M0
 role: lead
-status: in_review
+status: done
 depends_on: [T-023]
 owner: "claude-code (claude-opus-5-5)"
 branch: task/T-028-ci-cost
@@ -24,11 +24,11 @@ CI stops spending runner minutes on changes that cannot break the build, while e
 - Out: required status checks / branch protection, nightly fuzz job (docs/05), caching.
 
 ## Acceptance criteria
-- [x] AC1 — a PR or push to `main` that only changes `docs/**` or `*.md` starts no CI run.
+- [x] AC1 — a PR or push to `main` that only changes `docs/**` or root `*.md` starts no CI run.
 - [x] AC2 — a draft PR runs no job; marking it ready for review (`ready_for_review`) starts the run.
 - [x] AC3 — PR runs use `ubuntu-latest` only; pushes to `main` and `workflow_dispatch` runs use `ubuntu-latest` and `macos-latest`.
 - [x] AC4 — the policy, and how to run macOS on a branch by hand, are documented in docs/07 §8.
-- [ ] `make check` green (CI on this PR, which changes `ci.yml` and so is not skipped)
+- [x] `make check` green (CI on this PR, which changes `ci.yml` and so is not skipped)
 
 ## Notes from lead
 - Operator asked to cut Actions cost. The repo is public, so standard hosted runners are free today. This change still
@@ -37,7 +37,7 @@ CI stops spending runner minutes on changes that cannot break the build, while e
   that reports success for skipped paths when branch protection is turned on.
 
 ## Plan (implementer, ≤15 lines)
-1. `paths-ignore: ['docs/**', '**/*.md']` on `push` and `pull_request`; add `workflow_dispatch`.
+1. `paths-ignore: ['docs/**', '*.md']` on `push` and `pull_request`; add `workflow_dispatch`.
 2. `pull_request.types` adds `ready_for_review`; job `if:` skips draft PRs.
 3. Matrix `os` comes from `fromJSON(...)`: Linux on `pull_request`, Linux + macOS otherwise.
 4. Document the policy in docs/07 §8 and add a roadmap row.
@@ -67,12 +67,13 @@ CI stops spending runner minutes on changes that cannot break the build, while e
 - `concurrency: ci-${{ github.ref }}`: a `workflow_dispatch` run on a branch (`refs/heads/…`) and the PR run
   (`refs/pull/N/merge`) are in separate groups, so a manual macOS run does not cancel the PR check. Good.
 - Findings:
-  - [ ] [minor] .github/workflows/ci.yml:8,11 — `'**/*.md'` also ignores Markdown under `web/`, but `web` `bun run check`
+  - [x] [minor] .github/workflows/ci.yml:8,11 — `'**/*.md'` also ignores Markdown under `web/`, but `web` `bun run check`
     runs `prettier --check .`, which formats `.md` files (`web/.prettierignore` does not exclude them). No `web/**/*.md`
     exists today. Once one is added, a PR that changes only that file skips CI and could turn `main` red. → either add
     `'!web/**/*.md'` after `'**/*.md'`, or add `*.md` to `web/.prettierignore` (needs a frontend task). Alternatively,
-    record it under Known limitations.
-  - [ ] [nit] docs/07-agent-workflow.md:65 — the new bullet line is ~230 chars, while the rest of §8 wraps near 130.
+    record it under Known limitations. *Lead: fixed by narrowing to root `'*.md'`; `!` negation is not supported in
+    `paths-ignore` (only in `paths`), so the first option would not work.*
+  - [x] [nit] docs/07-agent-workflow.md:65 — the new bullet line is ~230 chars, while the rest of §8 wraps near 130.
     → reflow to match the neighbouring lines.
-  - [ ] [nit] docs/tasks/T-028-ci-cost.md AC list — the `make check` box is still unchecked even though PR #9 CI is
+  - [x] [nit] docs/tasks/T-028-ci-cost.md AC list — the `make check` box is still unchecked even though PR #9 CI is
     green. → tick it when the operator merges.
