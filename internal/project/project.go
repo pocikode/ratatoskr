@@ -344,9 +344,10 @@ func (s *Service) Duplicate(ctx context.Context, id int64, name string) (Project
 	}
 
 	// Re-read so the event carries the copied database size.
-	dst, err = s.Get(ctx, dst.ID)
-	if err != nil {
-		return Project{}, err
+	if got, err := s.Get(ctx, dst.ID); err == nil {
+		dst = got
+	} else {
+		s.log.Warn("project: re-read duplicate", "project_id", dst.ID, "error", err)
 	}
 
 	s.hub.emit(Change{Kind: Created, ProjectID: dst.ID, Project: &dst})

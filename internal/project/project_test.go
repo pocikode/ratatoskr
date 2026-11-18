@@ -700,3 +700,37 @@ func TestOpenRecreatesMissingDefaultDir(t *testing.T) {
 		t.Fatalf("current = %+v, err = %v; want project %d", cur, err, p.ID)
 	}
 }
+
+func TestDuplicateEmitsOneCreated(t *testing.T) {
+	t.Parallel()
+
+	s := newEnv(t).open(t)
+
+	src, err := s.Create(t.Context(), "src", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Select(t.Context(), src.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	ch := s.Subscribe(ctx)
+
+	cp, err := s.Duplicate(t.Context(), src.ID, "copy")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(ch) != 1 {
+		t.Fatalf("events = %d, want 1", len(ch))
+	}
+
+	c := <-ch
+	if c.Kind != project.Created || c.ProjectID != cp.ID || c.Project == nil || c.Project.DBSize <= 0 {
+		t.Fatalf("event = %+v", c)
+	}
+}

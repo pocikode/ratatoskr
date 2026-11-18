@@ -56,17 +56,9 @@ func (h *hub) subscribe(ctx context.Context) <-chan Change {
 		h.subs = map[chan Change]func() bool{}
 	}
 
-	h.subs[ch] = func() bool { return false }
-	h.mu.Unlock()
-
-	stop := context.AfterFunc(ctx, func() { h.remove(ch) })
-
-	h.mu.Lock()
-	if _, ok := h.subs[ch]; ok {
-		h.subs[ch] = stop
-	} else {
-		stop()
-	}
+	// AfterFunc runs its callback in its own goroutine, so registering it
+	// while holding h.mu is safe: remove just waits for the lock.
+	h.subs[ch] = context.AfterFunc(ctx, func() { h.remove(ch) })
 	h.mu.Unlock()
 
 	return ch

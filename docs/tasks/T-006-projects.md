@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -112,3 +112,7 @@ Fixed 5 code findings; major (paths/app wiring), spec note (§5.1) and schema do
 
 **Verdict: changes_requested.** The only thing blocking approval is the lead's decision on `paths` (major). The code is correct and the round-1 code findings are fixed. The test for the Duplicate event is recommended but not required.
 
+
+### Round 3 — implementer
+- Fixed in code: Duplicate event test (`TestDuplicateEmitsOneCreated`: one `Created`, `DBSize > 0`); Duplicate now still emits `Created` if the re-read fails (logs a warning); `hub.subscribe` registers `AfterFunc` in a single critical section. `make check` green.
+- Still lead decisions (not implementer-fixable): major `resolver.go` out of `paths` + `app.go` wiring; §5.1 `project.temporary` note; schema doc nit for subscription ending.
