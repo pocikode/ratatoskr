@@ -76,9 +76,19 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 	return true
 }
 
+// idempotent reports the RFC 9110 safe methods: a repeat is harmless.
+func idempotent(method string) bool {
+	switch method {
+	case "GET", "HEAD", "OPTIONS", "TRACE":
+		return true
+	}
+
+	return false
+}
+
 // roundTrip writes the request and reads the final response head. A pooled
 // connection the server closed meanwhile is retried once on a fresh one, but
-// only for requests without a body, which can be sent twice.
+// only for safe methods without a body, which can be sent twice.
 func (c *session) roundTrip(req *rawhttp.Request, out io.WriterTo, dst destination) (*rawhttp.Response, *netx.Conn, error) {
 	up, reused, err := c.s.pool.Get(c.ctx, dst.key())
 	if err != nil {
@@ -86,7 +96,7 @@ func (c *session) roundTrip(req *rawhttp.Request, out io.WriterTo, dst destinati
 	}
 
 	resp, err := c.exchange(req, out, up)
-	if err != nil && reused && req.Framing() == rawhttp.FramingNone {
+	if err != nil && reused && req.Framing() == rawhttp.FramingNone && idempotent(req.Method()) {
 		_ = up.Close()
 
 		if up, err = c.s.pool.Fresh(c.ctx, dst.key()); err != nil {
@@ -115,7 +125,6 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn)
 	}
 
 	_ = up.SetReadDeadline(time.Now().Add(c.s.deps.HeaderTimeout))
-	defer func() { _ = up.SetReadDeadline(time.Time{}) }()
 
 	for {
 		resp, err := rawhttp.ReadResponse(up.BR, req.Method(), c.s.deps.Limits)
@@ -124,6 +133,8 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn)
 		}
 
 		if resp.Status()/100 != 1 || resp.Status() == 101 {
+			up.SetIdle(idleTimeout) // the body is read next: a stalled upstream must not hold us
+
 			return resp, nil
 		}
 
@@ -143,11 +154,16 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn)
 func (c *session) upgrade(entry *history.Entry, req *rawhttp.Request, resp *rawhttp.Response, up *netx.Conn) bool {
 	defer up.Close()
 
+	up.SetIdle(0)
+
 	if _, err := resp.WriteTo(c.conn); err != nil {
 		return false
 	}
 
 	c.finish(entry, req, resp)
+
+	c.idle.Idle = 0
+	_ = c.conn.SetReadDeadline(time.Time{})
 
 	stop := context.AfterFunc(c.ctx, func() { _ = up.Close() })
 	defer stop()

@@ -102,6 +102,52 @@ func TestUIRouting(t *testing.T) {
 	}
 }
 
+// A keep-alive client that fetched the CA must still be proxied afterwards.
+func TestUIDownloadDoesNotCaptureConnection(t *testing.T) {
+	t.Parallel()
+
+	r := startProxy(t)
+	up := upstream(t, false)
+	c := r.client(t)
+
+	if code, _ := get(t, c, "http://ratatoskr.localhost/ca.crt"); code != 200 {
+		t.Fatalf("UI via proxy: %d", code)
+	}
+
+	if code, body := get(t, c, up.URL+"/x"); code != 200 || body != "hello GET /x" {
+		t.Fatalf("after UI: %d %q", code, body)
+	}
+
+	if n := len(r.rec.all()); n != 1 {
+		t.Fatalf("recorded %d entries, want 1", n)
+	}
+}
+
+func TestOriginFormForeignHostIsMisdirected(t *testing.T) {
+	t.Parallel()
+
+	r := startProxy(t)
+	up := upstream(t, false)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+r.addr+"/x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req.Host = strings.TrimPrefix(up.URL, "http://")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMisdirectedRequest || len(r.rec.all()) != 0 {
+		t.Fatalf("status %d, entries %d", resp.StatusCode, len(r.rec.all()))
+	}
+}
+
 func TestUpstreamErrorIs502AndRecorded(t *testing.T) {
 	t.Parallel()
 

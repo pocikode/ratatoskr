@@ -10,6 +10,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,12 +109,13 @@ func New(deps Deps) *Server {
 }
 
 // listenerInfo is what the origin-form check needs to know about the listener.
-type listenerInfo struct{ port string }
+type listenerInfo struct{ port int }
 
 // Serve accepts on ln until ctx ends, then closes every connection and returns
 // nil. It returns an error only when accepting fails. Serve owns ln.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port, _ := strconv.Atoi(portStr)
 	info := listenerInfo{port: port}
 
 	ui := &chanListener{ch: make(chan net.Conn), done: make(chan struct{}), addr: ln.Addr()}
@@ -249,6 +252,8 @@ type session struct {
 	ui   *chanListener
 	conn net.Conn
 	br   *bufio.Reader
+	// idle refreshes the client read deadline on every read.
+	idle *netx.IdleConn
 	// tun is the CONNECT destination when the connection is a tunnel.
 	tun *destination
 	// continued is set while a 100 Continue was already sent for the request.
@@ -273,7 +278,8 @@ func (d destination) key() netx.Key {
 func (s *Server) serveConn(ctx context.Context, conn net.Conn, info listenerInfo, ui *chanListener) {
 	defer s.untrack(conn)
 
-	sess := &session{s: s, ctx: ctx, info: info, ui: ui, conn: conn, br: bufio.NewReader(conn)}
+	ic := &netx.IdleConn{Conn: conn, Idle: idleTimeout}
+	sess := &session{s: s, ctx: ctx, info: info, ui: ui, conn: conn, br: bufio.NewReader(ic), idle: ic}
 
 	sess.requests()
 
@@ -285,16 +291,12 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn, info listenerInfo
 // requests serves the request loop of one connection until it ends.
 func (c *session) requests() {
 	for {
-		_ = c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
-
 		req, err := rawhttp.ReadRequest(c.br, c.s.deps.Limits)
 		if err != nil {
 			c.rejectBadRequest(err)
 
 			return
 		}
-
-		_ = c.conn.SetReadDeadline(time.Time{})
 
 		if !c.handle(req) {
 			return
@@ -359,30 +361,28 @@ func (c *session) handle(req *rawhttp.Request) bool {
 		return c.handOffToUI(req.Head())
 	}
 
-	// An origin-form request for somebody else: an invisible proxy, where the
-	// client does not know it talks to one.
-	host, port, ok := parseAuthority(hostHeader, 80)
-	if !ok || hostHeader == "" {
-		c.writeSimple("400 Bad Request", "missing or invalid Host header")
+	// An origin-form request for somebody else would be invisible proxying,
+	// which is an opt-in listener option (F-NET-6, not built yet).
+	c.writeSimple("421 Misdirected Request", "this is the Ratatoskr proxy listener; configure your client to use it as a proxy")
 
-		return false
-	}
-
-	return c.forward(req, destination{host: host, port: port}, false)
+	return false
 }
 
 // isUIHost reports whether an origin-form Host header addresses Ratatoskr.
 func (c *session) isUIHost(hostport string) bool {
-	host, port, err := net.SplitHostPort(hostport)
-	if err != nil {
-		host, port = hostport, ""
+	host, port, ok := parseAuthority(hostport, 80)
+	if !ok {
+		return false
 	}
 
-	if strings.EqualFold(strings.Trim(host, "[]"), UIHost) {
+	if strings.EqualFold(host, UIHost) {
 		return true
 	}
 
-	return port == c.info.port
+	// Host = listener address: localhost or an IP literal on our port.
+	_, ipErr := netip.ParseAddr(host)
+
+	return port == c.info.port && (ipErr == nil || strings.EqualFold(host, "localhost"))
 }
 
 // serveUIAbsolute serves `GET http://ratatoskr.localhost/ca.crt`-style requests
@@ -395,7 +395,8 @@ func (c *session) serveUIAbsolute(req *rawhttp.Request, path string) bool {
 		return false
 	}
 
-	b := req.Builder().SetTarget(path).DelHeader("Proxy-Connection")
+	b := req.Builder().SetTarget(path).DelHeader("Proxy-Connection").
+		SetHeader("Connection", "close") // the UI server owns the connection now; later requests must be proxied
 
 	return c.handOffToUI(b.Bytes())
 }
@@ -403,7 +404,10 @@ func (c *session) serveUIAbsolute(req *rawhttp.Request, path string) bool {
 // handOffToUI gives the connection to the UI server, replaying head (the
 // request already read) followed by whatever is still buffered.
 func (c *session) handOffToUI(head []byte) bool {
-	rc := &replayConn{Conn: c.conn, r: io.MultiReader(strings.NewReader(string(head)), c.br)}
+	c.idle.Idle = 0
+	_ = c.conn.SetReadDeadline(time.Time{})
+
+	rc := &replayConn{Conn: c.conn, r: io.MultiReader(bytes.NewReader(head), c.br)}
 
 	select {
 	case c.ui.ch <- rc:
@@ -441,16 +445,15 @@ func (c *session) connect(req *rawhttp.Request) bool {
 		return false
 	}
 
-	_ = c.conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	c.idle.Idle = handshakeTimeout
 
 	first, err := c.br.Peek(1)
 	if err != nil {
 		return false
 	}
 
-	_ = c.conn.SetReadDeadline(time.Time{})
-
 	if first[0] != tlsHandshakeRecordTag {
+		c.idle.Idle = idleTimeout
 		c.tun = &destination{host: host, port: port}
 
 		return true // plain HTTP inside the tunnel: keep looping
@@ -458,15 +461,13 @@ func (c *session) connect(req *rawhttp.Request) bool {
 
 	tc := tls.Server(&replayConn{Conn: c.conn, r: c.br}, c.mitmConfig(host))
 
-	_ = tc.SetDeadline(time.Now().Add(handshakeTimeout))
-
 	if err := tc.HandshakeContext(c.ctx); err != nil {
 		c.s.log.Debug("proxy: tls handshake", "component", "proxy", "host", host, "error", err)
 
 		return false
 	}
 
-	_ = tc.SetDeadline(time.Time{})
+	c.idle.Idle = idleTimeout
 
 	c.conn, c.br = tc, bufio.NewReader(tc)
 	c.tun = &destination{host: host, port: port, tls: true, sni: tc.ConnectionState().ServerName}

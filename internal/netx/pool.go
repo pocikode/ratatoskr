@@ -40,6 +40,8 @@ type Conn struct {
 	// BR reads from the connection; it must be the only reader.
 	BR  *bufio.Reader
 	key Key
+	// idle refreshes the read deadline of every read while set.
+	idle *IdleConn
 	// timer expires the connection while it sits idle in the pool.
 	timer *time.Timer
 }
@@ -139,10 +141,41 @@ func (p *Pool) dial(ctx context.Context, key Key) (*Conn, error) {
 			return nil, err
 		}
 
-		return &Conn{Conn: tc, BR: bufio.NewReader(tc), key: key}, nil
+		return newConn(tc, key), nil
 	}
 
-	return &Conn{Conn: raw, BR: bufio.NewReader(raw), key: key}, nil
+	return newConn(raw, key), nil
+}
+
+func newConn(nc net.Conn, key Key) *Conn {
+	ic := &IdleConn{Conn: nc}
+
+	return &Conn{Conn: nc, BR: bufio.NewReader(ic), key: key, idle: ic}
+}
+
+// SetIdle makes every read wait at most d for data (0 turns it off), so a peer
+// that stalls mid-body cannot hold a goroutine forever.
+func (c *Conn) SetIdle(d time.Duration) {
+	c.idle.Idle = d
+
+	if d == 0 {
+		_ = c.SetReadDeadline(time.Time{})
+	}
+}
+
+// IdleConn refreshes the read deadline before every Read while Idle > 0.
+type IdleConn struct {
+	net.Conn
+
+	Idle time.Duration
+}
+
+func (c *IdleConn) Read(p []byte) (int, error) {
+	if c.Idle > 0 {
+		_ = c.SetReadDeadline(time.Now().Add(c.Idle))
+	}
+
+	return c.Conn.Read(p)
 }
 
 // Put returns a healthy connection for reuse. The caller must have read the
@@ -154,6 +187,8 @@ func (p *Pool) Put(c *Conn) {
 
 		return
 	}
+
+	c.SetIdle(0)
 
 	p.mu.Lock()
 	defer p.mu.Unlock()

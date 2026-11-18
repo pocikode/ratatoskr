@@ -196,9 +196,11 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 
 	wg.Go(func() { a.capture.Run(runCtx) })
 
+	pool := &netx.Pool{TLS: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // a security proxy must reach self-signed and broken targets (T-011)
+
 	srv := proxy.New(proxy.Deps{
 		CA:      a.ca,
-		Pool:    &netx.Pool{TLS: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // a security proxy must reach self-signed and broken targets (T-011)
+		Pool:    pool,
 		Capture: a.capture,
 		UI:      a.handler,
 		Logger:  a.log,
@@ -208,6 +210,8 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	})
 
 	err := srv.Serve(ctx, ln)
+
+	pool.Close()
 
 	stopCapture()
 	wg.Wait()

@@ -114,3 +114,27 @@ func TestCaptureFlushesOnShutdown(t *testing.T) {
 		t.Fatalf("rows = %d, err = %v", n, err)
 	}
 }
+
+func TestCaptureFailedResponseLeavesNoRequest(t *testing.T) {
+	t.Parallel()
+
+	db := openDB(t)
+	c := history.New(history.Deps{DB: func() *store.DB { return db }})
+
+	e := sample()
+	e.Resp.Raw = nil // responses.raw is NOT NULL: the second insert fails
+
+	ctx, cancel := context.WithCancel(t.Context())
+	c.Add(ctx, e)
+	cancel()
+	c.Run(ctx)
+
+	var n int
+	if err := db.Reader().QueryRowContext(t.Context(), "SELECT count(*) FROM requests").Scan(&n); err != nil || n != 0 {
+		t.Fatalf("rows = %d, err = %v; want 0", n, err)
+	}
+
+	if c.Dropped() != 1 {
+		t.Fatalf("dropped = %d, want 1", c.Dropped())
+	}
+}

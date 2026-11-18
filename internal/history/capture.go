@@ -204,19 +204,22 @@ func (c *Capture) flush(ctx context.Context, batch []Entry) {
 }
 
 func (c *Capture) write(ctx context.Context, db *store.DB, batch []Entry) ([]int64, error) {
-	rows := make([]store.Request, len(batch))
-	for i := range batch {
-		rows[i] = requestRow(&batch[i])
-	}
+	// Requests, responses and headers share one transaction: a failure leaves
+	// no request without its answer.
+	ids := make([]int64, 0, len(batch))
 
-	ids, err := db.InsertRequests(ctx, rows)
-	if err != nil {
-		return nil, err
-	}
+	err := db.Write(ctx, func(tx *sql.Tx) error {
+		ids = ids[:0] // Write may retry the closure
 
-	err = db.Write(ctx, func(tx *sql.Tx) error {
 		for i := range batch {
 			e := &batch[i]
+
+			id, err := insertRequest(ctx, tx, requestRow(e))
+			if err != nil {
+				return err
+			}
+
+			ids = append(ids, id)
 
 			if err := insertHeaders(ctx, tx, insertRequestHeaderSQL, ids[i], e.Req.Headers); err != nil {
 				return err
@@ -246,6 +249,20 @@ func (c *Capture) write(ctx context.Context, db *store.DB, batch []Entry) ([]int
 	}
 
 	return ids, nil
+}
+
+func insertRequest(ctx context.Context, tx *sql.Tx, r store.Request) (int64, error) {
+	res, err := tx.ExecContext(ctx, `INSERT INTO requests
+		(source, host, port, tls, method, path, query, ext, raw, body_offset, len,
+		 created_at, truncated, plugin_id, automate_attack_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Source, r.Host, r.Port, r.TLS, r.Method, r.Path, r.Query, r.Ext, r.Raw, r.BodyOffset,
+		len(r.Raw), r.CreatedAt, r.Truncated, r.PluginID, r.AutomateAttackID)
+	if err != nil {
+		return 0, fmt.Errorf("history: insert request: %w", err)
+	}
+
+	return res.LastInsertId()
 }
 
 const (
