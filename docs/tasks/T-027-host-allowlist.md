@@ -3,7 +3,7 @@ id: T-027
 title: DNS rebinding defence (Host allowlist on loopback) and --allow-guests reverse-proxy warning
 milestone: M0
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-007]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-027-host-allowlist
@@ -97,3 +97,28 @@ Manual, with `--listen 127.0.0.1:8080 --debug`:
   `/etc/hosts` alias for a loopback instance now gets 421 — use `localhost`, a loopback IP or `ratatoskr.localhost`.
 
 ## Review (reviewer)
+Reviewer: claude-code/opus-5.5 · 2026-11-18 · verdict: **changes_requested**
+
+Checks: `make check` green (go vet, golangci-lint, `go test -race`, web check + vitest). `make test-int` not run: no
+proxy/store/rawhttp change. Every AC is met and tested; the guard's logic is correct. The only reason this is not an
+approve is hard rule 1, and fixing it means moving one file.
+
+- [ ] [major] internal/api/middleware/middleware_test.go:97 — `TestHosts` is added to a file outside the task `paths`
+      (`internal/api/*_test.go` does not match the `middleware/` subdirectory). Hard rule 1. → Move `TestHosts` into a new
+      `internal/api/middleware/host_test.go`; it matches the existing `host*.go` path and can reuse `okHandler` from the
+      same package. Another fix: the lead adds the file to `paths`.
+- [ ] [minor] internal/app/app.go:328 — `ratatoskr.localhost` is allowed, but docs/03 §8 only lists `localhost`, loopback
+      literals and the configured listen host. The choice is right: F-NET-2's `/ca.crt` through the proxy needs it, and
+      `.localhost` cannot be rebound (RFC 6761). But the code goes beyond the spec. → Lead: add "and `ratatoskr.localhost`
+      (F-NET-2)" to the DNS-rebinding bullet in docs/03 §8. No code change.
+- [ ] [nit] internal/app/app.go:372 vs internal/api/middleware/host.go:57 — `isLoopback` does not `Unmap`, but the guard
+      does. So `--listen [::ffff:127.0.0.1]:8080` turns the guard off (and `warnIfExposed` fires wrongly). This is a rare
+      edge and fails open only to the documented token-protected mode. → `ip.Unmap().IsLoopback()` in `isLoopback`, if
+      you touch the file anyway.
+
+Verified and fine: the guard is outermost (421 before `CrossOrigin`/auth; the app test uses `--auth-token`, which proves it).
+Case folding, port stripping, bracketed and bare IPv6, mapped v4, empty Host and lookalike hosts (`127.0.0.1.evil…`,
+`localhost.evil…`) are all handled and tested. The check is off for a non-loopback listen. `Listen[0]` alone is safe
+because `app.New` rejects multiple listeners and `--ui-listen` (handoff records the follow-up). The shared proxy listener
+already 421s foreign origin-form Hosts (`proxy/server.go:376`), so this guard is defence in depth there. The handoff
+explains the deviation from `api.Options` (one wrap covers `/debug/pprof`) well, and I accept it.
