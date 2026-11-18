@@ -43,6 +43,7 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | T-020 | Sitemap: backend tree derivation + subscription; Sitemap page | B+F | T-016 |
 | T-021 | E2E: proxy a local target through Chromium, verify history/filter/scope/sitemap + Workspace smoke (Playwright) | Q | T-009, T-017, T-019, T-020 |
 | T-022 | Command registry, shortcuts manager (rebindable, persisted), context menu builder | F | T-003 |
+| T-090 | History `scopeId` + `preset:` expansion: scope preset → HTTPQL AST, wire into `history.Service` (follow-up of T-016) | B | T-016, T-018 |
 
 ## M2 — Intercept, Replay, Match & Replace, Environment
 

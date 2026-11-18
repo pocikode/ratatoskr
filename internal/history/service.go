@@ -110,6 +110,7 @@ func (s *Service) filter(ctx context.Context, query, scopeID *string) (filter, e
 	}
 
 	if scopeID != nil {
+		// TODO(T-090): wire Scope in internal/app; until then every scopeId is NOT_FOUND.
 		if s.deps.Scope == nil {
 			return filter{}, apperr.New(apperr.NotFound, "scope %q not found", *scopeID)
 		}
