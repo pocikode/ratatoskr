@@ -78,3 +78,45 @@ running app, instead of returning `NOT_FOUND` / `BAD_QUERY` (follow-up of T-016 
   `?` byte-wise (`shortcut:` comment in `node.go`), so IPv6 spellings and non-ASCII hosts can disagree. A scoped or
   `preset:` query costs two small DB reads (preset lookup, preset list).
 - Follow-ups (proposed tasks): T-092 should hoist the two services into `App` fields for the resolvers (same paths).
+
+## Review (reviewer)
+Reviewer: claude-code/opus-5.5 · 2026-11-18 · branch `task/T-090-history-scope-presets` @ a608916
+
+**Checks**
+- `make check`: green on the second run (go fix, vet, golangci-lint, `go test -race`, web check, 183 web unit tests).
+  The first run failed in a package this branch does not touch: `--- FAIL: TestUpstreamErrorIs502AndRecorded (0.73s) proxy_test.go:175: entries = []`.
+  It passed `-race -count=10` when run alone, so it is a flaky test (it sometimes fails, sometimes passes). It is not caused by T-090; see the last finding.
+  `make test-int` was not run because proxy, store and rawhttp are unchanged.
+- Paths: all 7 changed files are inside `paths` (the task file is included). OK.
+- Hard rules: no generated code or schema touched. No `net/http` in the traffic path. No new dependencies. The one `nolint`
+  gives a reason and a task id. `TODO(T-090)` is removed, and no new untracked TODOs were added. OK.
+- Lead notes: the node is built from `core` AST constructors, not text. The path uses `regex ^QuoteMeta` (case-sensitive).
+  The SQL compiler emits `LIKE ? ESCAPE '\'`, so the `\ % _` escaping in `toLikePattern` is right. The Replacer works in one pass,
+  so it never escapes its own output twice. The IPv6 and non-ASCII gap has a `shortcut:` comment. Preset expansion is injected as a func, so `history` does not import `filterpreset`. OK.
+- Correctness: `requests.host/port/path` are `NOT NULL`, so `NOT (deny)` never hits SQL's NULL three-valued logic.
+  Empty allow and empty deny gives a nil node, which matches everything (like `InScope`). A deny-only preset gives `NOT (...)` alone. OK.
+- AC: all six are covered. `TestScopeNodeAgreesWithMatcher` checks 12 rule sets × 13 rows (SQL result vs `InScope`).
+  `TestScopeFiltersListCountDeleteAndAdded` covers list, total, delete, `requestAdded` and NOT_FOUND. `TestPresetExpansion` covers name,
+  alias, nested, unknown and cycle (BAD_QUERY with a span) plus the subscription. `TestWiresScopeAndPresetExpansion` goes through the real GraphQL handler.
+- Load assumed: one pentester per instance, with 100k–1M rows (docs/00 §3).
+
+**Findings**
+- [ ] [minor] internal/history/service.go:104-108 — `filter` now calls `ExpandText` / `Scope` **before** the caller checks
+  `s.db()` (list.go:164 then :169, mutate.go:108 then :113). Both `filterpreset.Service` and `scope.Service` call `s.db().View(...)`
+  without a nil check. When no project DB is open, `project.DB()` returns nil. That happens after `project.Close()`, for example a request still running when the shutdown grace period ends.
+  Example: `requests(query: "preset:x")` or `requests(scopeId: "1")` then panics on a nil `*store.DB` (`d.readers`).
+  gqlgen recovers the panic, so the client gets INTERNAL instead of the old CONFLICT "no project is open". → At the top of `filter`, add
+  `if _, err := s.db(); err != nil { return filter{}, err }` (3 lines, inside this task's paths). Add one test case:
+  `NewService` with `DB: func() *store.DB { return nil }` plus a scope/preset dep must return `apperr.Conflict`.
+- [ ] [minor] internal/history/scope_test.go — The lead note gives a budget: a scoped list on 100k rows must take < 300 ms. Nothing measures it.
+  The scope node adds a Go `regexp()` UDF (user-defined function) call per row whose host matches, plus OR'd `LIKE`s. That is probably fine, but it is unproven.
+  → Add `BenchmarkScopedList100k`: seed 100k rows and use a preset with 2 allow globs, a path prefix and 1 deny. Write the measured time in the Handoff.
+  A follow-up task is acceptable if seeding 100k rows here is too slow for `make check` (benchmarks do not run there anyway).
+- [ ] [nit] internal/scope/node.go:102-122 — `and` is a copy of `internal/history/service.go:147`. `core` is outside both lanes,
+  so leave it for now. If a third copy appears (T-020 sitemap), move `And`/`Or` helpers into `internal/query/core`.
+- [ ] [nit] (not T-090) internal/proxy/proxy_test.go:175 — `TestUpstreamErrorIs502AndRecorded` is flaky under `make check`
+  (all packages run in parallel). → The lead should open a small task. The test probably reads entries before the async capture
+  write is done, so it should wait for the bus event or poll with a deadline instead of reading once.
+
+**Verdict: approve.** There are no blocker or major findings. The two minors are cheap: the nil-DB guard is 3 lines plus a test case, and the benchmark is optional and can be a follow-up.
+Status stays `in_review` until the operator merges it and sets `done`.
