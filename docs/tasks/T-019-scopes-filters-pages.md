@@ -105,3 +105,48 @@ Build against the T-091 mocks. Real backend: T-092 (presets), T-090 (`scopeId`/`
   scope selector").
 
 ## Review (reviewer)
+Reviewer: claude-opus-5-5 · 2026-11-19 · branch `task/T-019-scopes-filters-pages` @ aae2e89
+
+**Scope / paths:** All production files are inside `paths`. The `web/src/lib/api/generated/**` changes are the codegen
+output and are declared under Out-of-scope. Hard rules 3–6 and 11 are fine: no schema edits, no hand edits to generated files, no Go changes.
+
+**`make check`:** green (go fix/vet/lint/race tests unchanged; svelte-check 0/0, eslint, prettier; vitest 33 files / 206
+tests passed). `make test-int` not needed (no proxy/store/rawhttp changes).
+
+**AC coverage:**
+- AC1 CRUD + counter: covered by `ScopesPage.test.ts` (list+count, create, rule removal, duplicate/delete, reorder) and
+  `FiltersPage.test.ts` (list+count, create, import, delete). The scope counter covers saved presets only. The lead's
+  note allows this (`requests(scopeId){totalCount}`).
+- AC2 selector + chips in the History QueryBar: covered by `HttpHistoryPage.test.ts` and `history.svelte.test.ts`
+  (`scopeId` on the query and on the subscriptions).
+- AC3 add/exclude host: covered (command visible only with an active scope; `addHostToScope` updates the deny list).
+
+### Findings
+- [ ] [minor] web/src/pages/http-history/history.svelte.ts:113 — `activePreset` matches the alias as a substring. With aliases
+  `no-assets` and `no-assets-v2`, the applied query `preset:no-assets-v2` presses the "No assets" chip, because
+  `includes('preset:no-assets')` is true. → Match the reference as a whole token, e.g.
+  `new RegExp(`(^|[\\s()])preset:${escapeRe(alias)}(?=$|[\\s()])`)`, or compare the parsed `preset:` values. Add one test with two
+  aliases that share a prefix.
+- [ ] [minor] web/src/pages/filters/filters.svelte.ts:162 — `notice` ("Imported N presets") is never cleared. It stays
+  under the editor after later saves, deletes and selections. → Set `this.notice = null` in `select()` (or on every
+  mutation), the same way `message` is reset.
+- [ ] [minor] web/src/pages/scopes/ScopesPage.svelte:110 — Text typed in "Add to the allow/deny list" without Enter is
+  silently dropped on Save. Example: the user types `api.test` and clicks Save, and the preset is stored without the rule. → In
+  the `onsubmit` handler, call `addRule('allow'); addRule('deny')` before `scopes.save()`. `addRule` already ignores blank input.
+- [ ] [nit] web/src/pages/filters/filters.svelte.ts:59 — `select()` counts right away, and the debounced `$effect`
+  (FiltersPage.svelte:50) counts the same query again 300 ms later. So every selection/new/save/import sends two
+  `FilterMatchCount` requests. → Drop the call in `select()` and let the effect be the only trigger. Clearing `count`
+  there is enough.
+- [ ] [nit] web/src/pages/http-history/history.svelte.ts:90 — The "deleted elsewhere → no scope" fallback cannot trigger:
+  `loadPresets` runs only from `start()`, and `scopeId` is always `null` on a new `HistoryState` (not persisted). → Remove
+  it now, or keep it but also call `reload()` when it resets the scope, so it is correct once `ui_state` persistence lands.
+- [ ] [nit] web/src/pages/http-history/commands.ts:94,104 — With several rows selected, add/exclude acts only on the first
+  row's host and drops the others without a message. → Iterate over the unique hosts of `selected()` in a single
+  `updateScopePreset` call (`addHostToScope` could take `string[]`).
+- [ ] [nit] docs/tasks/T-019-scopes-filters-pages.md:13-14 — The globs `ScopeSelector*.svelte` / `PresetChips*.svelte` do
+  not match the colocated `*.test.ts` files this branch adds. The tests are required by DoD and the intent is clear, so this is not a
+  rule-1 violation. Lead: widen to `ScopeSelector*` / `PresetChips*` in future task files.
+
+### Verdict
+**approve.** No blocker or major findings. The minor findings can be fixed in this branch before merge or in a follow-up, as the
+operator decides.
