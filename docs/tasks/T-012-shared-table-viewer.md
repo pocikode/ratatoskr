@@ -3,7 +3,7 @@ id: T-012
 title: Shared TrafficTable (virtualized) and MessageViewer components
 milestone: M1
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-012-shared-table-viewer
@@ -28,8 +28,7 @@ Decide `@tanstack/svelte-virtual` vs in-house virtual list by benchmark (100k ro
 MessageViewer modes: Raw, Pretty (JSON/XML/HTML/JS), Hex, Table (headers/params), Preview (sandboxed iframe src from REST).
 
 ## Acceptance criteria
-- [ ] Storybook-like demo route `#/dev/components` (dev builds only) with 100k fake rows. — component and test done;
-  the route registration is **blocked** (see Out-of-scope).
+- [x] Storybook-like demo route `#/dev/components` (dev builds only) with 100k fake rows.
 - [x] Column show/hide/reorder/resize; sort indicators; multi-select with shift/ctrl; keyboard navigation; `onrowcontextmenu` callback.
 - [x] Viewer handles a 5 MB body without freezing (chunked read-only mode); search (Ctrl+F) works.
 - [x] Component tests for selection logic and column config persistence callbacks.
@@ -57,22 +56,20 @@ MessageViewer modes: Raw, Pretty (JSON/XML/HTML/JS), Hex, Table (headers/params)
 - `web/src/lib/router/routes.ts`: +10 lines registering the dev-only `dev` route (`import.meta.env.DEV`, no sidebar
   category) so the AC-mandated `#/dev/components` gallery is reachable. No production effect (Vite drops the route and
   its lazy chunk from prod builds; re-verified with `bun run build`: 0 matches for "Component gallery" in `dist/`).
-  **Blocked (review round 1).** The change was committed without the path being in `paths`, so it has been reverted.
-
-  **Question for the lead:** add `web/src/lib/router/routes.ts` to this task's `paths` (the 10-line dev-only block is
-  ready to restore), or route the gallery another way (e.g. behind an existing page) — or drop the AC. Until then
-  `DevComponentsPage.svelte` + its smoke test exist but nothing links to them.
-
-  **Lead decision (2026-11-18): approved.** `web/src/lib/router/routes.ts` is added to `paths`, limited to the
-  reverted 10-line `if (import.meta.env.DEV) { routes.push(...) }` block at the end of the file. Do not change existing
-  routes or `CATEGORIES`. The `bun run build` check (no gallery string in `dist/`) stays required and goes in the
-  Handoff. No other open task owns this file (T-003 is done). Restore the block, tick the gallery AC, run `make check`,
-  then set `in_review`.
+  **Resolved (lead decision 2026-11-18): approved**, `web/src/lib/router/routes.ts` is in `paths`, limited to that
+  trailing `if (import.meta.env.DEV) { routes.push(...) }` block — existing routes and `CATEGORIES` untouched. The
+  `bun run build` check stays required (recorded in the Handoff).
 
 ## Handoff (implementer)
+### Round 2 status
+Rebased onto `main` (`2b4bcae`, T-011 + T-013 merged) — clean rebase, no conflicts, 121 web tests now (T-013 added
+its own). Restored the approved dev-only route and re-ran `make check` (green) and `bun run build` (gallery absent from
+`internal/api/static/dist/`). Task is `in_review`; all review round 1 findings are addressed below.
 ### Review round 1 — responses
-- Blocker `routes.ts`: reverted (`git checkout main -- web/src/lib/router/routes.ts`), not self-approved. Task set to
-  `blocked` with the question in Out-of-scope. The gallery component + test stay, nothing links to them.
+- Blocker `routes.ts`: reverted in `c95b0ec`, then restored after the lead approval in `paths` (2026-11-18) — the only
+  change in that file is the trailing `if (import.meta.env.DEV)` block; existing routes and `CATEGORIES` untouched.
+  Re-verified with `bun run build` (after the rebase onto `main`): 0 matches for "Component gallery" in
+  `internal/api/static/dist/`, no `DevComponentsPage-*.js` chunk. Gallery AC ticked.
 - Blocker `MessageTable` duplicate keys: fixed — header rows key by index; test with two identical `Set-Cookie` lines.
 - Major Table tab: mounted only while selected (`{#if mode === 'table'}`), params parsed from the first 128 KB of the
   body, max 500 rows + "N more params not shown". Test: 5 MB urlencoded body renders < 600 `<tr>`.
@@ -96,10 +93,12 @@ MessageViewer modes: Raw, Pretty (JSON/XML/HTML/JS), Hex, Table (headers/params)
   `MessageViewer.svelte` (tabs, Ctrl+F, wrap, copy), `MessageTable.svelte`, `HighlightedText.svelte`, `ShowMoreBar.svelte`.
 - `web/src/lib/components/SplitPane/SplitPane.svelte`: paneforge wrapper, `defaultSizes`, `onsizeschange`, double-click reset.
 - `web/package.json` + `bun.lock`: added `paneforge@^1.0.2` (docs/06 §1). No others added.
-- Tests (110 web tests green): selection (`shift`/`ctrl`/range), column config callbacks through the real menu,
+- Tests (121 web tests green, `make check` green after the rebase onto `main`): selection (`shift`/`ctrl`/range),
+  column config callbacks through the real menu,
   100k-row windowing, keyboard nav (incl. no-active-row start and header-button keys), context-menu/open callbacks,
   duplicate headers, viewer modes, 5 MB chunking, sampled 5 MB form params, search, hex, preview, SplitPane mount +
   keyboard resize, gallery smoke test. Key files: `*.test.ts` next to each component.
+- `web/src/lib/router/routes.ts`: the approved 10-line dev-only gallery route (see Out-of-scope / lead decision).
 
 ### Virtualization decision (lead question)
 In-house fixed-row window instead of `@tanstack/svelte-virtual`: every row is exactly one `--row-h` token high (density
@@ -111,17 +110,14 @@ shows frame drops, swapping in tanstack is a change confined to `TableView.svelt
 
 ### How to verify
 1. `make check` (green), `cd web && bun run test`.
-2. `bun run dev`: the gallery needs the dev route, which is **not** registered right now (blocked). Until the lead
-   approves `routes.ts`, mount `DevComponentsPage.svelte` from a scratch route locally to walk the table and viewers.
-3. To wire it after approval, re-add the 10-line block that was reverted (see Out-of-scope) — prod builds drop it
-   (`bun run build`: no "Component gallery" string in `dist/`).
-4. Once reachable: scroll the 100k-row table, sort, hide/reorder/resize via **Columns**, shift/ctrl-click and
-   arrow/Page keys, right-click a row, double-click to "open"; toggle **Use 5 MB response** for Raw `Show more`,
-   Ctrl+F, and the Table tab on the big form body.
+2. `cd web && bun run dev` → `#/dev/components` (dev server only; the route is registered under `import.meta.env.DEV`).
+3. Scroll the 100k-row table, sort, hide/reorder/resize via **Columns**, shift/ctrl-click and arrow/Page keys,
+   right-click a row (status line shows the callback), double-click to "open"; toggle **Use 5 MB response** and check
+   Raw `Show more`, Ctrl+F, and the Table tab on the big form body (500 rows + "N more" note).
+4. `bun run build` must not contain the gallery: `grep -r "Component gallery" internal/api/static/dist/` → 0 matches.
 
 ### Known limitations
-- The gallery has no route until the lead resolves the Out-of-scope question; `DevComponentsPage` is covered only by
-  its jsdom smoke test.
+- The gallery has no production build artifact and no E2E; it is covered by a jsdom smoke test and the manual steps above.
 - `MessageViewer` search matches the raw message only; jumping from Pretty/Hex switches to Raw. JS is shown as-is in
   Pretty (no JS formatter), markup re-indent is best-effort (no `<pre>`/`<script>` special-casing).
 - Table mode samples: params come from the first 128 KB of the body, max 500 rows, and the note says so. Query params
@@ -136,7 +132,6 @@ shows frame drops, swapping in tanstack is a change confined to `TableView.svelt
 - `web/src/lib/editor/**` (allowed path) intentionally untouched: CodeMirror is not needed for read-only 5 MB display.
 
 ### Follow-ups (proposed tasks)
-- **Lead:** resolve the `routes.ts` path question (blocker 1); the gallery AC stays unchecked until then.
 - Persist column config / pane sizes to backend `ui_state` from the pages (needs the settings contract).
 - Editable MessageViewer variant + CodeMirror for Replay/Intercept (T-0xx); original/modified switch (F-HIST-4).
 - Hex view over `Uint8Array` once the History data contract carries raw bytes.
