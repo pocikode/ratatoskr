@@ -105,3 +105,8 @@ Same operators, logic, comments and string-literal shorthand (`"x"` → `ws.raw.
 ## 7. Autocomplete contract (API)
 `queryCompletions(language, text, cursor)` → list of `{label, insertText, kind: namespace|field|operator|preset|value, detail}`.
 Values for `req.host` / `req.method` / `resp.code` suggested from distinct values in the project (top 50).
+- `cursor`, `from`, `to` are byte offsets into the UTF-8 text (same unit as `BAD_QUERY` spans); the UI converts from
+  editor positions. The result is `{from, to, items}`: each item's `insertText` replaces `text[from:to]` (the token
+  under the cursor, empty at a token boundary). At most 100 items, best first.
+- Each item also carries `isExtension` (true for our extensions in §2/§6, shown as such in the UI).
+- Never errors on unparsable text; it completes what the partial input allows. Schema: `history.graphqls` (T-013).

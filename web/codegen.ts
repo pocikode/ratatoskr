@@ -4,7 +4,7 @@ import type { CodegenConfig } from '@graphql-codegen/cli';
 // The schema is read from the Go side's schema files, so `make gen` needs no running server.
 const config: CodegenConfig = {
   schema: '../internal/api/graphql/schema/*.graphqls',
-  documents: ['src/**/*.graphql'],
+  documents: ['src/**/*.graphql', '!src/lib/api/generated/**'],
   generates: {
     'src/lib/api/generated/': {
       preset: 'client',
@@ -21,6 +21,8 @@ const config: CodegenConfig = {
         useTypeImports: true,
       },
     },
+    // The merged SDL, for the mock executor in src/lib/api/mocks.
+    'src/lib/api/generated/schema.graphql': { plugins: ['schema-ast'] },
   },
 };
 
