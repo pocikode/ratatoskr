@@ -3,7 +3,7 @@ id: T-020
 title: Sitemap tree (backend derivation + page)
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-016, T-094]
 owner: "codex (GPT-6)"
 branch: task/T-020-sitemap
