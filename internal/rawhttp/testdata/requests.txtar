@@ -1,0 +1,249 @@
+# Golden request corpus (F-NET-3): every wire message must round-trip byte for
+# byte through ReadRequest -> drain body -> Raw. `raw` overrides the expected
+# bytes when framing legitimately stops short of the wire (a body the message
+# does not own, a blank line before the start line that RFC 9112 §2.2 lets a
+# parser ignore), `rest` is what is left in the reader.
+-- 001-get/kind --
+request
+-- 001-get/wire --
+"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+
+-- 002-post-content-length/kind --
+request
+-- 002-post-content-length/wire --
+"POST /submit HTTP/1.1\r\nHost: a\r\nContent-Length: 11\r\n\r\nhello world"
+
+-- 003-chunked/kind --
+request
+-- 003-chunked/wire --
+"POST /c HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5;ext=1\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"
+
+-- 004-chunked-trailer/kind --
+request
+-- 004-chunked-trailer/wire --
+"POST /t HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\nX-Trailer: v\r\n\r\n"
+
+-- 005-obs-fold/kind --
+request
+-- 005-obs-fold/wire --
+"GET / HTTP/1.1\r\nHost: a\r\nX-Long: one\r\n\ttwo\r\n\r\n"
+-- 005-obs-fold/warnings --
+obs-fold
+-- 006-bare-lf/kind --
+request
+-- 006-bare-lf/wire --
+"GET / HTTP/1.1\nHost: a\n\n"
+-- 006-bare-lf/warnings --
+bare-lf
+-- 007-mixed-line-endings/kind --
+request
+-- 007-mixed-line-endings/wire --
+"GET / HTTP/1.1\r\nHost: a\nX-Mixed: yes\r\n\r\n"
+-- 007-mixed-line-endings/warnings --
+bare-lf
+-- 008-lowercase-method/kind --
+request
+-- 008-lowercase-method/wire --
+"get / HTTP/1.1\r\nHost: a\r\n\r\n"
+-- 008-lowercase-method/warnings --
+lowercase-method
+-- 009-absolute-form/kind --
+request
+-- 009-absolute-form/wire --
+"GET http://example.com/p?q=1 HTTP/1.1\r\nHost: example.com\r\n\r\n"
+
+-- 010-asterisk-target/kind --
+request
+-- 010-asterisk-target/wire --
+"OPTIONS * HTTP/1.1\r\nHost: a\r\n\r\n"
+
+-- 011-identical-content-lengths/kind --
+request
+-- 011-identical-content-lengths/wire --
+"POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nhello"
+-- 011-identical-content-lengths/warnings --
+duplicate-content-length
+-- 012-conflicting-content-lengths/kind --
+request
+-- 012-conflicting-content-lengths/wire --
+"POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\nhello"
+-- 012-conflicting-content-lengths/error --
+conflicting Content-Length
+
+-- 013-length-and-chunked/kind --
+request
+-- 013-length-and-chunked/wire --
+"POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+-- 013-length-and-chunked/warnings --
+content-length-with-transfer-encoding
+-- 014-no-headers/kind --
+request
+-- 014-no-headers/wire --
+"GET / HTTP/1.1\r\n\r\n"
+
+-- 015-empty-values/kind --
+request
+-- 015-empty-values/wire --
+"GET / HTTP/1.1\r\nHost: a\r\nX-Empty:\r\nX-Space: \r\n\r\n"
+
+-- 016-padded-value/kind --
+request
+-- 016-padded-value/wire --
+"GET / HTTP/1.1\r\nHost: a\r\nX-Pad:   padded value   \r\n\r\n"
+
+-- 017-duplicate-headers/kind --
+request
+-- 017-duplicate-headers/wire --
+"GET / HTTP/1.1\r\nHost: a\r\nX-Dup: 1\r\nX-Dup: 2\r\n\r\n"
+
+-- 018-header-case/kind --
+request
+-- 018-header-case/wire --
+"GET / HTTP/1.1\r\nhOsT: a\r\nX-CASE: v\r\n\r\n"
+
+-- 019-target-fragment/kind --
+request
+-- 019-target-fragment/wire --
+"GET /path#frag HTTP/1.1\r\nHost: a\r\n\r\n"
+
+-- 020-connect/kind --
+request
+-- 020-connect/wire --
+"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"
+
+-- 021-http10/kind --
+request
+-- 021-http10/wire --
+"GET / HTTP/1.0\r\nHost: a\r\n\r\n"
+
+-- 022-no-version/kind --
+request
+-- 022-no-version/wire --
+"GET /\r\n\r\n"
+-- 022-no-version/warnings --
+no-version
+-- 023-head-too-large/kind --
+request
+-- 023-head-too-large/wire --
+"GET / HTTP/1.1\r\nHost: a\r\nX-Big: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n\r\n"
+-- 023-head-too-large/limit --
+128
+-- 023-head-too-large/error --
+head too large
+
+-- 024-non-numeric-length/kind --
+request
+-- 024-non-numeric-length/wire --
+"POST / HTTP/1.1\r\nHost: a\r\nContent-Length: abc\r\n\r\n"
+-- 024-non-numeric-length/error --
+Content-Length
+
+-- 025-negative-length/kind --
+request
+-- 025-negative-length/wire --
+"POST / HTTP/1.1\r\nHost: a\r\nContent-Length: -1\r\n\r\n"
+-- 025-negative-length/error --
+Content-Length
+
+-- 026-chunked-bare-lf/kind --
+request
+-- 026-chunked-bare-lf/wire --
+"POST /lf HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3\nabc\n0\n\n"
+
+-- 027-chunked-empty/kind --
+request
+-- 027-chunked-empty/wire --
+"POST /z HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"
+
+-- 028-binary-body/kind --
+request
+-- 028-binary-body/wire --
+"POST /bin HTTP/1.1\r\nHost: a\r\nContent-Length: 7\r\n\r\n\r\n\x00\xff\x01\r\n"
+
+-- 029-unsupported-encoding/kind --
+request
+-- 029-unsupported-encoding/wire --
+"POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip\r\n\r\n"
+-- 029-unsupported-encoding/error --
+unsupported Transfer-Encoding
+
+-- 030-multiple-encodings/kind --
+request
+-- 030-multiple-encodings/wire --
+"POST /m HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip, chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n"
+-- 030-multiple-encodings/warnings --
+multiple-transfer-encodings
+-- 031-malformed-header/kind --
+request
+-- 031-malformed-header/wire --
+"GET / HTTP/1.1\r\nHost: a\r\nBad Header Without Colon\r\n\r\n"
+-- 031-malformed-header/warnings --
+malformed-header
+-- 032-unterminated-head/kind --
+request
+-- 032-unterminated-head/wire --
+"GET / HTTP/1.1\r\nHost: a\r\n"
+-- 032-unterminated-head/error --
+unexpected EOF
+
+-- 033-blank-line-only/kind --
+request
+-- 033-blank-line-only/wire --
+"\r\n"
+-- 033-blank-line-only/error --
+EOF
+
+-- 034-query-target/kind --
+request
+-- 034-query-target/wire --
+"GET /?a=b&c=d HTTP/1.1\r\nHost: a\r\n\r\n"
+
+-- 035-http10-transfer-encoding/kind --
+request
+-- 035-http10-transfer-encoding/wire --
+"POST /v10 HTTP/1.0\r\nHost: a\r\nTransfer-Encoding: chunked\r\nContent-Length: 3\r\n\r\nabc"
+-- 035-http10-transfer-encoding/warnings --
+transfer-encoding-on-http10
+-- 036-pipelined/kind --
+request
+-- 036-pipelined/wire --
+"GET /a HTTP/1.1\r\nHost: a\r\n\r\nGET /b HTTP/1.1\r\nHost: a\r\n\r\n"
+-- 036-pipelined/raw --
+"GET /a HTTP/1.1\r\nHost: a\r\n\r\n"
+-- 036-pipelined/rest --
+"GET /b HTTP/1.1\r\nHost: a\r\n\r\n"
+-- 037-body-leftover/kind --
+request
+-- 037-body-leftover/wire --
+"POST /l HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nabcdef"
+-- 037-body-leftover/raw --
+"POST /l HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nab"
+-- 037-body-leftover/rest --
+"cdef"
+-- 038-padded-start-line/kind --
+request
+-- 038-padded-start-line/wire --
+"GET   /path   HTTP/1.1\r\nHost: a\r\n\r\n"
+
+-- 039-space-before-colon/kind --
+request
+-- 039-space-before-colon/wire --
+"POST /sb HTTP/1.1\r\nHost: a\r\nTransfer-Encoding : chunked\r\n\r\n2\r\nhi\r\n0\r\n\r\n"
+-- 039-space-before-colon/warnings --
+space-before-colon
+
+-- 040-leading-blank-line/kind --
+request
+-- 040-leading-blank-line/wire --
+"\r\nPOST /stray HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nhi"
+-- 040-leading-blank-line/raw --
+"POST /stray HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nhi"
+-- 040-leading-blank-line/warnings --
+leading-blank-line
+
+-- 041-short-length-body/kind --
+request
+-- 041-short-length-body/wire --
+"POST /short HTTP/1.1\r\nHost: a\r\nContent-Length: 10\r\n\r\nabc"
+-- 041-short-length-body/error --
+unexpected EOF
