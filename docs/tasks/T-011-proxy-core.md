@@ -3,7 +3,7 @@ id: T-011
 title: Proxy core - listener multiplexing, CONNECT, MITM, forwarding, capture
 milestone: M1
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-005, T-008, T-010]
 owner: "claude (sonnet 5.5)"
 branch: task/T-011-proxy-core
@@ -62,3 +62,52 @@ and captures every request/response into the project DB (batched) emitting `Requ
 - `make check` needed `bun install` in the worktree (no change to web files).
 
 ## Review (reviewer)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: changes_requested**
+
+Scope: all 15 changed files are inside `paths`. `make check` green (exit 0). `make test-int` green.
+AC 1-5 are each covered by a test (`TestHTTPAndHTTPSMatchDirect`, `TestCorpusByteExact`, `TestLoadNoLeakAndLatency`,
+`TestUpstreamErrorIs502AndRecorded`, `TestCapturePausedWithoutProject`). Hard rules: no net/http on the proxy path
+(UI handoff only), nolint is justified with the task id, no generated or schema files touched.
+
+- [ ] [major] internal/proxy/server.go:391-401 — After a proxied `GET http://ratatoskr.localhost/...`, the whole
+  client connection is handed to the UI `http.Server`. The client (curl with several URLs, a browser after downloading
+  the CA) reuses that keep-alive proxy connection, so every later request on it goes to the UI handler. Those requests
+  are never forwarded and never recorded. I confirmed this with a temporary test (now deleted): `GET http://ratatoskr.localhost/ca.crt`
+  and then `GET http://127.0.0.1:<upstream>/x` on one `http.Transport` returned `"ui:/x"` with 0 recorded entries.
+  → Make the replayed request the last one on that connection: add `.SetHeader("Connection", "close")` to the builder
+  at :398 so `http.Server` closes after it answers. Add a regression test with exactly these two requests.
+- [ ] [major] internal/history/capture.go:212-250 — Request rows are inserted in one transaction (`InsertRequests`) and
+  their headers and responses in a second one (`db.Write`). If the second transaction fails (busy DB, the 5 s flush
+  deadline at shutdown, a project closed between the two), the request rows stay in the DB with no headers and no
+  response. No event is published for them, and `dropped` counts them as lost even though they were stored. History then
+  shows requests that stay unanswered forever. → Write the requests, headers and responses in one `db.Write`
+  transaction. Either run the `INSERT INTO requests` inside the existing closure (capture.go already writes raw SQL for
+  responses), or ask the lead under "Out-of-scope change needed" for a `store` helper that takes a `*sql.Tx`. Add a
+  test where the response insert fails and check that no request row is left.
+- [ ] [major] internal/proxy/server.go:360-372 — An origin-form request whose Host is neither the listener nor
+  `ratatoskr.localhost` is forwarded to that Host. That is invisible proxying, which F-NET-6 defines as an opt-in
+  listener option. F-NET-1 only defines the absolute-form/CONNECT → proxy and the listener/ratatoskr.localhost Host → UI
+  cases. This is product behaviour the spec does not define (hard rule 2). → Until F-NET-6 lands, answer these
+  requests with `421 Misdirected Request` (or `400`) using `writeSimple`. Or set `blocked` and ask the lead what the
+  default should be. Update `TestUIRouting` to match.
+- [ ] [minor] internal/proxy/server.go:378-386 — `isUIHost` compares port strings, but the forwarder parses them with
+  `Atoi`. Absolute target `http://127.0.0.1:<listen-port>/` with `Host: 127.0.0.1:0<listen-port>` makes the proxy forward
+  to itself, and that hop sees the same Host and forwards again. The loop stops only at `maxConns` (10 000 conns and
+  goroutines). Separately, any Host whose port equals the listener port (e.g. `target.test:8080`) is sent to the UI.
+  → Use `parseAuthority` in `isUIHost` and compare numeric ports, and match the host against loopback/listener
+  addresses only, not every host with that port (F-NET-1: "Host = listener address").
+- [ ] [minor] internal/proxy/forward.go:89 — The stale-connection retry repeats any request without a body, including
+  `POST`/`DELETE`. If the upstream ran the request and then dropped the connection before answering, the request
+  runs twice. → Retry only idempotent methods (`GET HEAD OPTIONS TRACE PUT DELETE` is the RFC 9110 set; drop
+  PUT/DELETE if you want to be strict), or only when no response byte was read.
+- [ ] [minor] internal/proxy/forward.go:118 and server.go:297 — The read deadline is removed once the head is read.
+  An upstream that sends its head and then stops sending the body, or a client that stops sending its request body,
+  blocks the session goroutine until `Serve` ends. Nothing notices that the client already gave up. → While the body
+  is copied, set a per-read idle deadline (for example a small wrapper on `up` that sets `SetReadDeadline(now+idleTimeout)`
+  on each Read), or reuse `idleTimeout`.
+- [ ] [nit] internal/app/app.go:201 — The pool is never closed, so idle upstream connections survive `Serve`. This only
+  matters if `Serve` is called again in the same process (tests). → `defer pool.Close()` after `srv.Serve` returns.
+- [ ] [nit] internal/proxy/server.go:406 — `strings.NewReader(string(head))` copies the head. → Use `bytes.NewReader(head)`.
+- [ ] [nit] Handoff "No pending row": docs/03 §4 defines `history.NewPending` plus `requestAdded(pending)` before
+  forwarding. Deferring this is reasonable, but get the lead to acknowledge it and add a `TODO(T-0xx)` or follow-up
+  task id so it is tracked.
