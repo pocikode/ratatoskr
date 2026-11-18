@@ -3,7 +3,7 @@ id: T-024
 title: Login/logout endpoints that set the auth cookie
 milestone: M0
 role: backend
-status: in_review
+status: done
 depends_on: [T-007]
 owner: "DeepSeek V4.1 Flash 1017 (sinarcloud/deepseek-v4.1-flash-1017)"
 branch: task/T-024-auth-login-endpoint
