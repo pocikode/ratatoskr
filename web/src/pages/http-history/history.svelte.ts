@@ -3,6 +3,7 @@
 import type { Client, CombinedError } from '@urql/core';
 import { SvelteSet } from 'svelte/reactivity';
 import {
+  FilterPresetsDocument,
   HistoryDeleteRequestsDocument,
   HistoryRequestAddedDocument,
   HistoryRequestDocument,
@@ -11,8 +12,12 @@ import {
   HistoryRequestUpdatedDocument,
   HistorySetColorDocument,
   HistorySetNoteDocument,
+  ScopePresetsDocument,
+  UpdateScopePresetDocument,
+  type FilterPresetFieldsFragment,
   type HistoryRowFragment,
   type RequestColor,
+  type ScopePresetFieldsFragment,
 } from '$lib/api/generated/graphql';
 import { Selection } from '$lib/components/TrafficTable/selection.svelte';
 import type { ColumnConfig, SortState } from '$lib/components/TrafficTable/types';
@@ -44,6 +49,10 @@ export class HistoryState {
   error = $state<QueryError | null>(null);
 
   sort = $state<SortState | null>({ columnId: 'id', direction: 'desc' });
+  /** Active scope preset for the table and its subscriptions; null = no scope (F-SCOPE-1). */
+  scopeId = $state<string | null>(null);
+  scopes = $state.raw<ScopePresetFieldsFragment[]>([]);
+  presets = $state.raw<FilterPresetFieldsFragment[]>([]);
   /** Viewers below the table (default) or to its right (docs/02 §3.1). */
   layout = $state<'below' | 'right'>('below');
   config = $state<ColumnConfig | null>(loadColumnConfig());
@@ -65,8 +74,68 @@ export class HistoryState {
 
   /** Loads the first page and follows live changes; returns the cleanup. */
   start(): () => void {
+    void this.loadPresets();
     void this.reload();
     return () => this.stop();
+  }
+
+  /** Scope presets and filter presets for the query bar; the table works without them. */
+  private async loadPresets(): Promise<void> {
+    const [scopes, presets] = await Promise.all([
+      this.client.query(ScopePresetsDocument, {}, { requestPolicy: 'network-only' }).toPromise(),
+      this.client.query(FilterPresetsDocument, {}, { requestPolicy: 'network-only' }).toPromise(),
+    ]);
+    this.scopes = scopes.data?.scopePresets ?? [];
+    this.presets = presets.data?.filterPresets ?? [];
+    // A preset deleted elsewhere falls back to no scope (scope.graphqls).
+    if (this.scopeId && !this.scopes.some((scope) => scope.id === this.scopeId))
+      this.scopeId = null;
+  }
+
+  /** Applies a scope preset to the table and its live subscriptions; null clears it. */
+  setScope(id: string | null): void {
+    if (id === this.scopeId) return;
+    this.scopeId = id;
+    this.selection.clear();
+    this.detail = null;
+    void this.reload();
+  }
+
+  /** Quick-apply a filter preset: the bar holds `preset:"Name"` and the query runs. */
+  applyPreset(name: string): void {
+    this.apply(`preset:"${literal(name)}"`);
+  }
+
+  /** Name of the preset the applied query references, for the chips' pressed state. */
+  get activePreset(): string | null {
+    for (const preset of this.presets) {
+      if (this.applied.includes(`preset:"${literal(preset.name)}"`)) return preset.name;
+      if (preset.alias && this.applied.includes(`preset:${preset.alias}`)) return preset.name;
+    }
+    return null;
+  }
+
+  /** Adds a host to the active scope's allow or deny list, then refilters the table. */
+  async addHostToScope(host: string, kind: 'allow' | 'deny'): Promise<void> {
+    const scope = this.scopes.find((other) => other.id === this.scopeId);
+    if (!scope) return;
+    if ((kind === 'allow' ? scope.allow : scope.deny).includes(host)) return;
+    const result = await this.client
+      .mutation(UpdateScopePresetDocument, {
+        id: scope.id,
+        name: scope.name,
+        allow: kind === 'allow' ? [...scope.allow, host] : scope.allow,
+        deny: kind === 'deny' ? [...scope.deny, host] : scope.deny,
+      })
+      .toPromise();
+    const saved = result.data?.updateScopePreset;
+    if (result.error || !saved) {
+      this.message = result.error?.message ?? 'Updating the scope failed';
+      return;
+    }
+    this.message = null;
+    this.scopes = this.scopes.map((other) => (other.id === saved.id ? saved : other));
+    void this.reload();
   }
 
   stop() {
@@ -83,7 +152,12 @@ export class HistoryState {
     const result = await this.client
       .query(
         HistoryRequestsDocument,
-        { query: query || null, first: PAGE, sort: requestSort(this.sort) },
+        {
+          query: query || null,
+          scopeId: this.scopeId,
+          first: PAGE,
+          sort: requestSort(this.sort),
+        },
         { requestPolicy: 'network-only' },
       )
       .toPromise();
@@ -260,13 +334,14 @@ export class HistoryState {
   private subscribe(): void {
     this.stop();
     const query = this.applied || null;
+    const scopeId = this.scopeId;
     const added = this.client
-      .subscription(HistoryRequestAddedDocument, { query })
+      .subscription(HistoryRequestAddedDocument, { query, scopeId })
       .subscribe((result) => {
         if (result.data) this.addRow(result.data.requestAdded);
       });
     const updated = this.client
-      .subscription(HistoryRequestUpdatedDocument, { query })
+      .subscription(HistoryRequestUpdatedDocument, { query, scopeId })
       .subscribe((result) => {
         const change = result.data?.requestUpdated;
         if (!change) return;
@@ -284,6 +359,11 @@ export class HistoryState {
       () => deleted.unsubscribe(),
     ];
   }
+}
+
+/** Escapes a value for an HTTPQL string literal (docs/04 §1). */
+export function literal(value: string): string {
+  return value.replace(/[\\"]/g, '\\$&');
 }
 
 /** `extensions.span = {start, end}` of a `BAD_QUERY` error, in UTF-8 bytes (docs/03 §6). */

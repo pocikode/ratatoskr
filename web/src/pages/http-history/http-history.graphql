@@ -42,8 +42,8 @@ fragment HistoryMessage on HttpRequest {
   }
 }
 
-query HistoryRequests($query: String, $first: Int!, $sort: RequestSort) {
-  requests(query: $query, first: $first, sort: $sort) {
+query HistoryRequests($query: String, $scopeId: ID, $first: Int!, $sort: RequestSort) {
+  requests(query: $query, scopeId: $scopeId, first: $first, sort: $sort) {
     totalCount
     pageInfo {
       hasNextPage
@@ -64,14 +64,14 @@ query HistoryRequest($id: ID!) {
   }
 }
 
-subscription HistoryRequestAdded($query: String) {
-  requestAdded(query: $query) {
+subscription HistoryRequestAdded($query: String, $scopeId: ID) {
+  requestAdded(query: $query, scopeId: $scopeId) {
     ...HistoryRow
   }
 }
 
-subscription HistoryRequestUpdated($query: String) {
-  requestUpdated(query: $query) {
+subscription HistoryRequestUpdated($query: String, $scopeId: ID) {
+  requestUpdated(query: $query, scopeId: $scopeId) {
     matches
     request {
       ...HistoryRow
