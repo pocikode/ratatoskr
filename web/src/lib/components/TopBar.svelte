@@ -2,6 +2,7 @@
   import { DropdownMenu } from 'bits-ui';
   import { registry } from '$lib/commands';
   import { theme } from '$lib/stores/theme.svelte';
+  import ProjectSwitcher from './ProjectSwitcher.svelte';
   import { iconFor } from '$lib/utils/icons';
   import logo from '../../assets/logo.svg';
 
@@ -22,6 +23,8 @@
     <img src={logo} alt="" class="size-5" />
     Ratatoskr
   </a>
+
+  <ProjectSwitcher />
 
   <button
     type="button"
