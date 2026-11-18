@@ -48,8 +48,8 @@ CI stops spending runner minutes on changes that cannot break the build, while e
 - What changed: `.github/workflows/ci.yml` triggers/guard/matrix; docs/07 §8 CI policy line; roadmap row T-028.
 - How to verify: this PR shows one `make check (ubuntu-latest)` check. After merge, the `main` run shows both OSes.
   A docs-only PR shows no CI run. `gh workflow run CI --repo pocikode/ratatoskr --ref <branch>` runs both OSes.
-- Known limitations: macOS-only regressions are caught after merge (or by a manual run), not on the PR. The workflow
-  was checked by YAML parse only; actionlint was not run locally.
+- Known limitations: macOS-only regressions are caught after merge (or by a manual run), not on the PR. Workflow
+  checked by YAML parse and actionlint v1.7.7 (no findings).
 - Follow-ups (proposed tasks): stub "skipped" job if `make check` becomes a required check.
 
 ## Review (reviewer)
