@@ -78,12 +78,12 @@ func scan(sc interface{ Scan(...any) error }) (Preset, error) {
 
 const cols = `id, name, allow_json, deny_json`
 
-// List returns all presets in creation order.
+// List returns all presets in preset order.
 func (s *Service) List(ctx context.Context) ([]Preset, error) {
 	var out []Preset
 
 	err := s.db().View(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT `+cols+` FROM scope_presets ORDER BY id`)
+		rows, err := tx.QueryContext(ctx, `SELECT `+cols+` FROM scope_presets ORDER BY sort_order, id`)
 		if err != nil {
 			return err
 		}
@@ -163,7 +163,7 @@ func (s *Service) Create(ctx context.Context, p Preset) (Preset, error) {
 			return err
 		}
 
-		res, err := tx.ExecContext(ctx, `INSERT INTO scope_presets(name, allow_json, deny_json) VALUES (?, ?, ?)`, p.Name, string(a), string(d))
+		res, err := tx.ExecContext(ctx, `INSERT INTO scope_presets(name, allow_json, deny_json, sort_order) VALUES (?, ?, ?, (SELECT coalesce(max(sort_order), 0) + 1 FROM scope_presets))`, p.Name, string(a), string(d))
 		if err != nil {
 			return err
 		}
@@ -233,7 +233,7 @@ func (s *Service) Duplicate(ctx context.Context, id int64) (out Preset, err erro
 			return err
 		}
 
-		res, err := tx.ExecContext(ctx, `INSERT INTO scope_presets(name, allow_json, deny_json) VALUES (?, ?, ?)`, out.Name, string(a), string(d))
+		res, err := tx.ExecContext(ctx, `INSERT INTO scope_presets(name, allow_json, deny_json, sort_order) VALUES (?, ?, ?, (SELECT coalesce(max(sort_order), 0) + 1 FROM scope_presets))`, out.Name, string(a), string(d))
 		if err != nil {
 			return err
 		}
@@ -256,6 +256,42 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 
 		if n, _ := res.RowsAffected(); n == 0 {
 			return apperr.New(apperr.NotFound, "scope %d not found", id)
+		}
+
+		return nil
+	})
+}
+
+// Reorder sets the preset order to ids, which must list every preset once.
+func (s *Service) Reorder(ctx context.Context, ids []int64) error {
+	return s.db().Write(ctx, func(tx *sql.Tx) error {
+		var n int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM scope_presets`).Scan(&n); err != nil {
+			return err
+		}
+
+		if len(ids) != n {
+			return apperr.New(apperr.BadInput, "ids must list every scope exactly once")
+		}
+
+		seen := map[int64]bool{}
+
+		for i, id := range ids {
+			if seen[id] {
+				return apperr.New(apperr.BadInput, "scope %d listed twice", id)
+			}
+
+			seen[id] = true
+
+			res, err := tx.ExecContext(ctx, `UPDATE scope_presets SET sort_order = ? WHERE id = ?`, i, id)
+			if err != nil {
+				return err
+			}
+
+			// Returning an error rolls the whole transaction back.
+			if c, _ := res.RowsAffected(); c == 0 {
+				return apperr.New(apperr.BadInput, "unknown scope %d in order", id)
+			}
 		}
 
 		return nil

@@ -77,6 +77,8 @@ type App struct {
 	ca      *ca.Service
 	capture *history.Capture
 	history *history.Service
+	scopes  *scope.Service
+	filters *filterpreset.Service
 	events  events.Bus[history.Event]
 	handler http.Handler
 
@@ -135,10 +137,11 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		return nil, err
 	}
 
+	a.scopes, a.filters = scope.New(a.project.DB), filterpreset.New(a.project.DB)
 	a.history = history.NewService(history.ServiceDeps{
 		DB: a.project.DB, Bus: &a.events,
-		Scope:      scope.New(a.project.DB).Node,
-		ExpandText: filterpreset.New(a.project.DB).ExpandText,
+		Scope:      a.scopes.Node,
+		ExpandText: a.filters.ExpandText,
 	})
 	a.capture = history.New(history.Deps{DB: a.project.DB, Bus: &a.events, Logger: a.log})
 	a.handler = a.buildHandler(buildInfo(opts.Version, opts.Commit))
@@ -300,7 +303,7 @@ func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
 	}
 
 	mux.Handle("/api/", api.NewHandler(api.Options{
-		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now(), Projects: a.project, History: a.history},
+		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now(), Projects: a.project, History: a.history, Scopes: a.scopes, Filters: a.filters},
 		Auth:      auth,
 		Logger:    a.log,
 		CA:        certs,
