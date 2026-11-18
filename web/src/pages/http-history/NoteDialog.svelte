@@ -17,10 +17,11 @@
 
 <Dialog.Root open={row !== null} onOpenChange={(open) => !open && onclose()}>
   <Dialog.Portal>
-    <Dialog.Overlay class="fixed inset-0 z-40 bg-black/40" />
+    <Dialog.Overlay class="fixed inset-0 z-40 bg-[var(--scrim)]" />
     <Dialog.Content
       class="fixed top-1/4 left-1/2 z-50 w-96 -translate-x-1/2 rounded-token border border-line
-        bg-elevated p-4 shadow-lg"
+        bg-elevated p-4"
+      style="box-shadow: var(--shadow-overlay)"
     >
       <form
         class="flex flex-col gap-3"
