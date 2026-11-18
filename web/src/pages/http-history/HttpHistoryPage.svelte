@@ -5,7 +5,9 @@
   import { untrack } from 'svelte';
   import { registry } from '$lib/commands';
   import MessageViewer from '$lib/components/MessageViewer/MessageViewer.svelte';
+  import PresetChips from '$lib/components/PresetChips.svelte';
   import QueryBar from '$lib/components/QueryBar/QueryBar.svelte';
+  import ScopeSelector from '$lib/components/ScopeSelector.svelte';
   import SplitPane from '$lib/components/SplitPane/SplitPane.svelte';
   import TrafficTable from '$lib/components/TrafficTable/TrafficTable.svelte';
   import { COLORS, historyColumns, rowColor, type HistoryRow } from './columns';
@@ -42,6 +44,8 @@
     'history.color.none',
     'history.note.edit',
     'history.filter.host',
+    'history.scope.add',
+    'history.scope.exclude',
     'history.delete',
   ];
 
@@ -116,9 +120,9 @@
   function openMenu(row: HistoryRow, event: MouseEvent | KeyboardEvent) {
     const ids = history.rows.map((other) => other.id);
     if (!history.selection.has(row.id)) history.selection.click(row.id, ids);
-    const items = MENU_COMMANDS.map((id) => registry.get(id))
-      .filter((command) => command !== undefined)
-      .map((command) => ({ id: command.id, title: command.title }));
+    const items = MENU_COMMANDS.map((id) => registry.get(id)).flatMap((command) =>
+      command && (command.when?.({}) ?? true) ? [{ id: command.id, title: command.title }] : [],
+    );
     menu = { ...menuPoint(event), items };
   }
 </script>
@@ -133,7 +137,22 @@
         history={history.history}
         onsubmit={(text) => history.apply(text)}
         oncomplete={complete}
-      />
+      >
+        {#snippet leading()}
+          <ScopeSelector
+            presets={history.scopes}
+            value={history.scopeId}
+            onchange={(id) => history.setScope(id)}
+          />
+        {/snippet}
+        {#snippet trailing()}
+          <PresetChips
+            presets={history.presets}
+            active={history.activePreset}
+            onapply={(preset) => history.applyPreset(preset.name)}
+          />
+        {/snippet}
+      </QueryBar>
     </div>
     <button
       type="button"

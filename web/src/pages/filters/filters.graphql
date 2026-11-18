@@ -1,0 +1,54 @@
+# Filters page operations (T-019, F-FILTER-1, docs/02 §3.3), against
+# internal/api/graphql/schema/filter.graphqls (T-091). The list is small and the
+# contract has no subscription, so the page refetches after its own mutations.
+
+fragment FilterPresetFields on FilterPreset {
+  id
+  name
+  alias
+  query
+}
+
+query FilterPresets {
+  filterPresets {
+    ...FilterPresetFields
+  }
+}
+
+# Draft counter: the query text as typed, before the preset is saved. Only
+# `totalCount` is used, so one row is enough.
+query FilterMatchCount($query: String!) {
+  requests(first: 1, query: $query) {
+    totalCount
+  }
+}
+
+mutation CreateFilterPreset($name: String!, $alias: String, $query: String!) {
+  createFilterPreset(name: $name, alias: $alias, query: $query) {
+    ...FilterPresetFields
+  }
+}
+
+mutation UpdateFilterPreset($id: ID!, $name: String!, $alias: String, $query: String!) {
+  updateFilterPreset(id: $id, name: $name, alias: $alias, query: $query) {
+    ...FilterPresetFields
+  }
+}
+
+mutation DeleteFilterPreset($id: ID!) {
+  deleteFilterPreset(id: $id)
+}
+
+mutation ReorderFilterPresets($ids: [ID!]!) {
+  reorderFilterPresets(ids: $ids) {
+    ...FilterPresetFields
+  }
+}
+
+query ExportFilterPresets {
+  exportFilterPresets
+}
+
+mutation ImportFilterPresets($json: String!) {
+  importFilterPresets(json: $json)
+}

@@ -1,8 +1,8 @@
-import { Client, makeResult, type Exchange } from '@urql/core';
+import { Client, makeResult, type Exchange, type Operation } from '@urql/core';
 import { GraphQLError } from 'graphql';
-import { filter, fromValue, mergeMap, pipe } from 'wonka';
+import { filter, fromValue, mergeMap, pipe, tap } from 'wonka';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createMockClient } from '$lib/api/mocks/exchange';
+import { createMockClient, mockHistoryExchange } from '$lib/api/mocks/exchange';
 import { historyCommands } from './commands';
 import { HistoryState } from './history.svelte';
 import { loadColumnConfig } from './ui-state';
@@ -204,6 +204,56 @@ describe('HistoryState', () => {
     expect(state.detail?.id).toBe(second.id);
     expect(state.detail?.request).toContain(`${second.method} `);
     expect(state.detail?.request).toContain(`Host: ${second.host}`);
+    stop();
+  });
+
+  it('refilters the table and its subscriptions with the selected scope', async () => {
+    const sent: Array<Record<string, unknown>> = [];
+    const spy: Exchange =
+      ({ forward }) =>
+      (ops$) =>
+        forward(
+          pipe(
+            ops$,
+            tap((op: Operation) => sent.push((op.variables ?? {}) as Record<string, unknown>)),
+          ),
+        );
+    const client = new Client({
+      url: '/test',
+      exchanges: [spy, mockHistoryExchange({ count: 10, liveIntervalMs: 0 })],
+    });
+    const state = new HistoryState(client);
+    const stop = state.start();
+    await vi.waitFor(() => expect(state.total).toBe(10));
+
+    state.setScope('1');
+
+    await vi.waitFor(() => expect(sent.some((vars) => vars?.scopeId === '1')).toBe(true));
+    stop();
+  });
+
+  it('adds a host to the active scope through the row command', async () => {
+    const state = new HistoryState(mock(10));
+    const stop = state.start();
+    await vi.waitFor(() => expect(state.scopes.length).toBeGreaterThan(0));
+    state.setScope('1');
+
+    await state.addHostToScope('api.example.com', 'deny');
+
+    expect(state.scopes.find((scope) => scope.id === '1')?.deny).toContain('api.example.com');
+    stop();
+  });
+
+  it('quick-applies a filter preset as a preset: reference', async () => {
+    const state = new HistoryState(mock(10));
+    const stop = state.start();
+    await vi.waitFor(() => expect(state.presets.length).toBeGreaterThan(0));
+
+    state.applyPreset('Errors');
+
+    expect(state.query).toBe('preset:"Errors"');
+    await vi.waitFor(() => expect(state.applied).toBe('preset:"Errors"'));
+    expect(state.activePreset).toBe('Errors');
     stop();
   });
 });

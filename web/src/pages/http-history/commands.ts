@@ -2,17 +2,12 @@
 // entries (docs/06 §5). Registered while the page is mounted.
 import type { Command } from '$lib/commands/registry';
 import { colorLabel, COLORS, requestCurl, requestUrl, type HistoryRow } from './columns';
-import type { HistoryState } from './history.svelte';
+import { literal, type HistoryState } from './history.svelte';
 
 export interface HistoryCommandDeps {
   copy: (text: string) => void;
   /** Opens the note editor for a row. */
   editNote: (row: HistoryRow) => void;
-}
-
-/** Escapes a value for an HTTPQL string literal (docs/04 §1). */
-function literal(value: string): string {
-  return value.replace(/[\\"]/g, '\\$&');
 }
 
 export function historyCommands(state: HistoryState, deps: HistoryCommandDeps): Command[] {
@@ -88,6 +83,26 @@ export function historyCommands(state: HistoryState, deps: HistoryCommandDeps): 
         const base = state.applied.replace(/\s*\/\/[^\n"]*$/, '');
         state.query = base ? `(${base}) AND ${clause}` : clause;
         state.apply();
+      },
+    },
+    {
+      id: 'history.scope.add',
+      title: 'Add host to scope',
+      group,
+      when: () => state.scopeId !== null && anySelected(),
+      run: () => {
+        const row = selected()[0];
+        if (row) void state.addHostToScope(row.host, 'allow');
+      },
+    },
+    {
+      id: 'history.scope.exclude',
+      title: 'Exclude host from scope',
+      group,
+      when: () => state.scopeId !== null && anySelected(),
+      run: () => {
+        const row = selected()[0];
+        if (row) void state.addHostToScope(row.host, 'deny');
       },
     },
     {
