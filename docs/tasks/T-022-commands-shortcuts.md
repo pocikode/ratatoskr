@@ -3,7 +3,7 @@ id: T-022
 title: Command registry, shortcuts manager and context menu builder
 milestone: M1
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-022-commands-shortcuts
@@ -66,6 +66,12 @@ spec:
 - `ContextMenu`: `disabled={items.length === 0}` on the trigger, so a menu with no runnable command leaves the native menu
   alone (test added; verified it fails without the fix).
 - `menu.ts`: `when` checked per id instead of scanning `registry.available()`.
+
+### Round 3 — review fix
+- `intercept.drop` (⌘/Ctrl+Backspace) is no longer `global`: the row is "Intercept, item selected", so it stays out of the
+  request editor, which keeps its delete-word/delete-to-line-start key. Drop still fires from the list (focus outside inputs).
+- Test: with `intercept.drop` registered on page `intercept`, ⌘Backspace from an `input()` runs nothing and leaves
+  `defaultPrevented === false`; the same key with focus outside the input runs it.
 
 ### How to verify
 - `cd web && bun run test` (140 tests) and `make check` (green). `cd web && bun run build` re-checked: no `dist` changes

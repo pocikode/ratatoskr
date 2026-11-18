@@ -22,7 +22,7 @@ export const defaultBindings: Binding[] = [
   { key: 'm', mod: true, command: 'history.sendToAutomate' },
   { key: 'enter', mod: true, page: 'replay', global: true, command: 'replay.send' },
   { key: 'enter', mod: true, page: 'intercept', global: true, command: 'intercept.forward' },
-  { key: 'backspace', mod: true, page: 'intercept', global: true, command: 'intercept.drop' },
+  { key: 'backspace', mod: true, page: 'intercept', command: 'intercept.drop' },
   { key: 'i', mod: true, command: 'intercept.toggle' },
   { key: ']', mod: true, global: true, command: 'tab.next' },
   { key: '[', mod: true, global: true, command: 'tab.prev' },

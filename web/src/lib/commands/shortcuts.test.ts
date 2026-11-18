@@ -54,6 +54,21 @@ describe('ShortcutManager', () => {
     expect(calls).toEqual([]);
   });
 
+  it('leaves ⌘Backspace to the request editor on the Intercept page', () => {
+    const { calls, reg, sm } = setup({ page: () => 'intercept' });
+    reg.register({
+      id: 'intercept.drop',
+      title: 'Drop',
+      run: (ctx: { page?: string }) => void calls.push({ id: 'intercept.drop', page: ctx.page }),
+    });
+    const inEditor = key('Backspace', { metaKey: true }, input());
+    sm.handle(inEditor);
+    expect(calls).toEqual([]);
+    expect(inEditor.defaultPrevented).toBe(false);
+    sm.handle(key('Backspace', { metaKey: true }));
+    expect(calls.map((c) => c.id)).toEqual(['intercept.drop']);
+  });
+
   it('supports the g then letter chord', () => {
     const { calls, sm } = setup();
     sm.handle(key('g'));
