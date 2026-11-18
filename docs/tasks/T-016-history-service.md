@@ -3,13 +3,20 @@ id: T-016
 title: History service and resolvers with live filtered subscriptions
 milestone: M1
 role: backend
-status: blocked
+status: in_progress
 depends_on: [T-011, T-013, T-015]
 owner: "claude-code/sonnet-5.5"
 branch: task/T-016-history-service
 paths:
   - internal/history/**
   - internal/api/graphql/resolvers/history*.go
+  # added by lead 2026-11-18 (unblock): Deps.History field, delete the stubs, wire the service, approved compression deps
+  - internal/api/graphql/resolvers/resolver.go
+  - internal/api/graphql/resolvers/stubs_history.go
+  - internal/app/app.go
+  - internal/app/app_test.go
+  - go.mod
+  - go.sum
 spec:
   - docs/01-feature-spec.md#F-HIST-1..4
   - docs/03-architecture.md §5.2, §6, §7
@@ -41,6 +48,13 @@ Scope decision (operator): stay in `paths`; whatever needs edits outside them is
 - `gqlgen.yml` (lead): `HttpResponse.head/body` resolvers receive only `*generated.HTTPResponse`, which carries no request ID. Add `models.HttpResponse.extraFields: { requestID: { type: int64 } }`, then `make gen`, so `Head`/`Body` can find the row.
 - go.mod: `github.com/klauspost/compress` + `github.com/andybalholm/brotli` (approved in docs/05) for br/zstd display decoding.
 - `docs/03-architecture.md §6`: list `requestUpdated(query, scopeId)`/`requestsDeleted` (already noted by T-013).
+
+## Lead resolution (2026-11-18)
+- `gqlgen.yml`: `HttpResponse.extraFields.RequestID int64` (not in the schema); `make gen` done. Resolvers set it when building `HttpResponse`, `Head`/`Body` read it.
+- `docs/03-architecture.md §6`: subscription list now `requestAdded(query, scopeId)`, `requestUpdated(query, scopeId)`, `requestsDeleted`.
+- `paths` widened (see frontmatter): add `History HistoryService` to `resolvers.Deps` (interface in `resolvers/history.go`, nil → `NOT_IMPLEMENTED` like `Projects`), delete `stubs_history.go`, build `history.NewService` in `internal/app` and pass it in `buildHandler`.
+- br/zstd: `klauspost/compress` + `andybalholm/brotli` are already approved in `docs/05` §deps, no ADR needed. Add them in this task.
+- Next: implement the resolvers and the remaining Handoff follow-ups, `make check`, then `in_review`.
 
 ## Handoff (implementer)
 - Status: **blocked** on the out-of-scope items above. The operator chose "stay in lane": everything inside `paths` is done, the GraphQL resolvers (`resolvers/history*.go`) are not, because they cannot reach the service without the `Deps.History` field and the `HttpResponse` request ID. `stubs_history.go` is untouched and still returns `NOT_IMPLEMENTED`.

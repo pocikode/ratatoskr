@@ -39,3 +39,8 @@ models:
     fields:
       head: { resolver: true }
       body: { resolver: true }
+    # Field resolvers get only the parent model; the response row is keyed by its request.
+    extraFields:
+      RequestID:
+        type: int64
+        description: ID of the request this response belongs to; not exposed in the schema.
