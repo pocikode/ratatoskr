@@ -1,0 +1,51 @@
+# Scopes page operations (T-019, F-SCOPE-1, docs/02 §3.3), against
+# internal/api/graphql/schema/scope.graphqls (T-091). The list is small and the
+# contract has no subscription, so the page refetches after its own mutations.
+
+fragment ScopePresetFields on ScopePreset {
+  id
+  name
+  allow
+  deny
+}
+
+query ScopePresets {
+  scopePresets {
+    ...ScopePresetFields
+  }
+}
+
+# Only `totalCount` is used; one row keeps the page at its cheapest.
+query ScopeMatchCount($scopeId: ID!) {
+  requests(first: 1, scopeId: $scopeId) {
+    totalCount
+  }
+}
+
+mutation CreateScopePreset($name: String!, $allow: [String!]!, $deny: [String!]!) {
+  createScopePreset(name: $name, allow: $allow, deny: $deny) {
+    ...ScopePresetFields
+  }
+}
+
+mutation UpdateScopePreset($id: ID!, $name: String!, $allow: [String!]!, $deny: [String!]!) {
+  updateScopePreset(id: $id, name: $name, allow: $allow, deny: $deny) {
+    ...ScopePresetFields
+  }
+}
+
+mutation DuplicateScopePreset($id: ID!) {
+  duplicateScopePreset(id: $id) {
+    ...ScopePresetFields
+  }
+}
+
+mutation DeleteScopePreset($id: ID!) {
+  deleteScopePreset(id: $id)
+}
+
+mutation ReorderScopePresets($ids: [ID!]!) {
+  reorderScopePresets(ids: $ids) {
+    ...ScopePresetFields
+  }
+}
