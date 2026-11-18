@@ -83,12 +83,15 @@ original record; both appear in history.
 type HttpRequest implements Node {
   "Row ID; also the HTTPQL `row.id`. Numeric, increasing in capture order."
   id: ID!
+  "What produced the record (proxy, Replay, Automate, …)."
   source: RequestSource!
   "From the Host header, or the target when there is none. Without port."
   host: String!
+  "Port of the connection target, not of the Host header; 443/80 when implied by the scheme."
   port: Int!
   "Whether the connection to the target used TLS."
   tls: Boolean!
+  "Method token from the request line, as sent (case preserved)."
   method: String!
   "Path without the query string, as sent (not percent-decoded)."
   path: String!
@@ -171,12 +174,15 @@ type PageInfo {
 type HttpRequestEdge {
   "Opaque cursor of this position in the sort order; valid for the same arguments only."
   cursor: String!
+  "The request at this position."
   node: HttpRequest!
 }
 
 "A page of requests."
 type HttpRequestConnection {
+  "Requests of this page, in the requested sort order."
   edges: [HttpRequestEdge!]!
+  "Cursors and whether more pages exist before or after this one."
   pageInfo: PageInfo!
   "Number of requests matching `query` and `scopeId`, ignoring pagination."
   totalCount: Int!
@@ -210,6 +216,7 @@ type Completion {
   label: String!
   "Text that replaces `QueryCompletions.from`..`to`."
   insertText: String!
+  "What the completion inserts; clients use it for the icon."
   kind: CompletionKind!
   "Short secondary text, e.g. the field type or a value's occurrence count; empty when none."
   detail: String!

@@ -21,8 +21,9 @@ type Completion struct {
 	// Text shown in the list.
 	Label string `json:"label"`
 	// Text that replaces `QueryCompletions.from`..`to`.
-	InsertText string         `json:"insertText"`
-	Kind       CompletionKind `json:"kind"`
+	InsertText string `json:"insertText"`
+	// What the completion inserts; clients use it for the icon.
+	Kind CompletionKind `json:"kind"`
 	// Short secondary text, e.g. the field type or a value's occurrence count; empty when none.
 	Detail string `json:"detail"`
 	// Whether this is a Ratatoskr extension beyond the HTTPQL-compatible language (docs/04 §2).
@@ -35,13 +36,16 @@ type Completion struct {
 // original record; both appear in history.
 type HTTPRequest struct {
 	// Row ID; also the HTTPQL `row.id`. Numeric, increasing in capture order.
-	ID     string        `json:"id"`
+	ID string `json:"id"`
+	// What produced the record (proxy, Replay, Automate, …).
 	Source RequestSource `json:"source"`
 	// From the Host header, or the target when there is none. Without port.
 	Host string `json:"host"`
-	Port int    `json:"port"`
+	// Port of the connection target, not of the Host header; 443/80 when implied by the scheme.
+	Port int `json:"port"`
 	// Whether the connection to the target used TLS.
-	TLS    bool   `json:"tls"`
+	TLS bool `json:"tls"`
+	// Method token from the request line, as sent (case preserved).
 	Method string `json:"method"`
 	// Path without the query string, as sent (not percent-decoded).
 	Path string `json:"path"`
@@ -85,8 +89,10 @@ func (HTTPRequest) IsNode() {}
 
 // A page of requests.
 type HTTPRequestConnection struct {
-	Edges    []HTTPRequestEdge `json:"edges"`
-	PageInfo *PageInfo         `json:"pageInfo"`
+	// Requests of this page, in the requested sort order.
+	Edges []HTTPRequestEdge `json:"edges"`
+	// Cursors and whether more pages exist before or after this one.
+	PageInfo *PageInfo `json:"pageInfo"`
 	// Number of requests matching `query` and `scopeId`, ignoring pagination.
 	TotalCount int `json:"totalCount"`
 }
@@ -94,8 +100,9 @@ type HTTPRequestConnection struct {
 // One request in a `requests` connection.
 type HTTPRequestEdge struct {
 	// Opaque cursor of this position in the sort order; valid for the same arguments only.
-	Cursor string       `json:"cursor"`
-	Node   *HTTPRequest `json:"node"`
+	Cursor string `json:"cursor"`
+	// The request at this position.
+	Node *HTTPRequest `json:"node"`
 }
 
 // The response to an `HttpRequest`.

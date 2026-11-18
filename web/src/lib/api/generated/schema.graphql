@@ -18,6 +18,8 @@ type Completion {
   Whether this is a Ratatoskr extension beyond the HTTPQL-compatible language (docs/04 §2).
   """
   isExtension: Boolean!
+
+  """What the completion inserts; clients use it for the icon."""
   kind: CompletionKind!
 
   """Text shown in the list."""
@@ -141,6 +143,8 @@ type HttpRequest implements Node {
   Size in bytes of the whole request as sent: request line, headers and body.
   """
   length: Int64!
+
+  """Method token from the request line, as sent (case preserved)."""
   method: String!
 
   """Free-text note; null when there is none."""
@@ -148,6 +152,10 @@ type HttpRequest implements Node {
 
   """Path without the query string, as sent (not percent-decoded)."""
   path: String!
+
+  """
+  Port of the connection target, not of the Host header; 443/80 when implied by the scheme.
+  """
   port: Int!
 
   """Query string without the leading `?`; empty when there is none."""
@@ -157,6 +165,8 @@ type HttpRequest implements Node {
   The response; null while waiting, or when the request failed or was dropped.
   """
   response: HttpResponse
+
+  """What produced the record (proxy, Replay, Automate, …)."""
   source: RequestSource!
 
   """Whether the connection to the target used TLS."""
@@ -165,7 +175,10 @@ type HttpRequest implements Node {
 
 """A page of requests."""
 type HttpRequestConnection {
+  """Requests of this page, in the requested sort order."""
   edges: [HttpRequestEdge!]!
+
+  """Cursors and whether more pages exist before or after this one."""
   pageInfo: PageInfo!
 
   """
@@ -180,6 +193,8 @@ type HttpRequestEdge {
   Opaque cursor of this position in the sort order; valid for the same arguments only.
   """
   cursor: String!
+
+  """The request at this position."""
   node: HttpRequest!
 }
 

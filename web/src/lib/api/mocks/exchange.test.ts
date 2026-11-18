@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { pipe, subscribe, take, toPromise } from 'wonka';
 import { createMockClient } from './exchange';
 
@@ -22,7 +22,7 @@ describe('mockHistoryExchange', () => {
     );
     expect(conn.pageInfo.hasNextPage).toBe(true);
 
-    const p3 = await client.query(REQUESTS, { first: 10, after: '19' }).toPromise();
+    const p3 = await client.query(REQUESTS, { first: 10, after: '20' }).toPromise();
     expect(p3.data.requests.pageInfo.hasNextPage).toBe(false);
     expect(p3.data.requests.edges.at(-1).node.id).toBe('30');
     // Row 25 is a seeded edited copy of row 24.
@@ -98,7 +98,7 @@ describe('mockHistoryExchange', () => {
       client.subscription(`subscription { requestAdded { id } }`, {}),
       subscribe((r) => ids.push(r.data.requestAdded.id)),
     );
-    await new Promise((r) => setTimeout(r, 40));
+    await vi.waitFor(() => expect(ids.length).toBeGreaterThanOrEqual(2));
     unsubscribe();
     expect(ids.slice(0, 2)).toEqual(['4', '5']);
     const seen = ids.length;
@@ -119,5 +119,63 @@ describe('mockHistoryExchange', () => {
       to: 6,
       items: [{ label: 'host', kind: 'FIELD' }],
     });
+  });
+
+  it('rejects documents that fail validation', async () => {
+    const client = createMockClient({ liveIntervalMs: 0 });
+    const res = await client.query(`{ request(id: "1") { id hots } }`, {}).toPromise();
+    expect(res.data).toBeUndefined();
+    expect(res.error?.graphQLErrors[0]?.message).toMatch(/hots/);
+  });
+
+  it('returns BAD_INPUT for invalid pagination and body ranges', async () => {
+    const client = createMockClient({ count: 5, liveIntervalMs: 0 });
+    const code = async (q: string) =>
+      (await client.query(q, {}).toPromise()).error?.graphQLErrors[0]?.extensions.code;
+    expect(await code(`{ requests(first: 5, last: 5) { totalCount } }`)).toBe('BAD_INPUT');
+    expect(await code(`{ requests(first: 1001) { totalCount } }`)).toBe('BAD_INPUT');
+    expect(await code(`{ requests(last: 0) { totalCount } }`)).toBe('BAD_INPUT');
+    expect(await code(`{ request(id: "1") { body(offset: -3, limit: 2) } }`)).toBe('BAD_INPUT');
+    expect(await code(`{ request(id: "1") { body(limit: 0) } }`)).toBe('BAD_INPUT');
+  });
+
+  it('keeps cursors stable when rows are added', async () => {
+    const client = createMockClient({ count: 30, liveIntervalMs: 5 });
+    const ids = (r: { data?: { requests: { edges: { node: { id: string } }[] } } }) =>
+      r.data?.requests.edges.map((e) => e.node.id);
+    const sort = { field: 'ID', direction: 'DESC' };
+    const p1 = await client.query(REQUESTS, { first: 3, sort }).toPromise();
+    const seen: string[] = [];
+    const { unsubscribe } = pipe(
+      client.subscription(`subscription { requestAdded { id } }`, {}),
+      subscribe((r) => seen.push(r.data.requestAdded.id)),
+    );
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThanOrEqual(1));
+    unsubscribe();
+    const after = p1.data.requests.pageInfo.endCursor;
+    const p2 = await client.query(REQUESTS, { first: 3, after, sort }).toPromise();
+    expect(ids(p1)).toEqual(['30', '29', '28']);
+    expect(ids(p2)).toEqual(['27', '26', '25']);
+  });
+
+  it('shares one live timer across requestAdded subscribers', async () => {
+    const client = createMockClient({ count: 3, liveIntervalMs: 5 });
+    const a: string[] = [];
+    const b: string[] = [];
+    const subs = [a, b].map((out) =>
+      pipe(
+        client.subscription(
+          `subscription { requestAdded { id } }`,
+          {},
+          { requestPolicy: 'network-only' },
+        ),
+        subscribe((r) => out.push(r.data.requestAdded.id)),
+      ),
+    );
+    await vi.waitFor(() => expect(Math.min(a.length, b.length)).toBeGreaterThanOrEqual(2));
+    subs.forEach((s) => s.unsubscribe());
+    // Each new row reaches every subscriber once, and IDs are consecutive.
+    expect(a.slice(0, 2)).toEqual(['4', '5']);
+    expect(b.slice(0, 2)).toEqual(['4', '5']);
   });
 });

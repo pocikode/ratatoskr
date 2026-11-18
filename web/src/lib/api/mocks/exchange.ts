@@ -1,13 +1,14 @@
 // urql exchange that answers HTTP History operations from a fake backend, so the UI
-// works with no server (docs/07-agent-workflow.md: contract-first mocks). It runs the
-// real schema with graphql-js, so selections, arguments and errors behave as on the
-// wire. Operations touching any other root field are forwarded unchanged.
+// works with no server (docs/07-agent-workflow.md: contract-first mocks). It validates
+// and runs the real schema with graphql-js, so selections, arguments and errors behave
+// as on the wire. Operations touching any other root field are forwarded unchanged.
 import { Client, makeErrorResult, makeResult, type Exchange, type Operation } from '@urql/core';
 import {
   buildSchema,
   execute,
   Kind,
   subscribe,
+  validate,
   type DocumentNode,
   type ExecutionResult,
 } from 'graphql';
@@ -58,8 +59,14 @@ export function mockHistoryExchange(opts: MockHistoryOptions = {}): Exchange {
               };
               void (async () => {
                 try {
-                  const out =
-                    op.kind === 'subscription' ? await subscribe(args) : await execute(args);
+                  // execute/subscribe skip validation; the server does not. The await also
+                  // keeps emission async, after urql has subscribed.
+                  const errors = validate(schema, op.query);
+                  const out = await (errors.length
+                    ? { errors }
+                    : op.kind === 'subscription'
+                      ? subscribe(args)
+                      : execute(args));
                   if (isIterator(out)) {
                     iterator = out;
                     if (closed) await out.return();

@@ -97,9 +97,15 @@ function b64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
+function badInput(message: string): GraphQLError {
+  return new GraphQLError(message, { extensions: { code: 'BAD_INPUT' } });
+}
+
 function slicer(body: Uint8Array): (args: BodyArgs) => string {
   return ({ offset, limit }) => {
     const start = Number(offset);
+    if (start < 0) throw badInput('offset must be >= 0');
+    if (limit < 1 || limit > 4194304) throw badInput('limit must be 1..4194304');
     return b64(body.subarray(start, start + limit));
   };
 }
@@ -278,6 +284,8 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
   const byId = new Map(rows.map((r) => [r.id, r]));
   let nextId = count + 1;
   const listeners = new Set<Listener>();
+  let liveCount = 0;
+  let timer: ReturnType<typeof setInterval> | undefined;
   const emit = (event: Record<string, unknown>) => listeners.forEach((l) => l(event));
 
   // shortcut: matches the quoted literals (or the whole text) as a case-insensitive substring of
@@ -309,15 +317,15 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
       wake();
     };
     listeners.add(listener);
-    const timer =
-      live && liveIntervalMs > 0
-        ? setInterval(() => {
-            const r = makeRequest(nextId++, Date.now());
-            rows.push(r);
-            byId.set(r.id, r);
-            emit({ added: r });
-          }, liveIntervalMs)
-        : undefined;
+    if (live && liveIntervalMs > 0 && liveCount++ === 0) {
+      // One shared timer for all live subscribers, so each new row is emitted once.
+      timer = setInterval(() => {
+        const r = makeRequest(nextId++, Date.now());
+        rows.push(r);
+        byId.set(r.id, r);
+        emit({ added: r });
+      }, liveIntervalMs);
+    }
     return {
       [Symbol.asyncIterator]() {
         return this;
@@ -327,8 +335,8 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
         return done ? { done: true, value: undefined } : { done: false, value: queue.shift()! };
       },
       async return() {
+        if (!done && live && liveIntervalMs > 0 && --liveCount === 0) clearInterval(timer);
         done = true;
-        clearInterval(timer);
         listeners.delete(listener);
         wake();
         return { done: true, value: undefined };
@@ -364,14 +372,16 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
           const y = key(b);
           return (x < y ? -1 : x > y ? 1 : Number(a.id) - Number(b.id)) * dir;
         });
-        // Cursors are list positions: fine for a mock, opaque to clients either way.
-        let start = after ? Number(after) + 1 : 0;
-        let end = before ? Number(before) : list.length;
+        if (first != null && last != null) throw badInput('give only one of first and last');
+        for (const n of [first, last])
+          if (n != null && (n < 1 || n > 1000)) throw badInput('first/last must be 1..1000');
+        // Cursors are row IDs, so they survive inserts; opaque to clients either way.
+        const at = (id: string) => list.findIndex((r) => r.id === id);
+        let start = after ? at(after) + 1 : 0;
+        let end = before ? Math.max(at(before), 0) : list.length;
         if (last != null) start = Math.max(start, end - last);
         else end = Math.min(end, start + (first ?? 100));
-        const edges = list
-          .slice(start, end)
-          .map((node, k) => ({ cursor: String(start + k), node }));
+        const edges = list.slice(start, end).map((node) => ({ cursor: node.id, node }));
         return {
           edges,
           totalCount: list.length,
