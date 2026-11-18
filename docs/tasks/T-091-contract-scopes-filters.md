@@ -3,7 +3,7 @@ id: T-091
 title: Contract - scope presets and filter presets
 milestone: M1
 role: lead
-status: in_review
+status: done
 depends_on: [T-018]
 owner: "claude-code (opus-5.5)"
 branch: task/T-091-contract-scopes-filters
