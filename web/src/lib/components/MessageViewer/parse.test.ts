@@ -43,4 +43,8 @@ describe('parseMessage', () => {
       { name: 'pass', value: 's&cret' },
     ]);
   });
+
+  it('keeps a query value that contains a second question mark', () => {
+    expect(queryParams('GET /a?x=1?y=2 HTTP/1.1')).toEqual([{ name: 'x', value: '1?y=2' }]);
+  });
 });

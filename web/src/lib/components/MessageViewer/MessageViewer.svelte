@@ -225,7 +225,9 @@
       </Tabs.Content>
 
       <Tabs.Content value="table" class="h-full">
-        <MessageTable {parsed} />
+        {#if mode === 'table'}
+          <MessageTable {parsed} />
+        {/if}
       </Tabs.Content>
 
       {#if available.includes('preview')}

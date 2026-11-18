@@ -41,4 +41,12 @@ describe('format', () => {
       ['one', true, true],
     ]);
   });
+
+  it('keeps the current match highlighted beyond the cap', () => {
+    const text = 'x a x a x a x a';
+    const indices = [2, 6, 10, 14];
+    const parts = highlightSegments(text, indices, 3, 1, 2);
+    expect(parts.filter((p) => p.current).map((p) => p.text)).toEqual(['a']);
+    expect(parts.map((p) => p.text).join('')).toBe(text);
+  });
 });

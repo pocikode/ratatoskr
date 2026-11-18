@@ -83,11 +83,11 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (!rows.length) return;
+    if (e.target !== e.currentTarget || !rows.length) return; // header/resize buttons own their keys
     const from = active < 0 ? 0 : active;
     const actions: Record<string, () => void> = {
-      ArrowDown: () => setActive(Math.min(rows.length - 1, from + 1), e.shiftKey),
-      ArrowUp: () => setActive(Math.max(0, from - 1), e.shiftKey),
+      ArrowDown: () => setActive(active < 0 ? 0 : Math.min(rows.length - 1, from + 1), e.shiftKey),
+      ArrowUp: () => setActive(active < 0 ? 0 : Math.max(0, from - 1), e.shiftKey),
       Home: () => setActive(0, e.shiftKey),
       End: () => setActive(rows.length - 1, e.shiftKey),
       PageDown: () => setActive(Math.min(rows.length - 1, from + pageRows), e.shiftKey),
@@ -103,7 +103,10 @@
       },
       Escape: () => selection?.clear(),
       a: () => {
-        if (e.ctrlKey || e.metaKey) selection?.selectAll(keys);
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault(); // do not also select the page text
+          selection?.selectAll(keys);
+        }
       },
       ContextMenu: () => {
         const row = rows[from];

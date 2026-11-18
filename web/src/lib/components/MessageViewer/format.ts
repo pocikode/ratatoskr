@@ -60,7 +60,8 @@ export interface HexDump {
 }
 
 export function hexDump(body: string, maxBytes: number): HexDump {
-  const bytes = new TextEncoder().encode(body);
+  // Encode the shown prefix only: a 5 MB body re-encoded per "Show more" would freeze the tab.
+  const bytes = new TextEncoder().encode(body.slice(0, maxBytes + 1));
   const shown = bytes.subarray(0, maxBytes);
   const lines: string[] = [];
   for (let offset = 0; offset < shown.length; offset += 16) {
@@ -113,10 +114,14 @@ export function highlightSegments(
   queryLength: number,
   cap = 200,
 ): Segment[] {
-  const inText = indices
+  const usable = indices
     .map((at, i) => ({ at, i }))
-    .filter(({ at }) => at < text.length && at + queryLength <= text.length)
-    .slice(0, cap);
+    .filter(({ at }) => at < text.length && at + queryLength <= text.length);
+  // Window around the current match, so jumping past the cap still marks and scrolls to it.
+  const center = usable.findIndex((m) => m.i === current);
+  const start =
+    center < 0 ? 0 : Math.max(0, Math.min(center - Math.floor(cap / 2), usable.length - cap));
+  const inText = usable.slice(start, start + cap);
   if (inText.length === 0) return [{ text, match: false, current: false }];
 
   const segments: Segment[] = [];

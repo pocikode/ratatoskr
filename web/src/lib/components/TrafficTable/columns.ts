@@ -20,9 +20,14 @@ export function normalizeConfig<Row>(
   for (const c of columns) if (!order.includes(c.id)) order.push(c.id);
 
   const widths: Record<string, number> = {};
-  for (const c of columns) widths[c.id] = clampWidth(config?.widths[c.id] ?? c.width);
+  for (const c of columns) widths[c.id] = clampWidth(config?.widths?.[c.id] ?? c.width);
 
-  return { order, hidden: (config?.hidden ?? []).filter((id) => known.has(id)), widths };
+  return {
+    order,
+    // A stored config can repeat ids; that would break the visible count and the menu.
+    hidden: [...new Set(config?.hidden ?? [])].filter((id) => known.has(id)),
+    widths,
+  };
 }
 
 export function setColumnWidth(config: ColumnConfig, id: string, width: number): ColumnConfig {

@@ -104,6 +104,39 @@ describe('TrafficTable', () => {
     expect(selection.size).toBe(1);
   });
 
+  it('starts on the first row when there is no active row', async () => {
+    const user = userEvent.setup();
+    const { selection } = setup();
+    const grid = screen.getByRole('grid', { name: 'Traffic table' });
+    grid.focus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(selection.has('1000')).toBe(true); // first displayed row
+    await user.keyboard('{ArrowUp}');
+    expect(selection.has('1000')).toBe(true);
+    expect(grid).toHaveAttribute('aria-activedescendant');
+  });
+
+  it('does not act on keys from the header controls', async () => {
+    const user = userEvent.setup();
+    const onrowopen = vi.fn<(row: Row) => void>();
+    const { selection } = setup({ onrowopen });
+
+    const sortButton = screen.getByRole('button', { name: 'Host' });
+    sortButton.focus();
+    await user.keyboard('{Enter}');
+    expect(onrowopen).not.toHaveBeenCalled();
+    expect(selection.size).toBe(0);
+  });
+
+  it('selects all with Ctrl+A', async () => {
+    const { selection } = setup();
+    const grid = screen.getByRole('grid', { name: 'Traffic table' });
+
+    await fireEvent.keyDown(grid, { key: 'a', ctrlKey: true });
+    expect(selection.size).toBe(1000);
+  });
+
   it('calls onrowopen on double click and onrowcontextmenu on right click', async () => {
     const user = userEvent.setup();
     const onrowopen = vi.fn<(row: Row) => void>();

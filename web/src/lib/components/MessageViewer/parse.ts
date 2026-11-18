@@ -50,8 +50,9 @@ function searchParams(encoded: string): Param[] {
 /** Query-string parameters of a request line (`GET /a?b=c HTTP/1.1`). */
 export function queryParams(startLine: string): Param[] {
   const target = /^\S+\s+(\S+)/.exec(startLine)?.[1];
-  const query = target?.split('?')[1];
-  return query ? searchParams(query) : [];
+  if (target === undefined) return [];
+  const at = target.indexOf('?');
+  return at >= 0 ? searchParams(target.slice(at + 1)) : [];
 }
 
 /** `application/x-www-form-urlencoded` body parameters. */

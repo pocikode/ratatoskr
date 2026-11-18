@@ -183,20 +183,22 @@
           {#each rows.slice(start, end) as row, i (rowKey(row))}
             {@const index = start + i}
             {@const key = rowKey(row)}
+            {@const selected = selection?.has(key) ?? false}
+            {@const stripe = color?.(row)}
             <div
               role="row"
               id="{idPrefix}-row-{index}"
               aria-rowindex={index + 2}
-              aria-selected={selection ? selection.has(key) : undefined}
+              aria-selected={selection ? selected : undefined}
               data-index={index}
               tabindex="-1"
               class="grid cursor-default items-center border-l-[3px] border-l-transparent
                 hover:bg-hover"
-              class:bg-accent-soft={selection?.has(key)}
-              class:text-accent={selection?.has(key)}
+              class:bg-accent-soft={selected}
+              class:text-accent={selected}
               style:grid-template-columns={template}
               style:height="{rowH}px"
-              style:border-left-color={color ? `var(--row-${color(row)})` : undefined}
+              style:border-left-color={stripe ? `var(--row-${stripe})` : undefined}
             >
               {#each columns as column (column.id)}
                 <div

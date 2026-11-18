@@ -30,9 +30,13 @@ describe('SplitPane', () => {
       props: { first: pane('a'), second: pane('b'), onsizeschange },
     });
 
+    // paneforge reports the mount layout too, so only the keyboard step should count.
+    onsizeschange.mockClear();
     const divider = screen.getByRole('separator');
     divider.focus();
     await user.keyboard('{ArrowRight}');
-    expect(onsizeschange).toHaveBeenCalled();
+
+    const [first] = onsizeschange.mock.lastCall?.[0] ?? [];
+    expect(first).toBeGreaterThan(55);
   });
 });

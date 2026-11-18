@@ -35,6 +35,29 @@ describe('MessageViewer', () => {
     expect(screen.getByRole('cell', { name: 's&cret' })).toBeVisible();
   });
 
+  it('renders duplicate headers without crashing', async () => {
+    const user = userEvent.setup();
+    const smuggling =
+      'HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: a=1\r\nContent-Length: 5\r\n\r\nhello';
+    // The viewer renders every tab pane, so a duplicate-key crash would hit the Raw tab too.
+    render(MessageViewer, { props: { raw: smuggling } });
+    expect(screen.getByRole('tab', { name: 'Raw' })).toBeVisible();
+
+    await user.click(screen.getByRole('tab', { name: 'Table' }));
+    expect(screen.getAllByRole('rowheader', { name: 'Set-Cookie' })).toHaveLength(2);
+  });
+
+  it('samples form params of a huge urlencoded body', async () => {
+    const user = userEvent.setup();
+    const form = 'HTTP/1.1 200 OK\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\n';
+    render(MessageViewer, { props: { raw: form + 'a=1&'.repeat(1_250_000) } });
+
+    await user.click(screen.getByRole('tab', { name: 'Table' }));
+    // 500 param rows + header rows; 1.25M rows would break the 5 MB budget.
+    expect(screen.getAllByRole('row').length).toBeLessThan(600);
+    expect(screen.getByText(/more params not shown/, { selector: 'p' })).toBeVisible();
+  });
+
   it('pretty-prints JSON bodies', async () => {
     const user = userEvent.setup();
     render(MessageViewer, { props: { raw: response } });

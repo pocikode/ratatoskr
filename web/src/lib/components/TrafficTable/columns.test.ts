@@ -44,6 +44,18 @@ describe('normalizeConfig', () => {
     expect(clampWidth(1)).toBe(MIN_COLUMN_WIDTH);
     expect(clampWidth(10_000)).toBe(MAX_COLUMN_WIDTH);
   });
+
+  it('tolerates a stored config without widths and with repeated ids', () => {
+    const config = normalizeConfig(columns, {
+      order: ['host', 'id'],
+      hidden: ['host', 'host'],
+      widths: undefined as unknown as Record<string, number>,
+    });
+    expect(config.widths).toEqual({ id: 60, host: 180 });
+    expect(config.hidden).toEqual(['host']);
+    // The menu must show a usable state, not a wrong "last visible" lock.
+    expect(toggleColumn(config, 'host').hidden).toEqual([]);
+  });
 });
 
 describe('column config edits', () => {
