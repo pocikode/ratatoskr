@@ -3,7 +3,7 @@ id: T-019
 title: Scopes and Filters pages, scope selector, preset chips
 milestone: M1
 role: frontend
-status: in_review
+status: done
 depends_on: [T-017, T-091]
 owner: "opencode/deepseek-v4.1-flash-1017"
 branch: task/T-019-scopes-filters-pages
