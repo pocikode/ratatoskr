@@ -141,3 +141,16 @@ Findings:
 AC coverage: AC1 ✔ · AC2 ✔ (chord conflicts now reported) · AC3 ✔ apart from the editor case above. Missing E2E is still justified (T-021).
 
 Verdict: **changes_requested** — a one-line fix plus a test.
+
+### Round 3
+Reviewer: claude-opus-5-5 · 2026-11-18 · branch `task/T-022-commands-shortcuts` @ fc6441c
+
+Scope: all changed files still inside `paths`. `make check` green (svelte-check 0/0, eslint, prettier, 141 vitest tests).
+Round-2 major fixed: `intercept.drop` is no longer `global` (shortcuts.ts:25), and the new test checks that ⌘Backspace from an input
+neither runs it nor sets `defaultPrevented`, while the same key outside the input runs it. Also checked: `App.svelte` adds the
+handler on `window` keydown in the bubble phase, so CodeMirror keys it already handles (e.g. Mod-[ / Mod-]) set
+`defaultPrevented` first and the manager skips them (`handle` returns at :69). No new findings.
+
+AC coverage: AC1 ✔ · AC2 ✔ · AC3 ✔. Missing E2E is justified (T-021 follow-up in Handoff).
+
+Verdict: **approve** — status stays `in_review` until the operator merges and sets `done`.
