@@ -115,3 +115,12 @@ spec:
 - [x] [nit] message.go (`ReadResponse`) — no-body rule omits `CONNECT` 2xx (a tunnel would be read as close-delimited). Fine for T-010 if T-011 handles it; note it in Handoff follow-ups.
   Noted in the `noResponseBody` doc comment and in the Handoff follow-ups; T-011 owns the tunnel.
 
+### Review round 2
+
+**Verdict: approve.** `make check` and `make test-int` green. Diff still inside `paths`. All round 1 findings re-verified in code and tests:
+obs-fold is now linear (`endHeader` builds once; `BenchmarkObsFold` 50k folds ≈ 2.2 ms), `lengthReader` returns `io.ErrUnexpectedEOF` on a short body,
+`lineEdited` is kind-scoped (no nil deref), header cap 1000, status-line field walk, leading blank lines skipped with a warning.
+Extra checks: `FuzzReadRequest` / `FuzzReadResponse` 20 s each, no crashes (4.3M / 6.0M execs; the 60 s AC was run by the implementer); `BenchmarkHeaderIteration` 0 allocs/op; 59 golden cases.
+
+- [ ] [nit] internal/rawhttp/read.go:117 — skipped leading blank lines are dropped from `Raw()`/`WriteTo`, so a forwarded message is not byte-identical to the input in that case. Documented and warned (`WarnLeadingBlankLine`); T-011/T-016 should keep that in mind when persisting "raw" bytes.
+- [ ] [nit] internal/rawhttp/read.go:438 — `Content-Length: 5, 5` (comma list) is `ErrFraming`, stricter than net/http. Safe direction; revisit if the proxy must forward such probes (already listed in limitations).
