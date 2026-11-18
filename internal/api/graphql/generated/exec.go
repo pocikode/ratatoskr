@@ -163,6 +163,7 @@ type ComplexityRoot struct {
 		ScopePreset         func(childComplexity int, id string) int
 		ScopePresets        func(childComplexity int) int
 		ServerInfo          func(childComplexity int) int
+		SitemapNodes        func(childComplexity int, parentID *string, query *string, scopeID *string, recursive bool) int
 	}
 
 	QueryCompletions struct {
@@ -193,6 +194,20 @@ type ComplexityRoot struct {
 		GoVersion    func(childComplexity int) int
 		StartedAt    func(childComplexity int) int
 		Version      func(childComplexity int) int
+	}
+
+	SitemapNode struct {
+		HasChildren  func(childComplexity int) int
+		Host         func(childComplexity int) int
+		ID           func(childComplexity int) int
+		Kind         func(childComplexity int) int
+		Label        func(childComplexity int) int
+		ParentID     func(childComplexity int) int
+		Port         func(childComplexity int) int
+		Query        func(childComplexity int) int
+		RequestCount func(childComplexity int) int
+		TLS          func(childComplexity int) int
+		URL          func(childComplexity int) int
 	}
 
 	Subscription struct {
@@ -254,6 +269,7 @@ type QueryResolver interface {
 	CurrentProject(ctx context.Context) (*Project, error)
 	ScopePresets(ctx context.Context) ([]ScopePreset, error)
 	ScopePreset(ctx context.Context, id string) (*ScopePreset, error)
+	SitemapNodes(ctx context.Context, parentID *string, query *string, scopeID *string, recursive bool) ([]SitemapNode, error)
 }
 type SubscriptionResolver interface {
 	Ping(ctx context.Context) (<-chan *Ping, error)
@@ -962,6 +978,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.ServerInfo(childComplexity), true
+	case "Query.sitemapNodes":
+		if e.ComplexityRoot.Query.SitemapNodes == nil {
+			break
+		}
+
+		args, err := ec.field_Query_sitemapNodes_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SitemapNodes(childComplexity, args["parentId"].(*string), args["query"].(*string), args["scopeId"].(*string), args["recursive"].(bool)), true
 
 	case "QueryCompletions.from":
 		if e.ComplexityRoot.QueryCompletions.From == nil {
@@ -1057,6 +1084,73 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ServerInfo.Version(childComplexity), true
+
+	case "SitemapNode.hasChildren":
+		if e.ComplexityRoot.SitemapNode.HasChildren == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.HasChildren(childComplexity), true
+	case "SitemapNode.host":
+		if e.ComplexityRoot.SitemapNode.Host == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.Host(childComplexity), true
+	case "SitemapNode.id":
+		if e.ComplexityRoot.SitemapNode.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.ID(childComplexity), true
+	case "SitemapNode.kind":
+		if e.ComplexityRoot.SitemapNode.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.Kind(childComplexity), true
+	case "SitemapNode.label":
+		if e.ComplexityRoot.SitemapNode.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.Label(childComplexity), true
+	case "SitemapNode.parentId":
+		if e.ComplexityRoot.SitemapNode.ParentID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.ParentID(childComplexity), true
+	case "SitemapNode.port":
+		if e.ComplexityRoot.SitemapNode.Port == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.Port(childComplexity), true
+	case "SitemapNode.query":
+		if e.ComplexityRoot.SitemapNode.Query == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.Query(childComplexity), true
+	case "SitemapNode.requestCount":
+		if e.ComplexityRoot.SitemapNode.RequestCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.RequestCount(childComplexity), true
+	case "SitemapNode.tls":
+		if e.ComplexityRoot.SitemapNode.TLS == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.TLS(childComplexity), true
+	case "SitemapNode.url":
+		if e.ComplexityRoot.SitemapNode.URL == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SitemapNode.URL(childComplexity), true
 
 	case "Subscription.ping":
 		if e.ComplexityRoot.Subscription.Ping == nil {
@@ -1890,6 +1984,87 @@ extend type Mutation {
   reorderScopePresets(ids: [ID!]!): [ScopePreset!]!
 }
 `, BuiltIn: false},
+	{Name: "../schema/sitemap.graphqls", Input: `# Sitemap (docs/01-feature-spec.md F-SITE-1). Owned by the lead; contract task T-094.
+# The tree is derived at read time from the requests matching ` + "`" + `query` + "`" + ` and
+# ` + "`" + `scopeId` + "`" + `; nothing is stored. Live updates reuse the history subscriptions
+# (` + "`" + `requestAdded` + "`" + `, ` + "`" + `requestUpdated` + "`" + `, ` + "`" + `requestsDeleted` + "`" + `): clients refetch the
+# roots and expanded nodes, so there is no sitemap subscription.
+
+"What a sitemap node stands for; clients pick the icon from it."
+enum SitemapNodeKind {
+  "One ` + "`" + `(tls, host, port)` + "`" + ` target. Always a root."
+  HOST
+  "A path segment that has child path segments."
+  DIRECTORY
+  "A path segment without child path segments (it may have ` + "`" + `QUERY` + "`" + ` children)."
+  FILE
+  """
+  Requests whose path ends at the parent path node and whose query string has
+  this exact set of parameter names (values ignored). Always a leaf.
+  """
+  QUERY
+}
+
+"""
+One node of the sitemap tree. Counts and children depend on the ` + "`" + `query` + "`" + ` and
+` + "`" + `scopeId` + "`" + ` the node was fetched with.
+"""
+type SitemapNode {
+  """
+  Opaque identifier, stable for the same host, path segments and query
+  parameter names across calls and filters. Pass it as ` + "`" + `sitemapNodes(parentId:)` + "`" + `.
+  """
+  id: ID!
+  "ID of the parent node; null for ` + "`" + `HOST` + "`" + ` nodes."
+  parentId: ID
+  kind: SitemapNodeKind!
+  """
+  Text shown in the tree: ` + "`" + `https://example.com:443` + "`" + ` for hosts (port always
+  shown, IPv6 hosts in brackets), the segment as stored for path nodes (not
+  percent-decoded), ` + "`" + `?a&b` + "`" + ` for query nodes (names sorted, deduplicated).
+  """
+  label: String!
+  """
+  URL for "Copy URL": the host label, then ` + "`" + `/` + "`" + ` and the segments joined by ` + "`" + `/` + "`" + `
+  for path nodes, then the query node label for query nodes.
+  """
+  url: String!
+  "Host of the target, without port or brackets (for \"Add host to scope\")."
+  host: String!
+  "Port of the target."
+  port: Int!
+  "Whether the target uses TLS."
+  tls: Boolean!
+  "Number of requests at or below this node that match the call's ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + `."
+  requestCount: Int!
+  "Whether this node has children under the call's ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + `."
+  hasChildren: Boolean!
+  """
+  An HTTPQL expression that selects exactly the requests at or below this node,
+  ignoring the call's ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + `. Clients treat it as opaque and
+  combine it as ` + "`" + `(<node query>) and (<query bar>)` + "`" + `, passing the same ` + "`" + `scopeId` + "`" + `,
+  for ` + "`" + `requests` + "`" + ` (the node's table) and ` + "`" + `deleteRequests` + "`" + ` (delete node); the
+  result count then equals ` + "`" + `requestCount` + "`" + `. Always parses; never empty.
+  """
+  query: String!
+}
+
+extend type Query {
+  """
+  Children of ` + "`" + `parentId` + "`" + `, or the ` + "`" + `HOST` + "`" + ` nodes when it is null, built from the
+  requests of the selected project matching the HTTPQL ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + `
+  (same rules and errors as ` + "`" + `requests` + "`" + `). Only nodes with at least one matching
+  request are returned. Order: hosts by host, then port, then non-TLS first;
+  children by kind (path nodes, then ` + "`" + `QUERY` + "`" + ` nodes), then label in byte order.
+  With ` + "`" + `recursive: true` + "`" + `, every descendant of ` + "`" + `parentId` + "`" + ` (or the whole tree) is
+  returned in depth-first pre-order, so clients can rebuild it from ` + "`" + `parentId` + "`" + `;
+  more than 5000 nodes is ` + "`" + `BAD_INPUT` + "`" + ` ("subtree has more than 5000 nodes").
+  A malformed ` + "`" + `parentId` + "`" + ` is ` + "`" + `BAD_INPUT` + "`" + `; a well-formed one whose node has no
+  matching requests (any more) gives an empty list.
+  """
+  sitemapNodes(parentId: ID, query: String, scopeId: ID, recursive: Boolean! = false): [SitemapNode!]!
+}
+`, BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
 
@@ -2131,6 +2306,34 @@ func (ec *executionContext) childFields_ServerInfo(ctx context.Context, field gr
 		return ec.fieldContext_ServerInfo_authRequired(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ServerInfo", field.Name)
+}
+
+func (ec *executionContext) childFields_SitemapNode(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_SitemapNode_id(ctx, field)
+	case "parentId":
+		return ec.fieldContext_SitemapNode_parentId(ctx, field)
+	case "kind":
+		return ec.fieldContext_SitemapNode_kind(ctx, field)
+	case "label":
+		return ec.fieldContext_SitemapNode_label(ctx, field)
+	case "url":
+		return ec.fieldContext_SitemapNode_url(ctx, field)
+	case "host":
+		return ec.fieldContext_SitemapNode_host(ctx, field)
+	case "port":
+		return ec.fieldContext_SitemapNode_port(ctx, field)
+	case "tls":
+		return ec.fieldContext_SitemapNode_tls(ctx, field)
+	case "requestCount":
+		return ec.fieldContext_SitemapNode_requestCount(ctx, field)
+	case "hasChildren":
+		return ec.fieldContext_SitemapNode_hasChildren(ctx, field)
+	case "query":
+		return ec.fieldContext_SitemapNode_query(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SitemapNode", field.Name)
 }
 
 func (ec *executionContext) childFields___Directive(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -2870,6 +3073,44 @@ func (ec *executionContext) field_Query_scopePreset_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_sitemapNodes_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "parentId",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOID2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["parentId"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "query",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["query"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "scopeId",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOID2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["scopeId"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "recursive",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["recursive"] = arg3
 	return args, nil
 }
 
@@ -5704,6 +5945,50 @@ func (ec *executionContext) fieldContext_Query_scopePreset(ctx context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_sitemapNodes(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sitemapNodes(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SitemapNodes(ctx, fc.Args["parentId"].(*string), fc.Args["query"].(*string), fc.Args["scopeId"].(*string), fc.Args["recursive"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []SitemapNode) graphql.Marshaler {
+			return ec.marshalNSitemapNode2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSitemapNodeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sitemapNodes(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SitemapNode(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_sitemapNodes_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6141,6 +6426,259 @@ func (ec *executionContext) _ServerInfo_authRequired(ctx context.Context, field 
 }
 func (ec *executionContext) fieldContext_ServerInfo_authRequired(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ServerInfo", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _SitemapNode_id(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "ID")
+}
+
+func (ec *executionContext) _SitemapNode_parentId(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_parentId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ParentID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOID2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_parentId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "ID")
+}
+
+func (ec *executionContext) _SitemapNode_kind(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v SitemapNodeKind) graphql.Marshaler {
+			return ec.marshalNSitemapNodeKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSitemapNodeKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "SitemapNodeKind")
+}
+
+func (ec *executionContext) _SitemapNode_label(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_label(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "String")
+}
+
+func (ec *executionContext) _SitemapNode_url(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_url(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.URL, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "String")
+}
+
+func (ec *executionContext) _SitemapNode_host(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_host(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Host, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_host(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "String")
+}
+
+func (ec *executionContext) _SitemapNode_port(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_port(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Port, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_port(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "Int")
+}
+
+func (ec *executionContext) _SitemapNode_tls(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_tls(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TLS, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_tls(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _SitemapNode_requestCount(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_requestCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RequestCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_requestCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "Int")
+}
+
+func (ec *executionContext) _SitemapNode_hasChildren(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_hasChildren(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.HasChildren, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_hasChildren(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _SitemapNode_query(ctx context.Context, field graphql.CollectedField, obj *SitemapNode) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SitemapNode_query(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Query, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SitemapNode_query(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SitemapNode", field, false, false, "String")
 }
 
 func (ec *executionContext) _Subscription_ping(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
@@ -8337,6 +8875,12 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_scopePreset(ctx, field)
 				})
+		case "sitemapNodes":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_sitemapNodes(ctx, field)
+				})
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -8563,6 +9107,89 @@ func (ec *executionContext) _ServerInfo(ctx context.Context, sel ast.SelectionSe
 			}
 		case "authRequired":
 			out.Values[i] = ec._ServerInfo_authRequired(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var sitemapNodeImplementors = []string{"SitemapNode"}
+
+func (ec *executionContext) _SitemapNode(ctx context.Context, sel ast.SelectionSet, obj *SitemapNode) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sitemapNodeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SitemapNode")
+		case "id":
+			out.Values[i] = ec._SitemapNode_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "parentId":
+			out.Values[i] = ec._SitemapNode_parentId(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._SitemapNode_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "label":
+			out.Values[i] = ec._SitemapNode_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "url":
+			out.Values[i] = ec._SitemapNode_url(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "host":
+			out.Values[i] = ec._SitemapNode_host(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "port":
+			out.Values[i] = ec._SitemapNode_port(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tls":
+			out.Values[i] = ec._SitemapNode_tls(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "requestCount":
+			out.Values[i] = ec._SitemapNode_requestCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hasChildren":
+			out.Values[i] = ec._SitemapNode_hasChildren(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "query":
+			out.Values[i] = ec._SitemapNode_query(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -9340,6 +9967,36 @@ func (ec *executionContext) marshalNServerInfo2ᚖgithubᚗcomᚋpocikodeᚋrata
 		return graphql.Null
 	}
 	return ec._ServerInfo(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSitemapNode2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSitemapNode(ctx context.Context, sel ast.SelectionSet, v SitemapNode) graphql.Marshaler {
+	return ec._SitemapNode(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNSitemapNode2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSitemapNodeᚄ(ctx context.Context, sel ast.SelectionSet, v []SitemapNode) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSitemapNode2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSitemapNode(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNSitemapNodeKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSitemapNodeKind(ctx context.Context, v any) (SitemapNodeKind, error) {
+	var res SitemapNodeKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSitemapNodeKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSitemapNodeKind(ctx context.Context, sel ast.SelectionSet, v SitemapNodeKind) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) unmarshalNSortDirection2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSortDirection(ctx context.Context, v any) (SortDirection, error) {

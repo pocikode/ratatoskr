@@ -4,6 +4,7 @@
 // Hosts use reserved names only (example.*, *.test): never real targets.
 
 import { GraphQLError } from 'graphql';
+import { nodeFilter } from './sitemap';
 
 const COLORS = ['RED', 'ORANGE', 'YELLOW', 'GREEN', 'CYAN', 'BLUE', 'PURPLE', 'PINK'] as const;
 const SOURCES = [
@@ -293,6 +294,11 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
   const matcher = (query: unknown): ((r: MockRequest) => boolean) => {
     const text = typeof query === 'string' ? query.trim() : '';
     if (!text) return () => true;
+    const node = nodeFilter(text);
+    if (node) {
+      const rest = matcher(node.rest);
+      return (r) => node.match(r) && rest(r);
+    }
     const terms = [...text.matchAll(/"([^"]*)"/g)].map((m) => m[1]!.toLowerCase());
     if (!terms.length) terms.push(text.toLowerCase());
     return (r) => {
@@ -355,6 +361,7 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
 
   return {
     rows,
+    matcher,
     root: {
       requests(args: Args) {
         const { first, after, last, before, query, sort } = args as {

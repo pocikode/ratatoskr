@@ -40,13 +40,14 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | T-017 | HTTP History page (query bar w/ HTTPQL CodeMirror mode + autocomplete, table, viewers, context menu v1) | F | T-012, T-013 |
 | T-018 | Scopes + filter presets: backend services, `preset:` expansion, resolvers | B | T-015 |
 | T-019 | Scopes & Filters pages + scope selector component + preset chips | F | T-017, T-091 |
-| T-020 | Sitemap: backend tree derivation + subscription; Sitemap page | B+F | T-016 |
+| T-020 | Sitemap: backend tree derivation; Sitemap page | B+F | T-016, T-094 |
 | T-021 | E2E: proxy a local target through Chromium, verify history/filter/scope/sitemap + Workspace smoke (Playwright) | Q | T-009, T-017, T-019, T-020 |
 | T-022 | Command registry, shortcuts manager (rebindable, persisted), context menu builder | F | T-003 |
 | T-090 | History `scopeId` + `preset:` expansion: scope preset → HTTPQL AST, wire into `history.Service` (follow-up of T-016) | B | T-016, T-018 |
 | T-091 | Contract: scope presets + filter presets (schema, stubs, mocks) (follow-up of T-018) | L | T-018 |
 | T-092 | Scope/filter preset resolvers, app wiring, scope reorder migration | B | T-091, T-090 |
 | T-093 | Fix CI flakes: UI hand-off shutdown race, slow-subscriber test timing | B | — |
+| T-094 | Contract: sitemap (schema, stub, mock) (unblocks T-020) | L | T-013 |
 
 ## M2 — Intercept, Replay, Match & Replace, Environment
 

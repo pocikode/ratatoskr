@@ -16,6 +16,7 @@ import { filter, make, merge, mergeMap, pipe, share, takeUntil } from 'wonka';
 import sdl from '../generated/schema.graphql?raw';
 import { createHistoryMock, type MockHistoryOptions } from './history';
 import { createPresetsMock } from './presets';
+import { createSitemapMock } from './sitemap';
 
 const schema = buildSchema(sdl);
 
@@ -33,9 +34,17 @@ function isIterator(v: unknown): v is AsyncGenerator<ExecutionResult> {
   return typeof v === 'object' && v !== null && Symbol.asyncIterator in v;
 }
 
-/** Exchange serving the history and preset contracts ({@link createHistoryMock}, {@link createPresetsMock}). */
+/**
+ * Exchange serving the history, preset and sitemap contracts ({@link createHistoryMock},
+ * {@link createPresetsMock}, {@link createSitemapMock}).
+ */
 export function mockHistoryExchange(opts: MockHistoryOptions = {}): Exchange {
-  const root = { ...createHistoryMock(opts).root, ...createPresetsMock().root };
+  const history = createHistoryMock(opts);
+  const root = {
+    ...history.root,
+    ...createPresetsMock().root,
+    ...createSitemapMock(history.rows, history.matcher).root,
+  };
   const handles = (op: Operation) => {
     const fields = rootFields(op.query);
     return fields.length > 0 && fields.every((f) => f in root);
