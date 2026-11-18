@@ -39,7 +39,7 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | T-018 | Scopes + filter presets: backend services, `preset:` expansion, resolvers | B | T-015 |
 | T-019 | Scopes & Filters pages + scope selector component + preset chips | F | T-017, T-018 |
 | T-020 | Sitemap: backend tree derivation + subscription; Sitemap page | B+F | T-016 |
-| T-021 | E2E: proxy a local target through Chromium, verify history/filter/scope/sitemap (Playwright) | Q | T-017, T-019, T-020 |
+| T-021 | E2E: proxy a local target through Chromium, verify history/filter/scope/sitemap + Workspace smoke (Playwright) | Q | T-009, T-017, T-019, T-020 |
 | T-022 | Command registry, shortcuts manager (rebindable, persisted), context menu builder | F | T-003 |
 
 ## M2 — Intercept, Replay, Match & Replace, Environment
