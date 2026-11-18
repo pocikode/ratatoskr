@@ -69,3 +69,17 @@ Findings:
 Verdict: **changes_requested**. Fix the three majors. The minors are cheap and could go in the same pass.
 
 **Review round 2 (implementer)**: all 7 findings fixed. Import validates only new rows and caps total per project; scope Duplicate stops on non-Conflict errors and truncates the base name to 150 chars; `ExpandPresets` has a 1000-expansion cap (fan-out test); alias is a direct byte check; lookup resolves names before aliases. Tests added for each. `make check` green.
+
+**Review round 2 (reviewer)**: claude-opus-5-5 · 2026-11-18 · @ 5b074bf
+`make check` passes (go + web, 183 web tests). All changed files are inside `paths`. I checked all 7 round-1 findings against the diff, and each one is fixed correctly:
+- Import checks only `all[n:]`, and `TestImportIgnoresDanglingExisting` covers this. The project-wide cap is checked before each insert.
+- Duplicate returns any error that is not a Conflict, so ctx cancel / tx errors end the loop. The base name is cut to 150 runes, so the copy name stays ≤ 200.
+- `ExpandPresets` uses one shared budget for the whole call. Above 1000 expansions it returns a `core.Error` (spanned → BAD_QUERY), and the "fan-out bomb rejected" test covers this.
+- `validAlias` now checks bytes directly and matches `[a-z0-9][a-z0-9_-]*`. The "a//b" case is tested.
+- `lookup` checks names first, then aliases. This does not depend on sort order.
+
+New findings:
+- [ ] [minor] internal/filterpreset/service_test.go — the round-2 handoff says "Tests added for each", but three fixes have no test: name-before-alias resolution (`service.go:132-137`), the project-wide import cap (`service.go:371`), and the Duplicate name truncation (`scope/service.go:216`). The lookup order is user-visible. If someone reverts it to a single pass, no test fails. → Add one case: preset X has alias `api` and preset Y is named `api`; after `Reorder([X,Y])`, `Expand("preset:api")` returns Y's query. The other two are optional.
+- [ ] [nit] internal/filterpreset/service.go:393-396 — when an imported preset fails to expand, the BAD_QUERY error has a span into that preset's own query but does not name the preset. A user importing 50 presets cannot tell which one is broken. → Wrap the error with `p.Name`, e.g. `apperr.Query(span, "preset %q: %s", p.Name, msg)`.
+
+Verdict: **approve**. No blocker or major findings remain. The minor finding can go into the same PR or a follow-up.
