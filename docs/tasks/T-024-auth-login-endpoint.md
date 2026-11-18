@@ -124,7 +124,7 @@ only partly met (finding 1).
       existing `TestLoginAuthDisabled` still holds.
 - [x] [nit] docs/03-architecture.md — this file is outside `paths`. The AC asks for the change and the Handoff records
       it, so I accept it. → Lead: add `docs/03-architecture.md` to `paths` in tasks whose AC requires a doc change.
-- [ ] [nit] internal/api/middleware/auth_login.go:143-152 — the IPv6 key is the full /128 address, and one host often
+- [x] [nit] internal/api/middleware/auth_login.go:143-152 (won't fix, lead decision above) — the IPv6 key is the full /128 address, and one host often
       controls a whole /64. That gives 5 tries per address and lets the host evict its own blocked entries through
       `makeRoom`. The spec says "per remote IP", so this is not a defect. → Optional: key IPv6 peers by
       `netip.PrefixFrom(addr, 64)`.
