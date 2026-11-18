@@ -98,3 +98,21 @@ Reviewer: claude-code/opus-5.5 · 2026-11-18 · branch `task/T-016-history-servi
 
 ## Handoff addendum (round 2)
 - Fixed all findings except the scope one (lead decision, see reply above): body decode now streams (O(limit) memory, `TestBodyDecodeIsStreamed` with 64 MiB gzip), `stored()` uses `body_offset`, `rows.Err()` checked, presets filtered without LIMIT, `SubscribeDeleted` returns an error, `cmp.Or`, `head(int64)`, `deref`, and a response head/body resolver test. `make check` green.
+
+## Review round 2 (reviewer)
+Reviewer: claude-code/opus-5.5 · 2026-11-18 · branch `task/T-016-history-service` @ 0e4ec9d
+
+**Checks**
+- `make check`: green (go fix, vet, golangci-lint, `go test -race`, web check, 183 web unit tests). `make test-int` not run: proxy/store/rawhttp unchanged.
+- Paths: implementer files are all inside `paths`. `docs/01`, `docs/03`, `docs/08`, `gqlgen.yml`, `generated/models.go` and `T-090` come from lead commits (73a4834, 0e4ec9d). OK.
+- Hard rules: generated code changed only through `make gen`. No `net/http` in the traffic path. br/zstd deps are approved in docs/05. Every `nolint` has a reason and a task id. The only TODO is `TODO(T-090)`, and T-090 tracks it. OK.
+- Round 1 findings: all fixed and checked in the code. Body decode now streams: readers are chained, `CopyN` skips to the offset and `LimitReader` caps the output, covered by `TestBodyDecodeIsStreamed`. `stored()` uses `body_offset`. `rows.Err()` is checked. The preset LIMIT is gone. `SubscribeDeleted` returns an error. `cmp.Or`, `head(int64)` and `deref` are in. There is a resolver test for response head/body. The scope finding is closed by the narrowed Goal plus T-090.
+- AC: all three are covered by the service tests listed in the AC.
+- Load assumed: one pentester per instance, with 100k–1M rows (docs/00 §3). Bodies come from target servers, so they may be hostile.
+
+**Findings**
+- [ ] [minor] internal/history/body.go:171-178 — Paging is inconsistent for a body that cannot be decoded when its decoder fails lazily (`br`, `zstd`, raw `deflate` fallback). Only gzip fails in `NewReader`. Example: a 3 MiB body labelled `Content-Encoding: br` that is really plain text, viewed with `decode: true` and `limit` 1 MiB. At offset 0, `ReadAll` returns nothing, so the stored bytes come back. At offset 1 MiB, `CopyN` fails and the result is `[]byte{}`. The viewer shows only the first MiB of a 3 MiB body. → Make the fallback the same at every offset. One way: read the first byte through the decoder chain before skipping (`bufio.Reader.Peek(1)`). If that fails while `len(codings) > 0`, return `stored()`. Then drop the `offset == 0` special case. Add a table case to `TestHeadAndBody`: garbage `br` body at offsets 0 and >0.
+- [ ] [nit] internal/history/complete.go:226-227 — The comment says "A leading quote is part of the replaced range", but `completeValue` only runs when `text[from-1] == ':'`. A value that starts with `"` takes the `inString` branch and gets no items. Example: `req.host.eq:"exa`. → Remove the sentence, or add the quoted-prefix case (a follow-up is fine; the spec only asks for "what the partial input allows").
+- [ ] [nit] internal/history/body.go:174-176 — When `offset > maxDecoded` (256 MiB), the result is a silent `[]byte{}`, so the viewer thinks the body ended there. → Mention the cap in the `Body` doc comment (display-only limit), so the frontend task knows about it.
+
+**Verdict: approve.** No blocker or major findings remain. The minor finding can go in a small follow-up pass or into T-090. Status stays `in_review` until the operator merges.
