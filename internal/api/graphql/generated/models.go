@@ -16,8 +16,119 @@ type Node interface {
 	IsNode()
 }
 
+// One autocomplete suggestion.
+type Completion struct {
+	// Text shown in the list.
+	Label string `json:"label"`
+	// Text that replaces `QueryCompletions.from`..`to`.
+	InsertText string         `json:"insertText"`
+	Kind       CompletionKind `json:"kind"`
+	// Short secondary text, e.g. the field type or a value's occurrence count; empty when none.
+	Detail string `json:"detail"`
+	// Whether this is a Ratatoskr extension beyond the HTTPQL-compatible language (docs/04 §2).
+	IsExtension bool `json:"isExtension"`
+}
+
+// A captured or sent HTTP request with its response, if any. Edited records
+// (F-HIST-4): when Intercept or Match & Replace changes a request or its response,
+// the changed exchange is stored as a new record whose `editedFrom` is the
+// original record; both appear in history.
+type HTTPRequest struct {
+	// Row ID; also the HTTPQL `row.id`. Numeric, increasing in capture order.
+	ID     string        `json:"id"`
+	Source RequestSource `json:"source"`
+	// From the Host header, or the target when there is none. Without port.
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	// Whether the connection to the target used TLS.
+	TLS    bool   `json:"tls"`
+	Method string `json:"method"`
+	// Path without the query string, as sent (not percent-decoded).
+	Path string `json:"path"`
+	// Query string without the leading `?`; empty when there is none.
+	Query string `json:"query"`
+	// Extension of the last path segment including the dot (`.js`); empty when there is none.
+	Ext string `json:"ext"`
+	// Size in bytes of the whole request as sent: request line, headers and body.
+	Length int64 `json:"length"`
+	// When the request was sent or captured.
+	CreatedAt time.Time `json:"createdAt"`
+	// Row colour; null for none.
+	Color *RequestColor `json:"color,omitempty"`
+	// Free-text note; null when there is none.
+	Note *string `json:"note,omitempty"`
+	// The original record this one was edited from; null for unedited records.
+	// Lets the viewer toggle Original / Modified.
+	EditedFrom *HTTPRequest `json:"editedFrom,omitempty"`
+	// Whether Intercept dropped the request; such a record has no response.
+	IsDropped bool `json:"isDropped"`
+	// Whether the stored bytes were cut at the capture size limit. `length` is the
+	// real size; `head`, `bodyLength` and `body` describe what was stored.
+	IsTruncated bool `json:"isTruncated"`
+	// Request line and headers exactly as sent, including the CRLF line endings
+	// and the empty line that ends the headers.
+	Head []byte `json:"head"`
+	// Number of stored body bytes, before any decoding.
+	BodyLength int64 `json:"bodyLength"`
+	// A slice of the body, so large bodies can be fetched in chunks. `offset` must
+	// be ≥ 0 and `limit` between 1 and 4194304 (4 MiB), otherwise `BAD_INPUT`;
+	// past the end the result is shorter or empty. With `decode: true`, the
+	// `Content-Encoding` (gzip, deflate, br, zstd) and chunked transfer coding are
+	// removed first and `offset`/`limit` apply to the decoded bytes (display only,
+	// F-HIST-2); undecodable bodies are returned as stored.
+	Body []byte `json:"body"`
+	// The response; null while waiting, or when the request failed or was dropped.
+	Response *HTTPResponse `json:"response,omitempty"`
+}
+
+func (HTTPRequest) IsNode() {}
+
+// A page of requests.
+type HTTPRequestConnection struct {
+	Edges    []HTTPRequestEdge `json:"edges"`
+	PageInfo *PageInfo         `json:"pageInfo"`
+	// Number of requests matching `query` and `scopeId`, ignoring pagination.
+	TotalCount int `json:"totalCount"`
+}
+
+// One request in a `requests` connection.
+type HTTPRequestEdge struct {
+	// Opaque cursor of this position in the sort order; valid for the same arguments only.
+	Cursor string       `json:"cursor"`
+	Node   *HTTPRequest `json:"node"`
+}
+
+// The response to an `HttpRequest`.
+type HTTPResponse struct {
+	// Status code.
+	Code int `json:"code"`
+	// Size in bytes of the whole response as received: status line, headers and body.
+	Length int64 `json:"length"`
+	// Milliseconds from sending the first request byte to receiving the last response byte.
+	RoundtripMs int `json:"roundtripMs"`
+	// When the response was received.
+	CreatedAt time.Time `json:"createdAt"`
+	// Status line and headers exactly as received, including the CRLF line
+	// endings and the empty line that ends the headers.
+	Head []byte `json:"head"`
+	// Number of stored body bytes, before any decoding.
+	BodyLength int64 `json:"bodyLength"`
+	// A slice of the body; same rules as `HttpRequest.body`.
+	Body []byte `json:"body"`
+}
+
 // Mutations. Other schema files extend this type.
 type Mutation struct {
+}
+
+// Relay-style page metadata.
+type PageInfo struct {
+	HasNextPage     bool `json:"hasNextPage"`
+	HasPreviousPage bool `json:"hasPreviousPage"`
+	// Cursor of the first edge; null for an empty page.
+	StartCursor *string `json:"startCursor,omitempty"`
+	// Cursor of the last edge; null for an empty page.
+	EndCursor *string `json:"endCursor,omitempty"`
 }
 
 // One tick of the `ping` subscription.
@@ -65,6 +176,39 @@ type ProjectChange struct {
 type Query struct {
 }
 
+// Suggestions for the token at the cursor.
+type QueryCompletions struct {
+	// Byte offset where the replaced token starts.
+	From int `json:"from"`
+	// Byte offset where the replaced token ends (exclusive); at least the cursor.
+	To int `json:"to"`
+	// Suggestions, best first; at most 100.
+	Items []Completion `json:"items"`
+}
+
+// Order of a `requests` connection. Ties are always broken by ID in the same
+// direction, so the order is total and cursors stay stable.
+type RequestSort struct {
+	Field     RequestSortField `json:"field"`
+	Direction SortDirection    `json:"direction"`
+}
+
+// A change to one request, from `requestUpdated`.
+type RequestUpdate struct {
+	// The record after the change.
+	Request *HTTPRequest `json:"request"`
+	// Whether the record matches the subscription's `query` and `scopeId` after
+	// the change. Clients drop rows that stop matching and insert rows that start
+	// matching.
+	Matches bool `json:"matches"`
+}
+
+// Requests removed by `deleteRequests` (any client).
+type RequestsDeleted struct {
+	// IDs of deleted requests; one deletion is reported in batches of at most 1000 IDs.
+	Ids []string `json:"ids"`
+}
+
 // Build and runtime facts about the running instance.
 type ServerInfo struct {
 	// Release version, or `dev` for local builds.
@@ -80,6 +224,73 @@ type ServerInfo struct {
 }
 
 type Subscription struct {
+}
+
+// What a completion inserts.
+type CompletionKind string
+
+const (
+	// `req`, `resp`, `row`, `ws`, `stream`.
+	CompletionKindNamespace CompletionKind = "NAMESPACE"
+	// A field such as `host` or `header`.
+	CompletionKindField CompletionKind = "FIELD"
+	// An operator such as `eq` or `cont`.
+	CompletionKindOperator CompletionKind = "OPERATOR"
+	// A filter preset name or alias, after `preset:`.
+	CompletionKindPreset CompletionKind = "PRESET"
+	// A value: distinct values from the project, booleans, sources, and so on.
+	CompletionKindValue CompletionKind = "VALUE"
+)
+
+var AllCompletionKind = []CompletionKind{
+	CompletionKindNamespace,
+	CompletionKindField,
+	CompletionKindOperator,
+	CompletionKindPreset,
+	CompletionKindValue,
+}
+
+func (e CompletionKind) IsValid() bool {
+	switch e {
+	case CompletionKindNamespace, CompletionKindField, CompletionKindOperator, CompletionKindPreset, CompletionKindValue:
+		return true
+	}
+	return false
+}
+
+func (e CompletionKind) String() string {
+	return string(e)
+}
+
+func (e *CompletionKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = CompletionKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid CompletionKind", str)
+	}
+	return nil
+}
+
+func (e CompletionKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *CompletionKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e CompletionKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
 
 // Values of `extensions.code` on GraphQL errors. Errors produced by the server's
@@ -218,6 +429,349 @@ func (e *ProjectChangeKind) UnmarshalJSON(b []byte) error {
 }
 
 func (e ProjectChangeKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Which query language a `queryCompletions` request is about.
+type QueryLanguage string
+
+const (
+	// HTTP history filters (docs/04-query-language.md §1–3).
+	QueryLanguageHTTPQl QueryLanguage = "HTTPQL"
+	// WebSocket message filters (docs/04-query-language.md §6).
+	QueryLanguageStreamql QueryLanguage = "STREAMQL"
+)
+
+var AllQueryLanguage = []QueryLanguage{
+	QueryLanguageHTTPQl,
+	QueryLanguageStreamql,
+}
+
+func (e QueryLanguage) IsValid() bool {
+	switch e {
+	case QueryLanguageHTTPQl, QueryLanguageStreamql:
+		return true
+	}
+	return false
+}
+
+func (e QueryLanguage) String() string {
+	return string(e)
+}
+
+func (e *QueryLanguage) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = QueryLanguage(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid QueryLanguage", str)
+	}
+	return nil
+}
+
+func (e QueryLanguage) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *QueryLanguage) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e QueryLanguage) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Row colour of a request (F-HIST-1). `null` wherever a colour is optional means
+// no colour. The UI picks the actual shades.
+type RequestColor string
+
+const (
+	RequestColorRed    RequestColor = "RED"
+	RequestColorOrange RequestColor = "ORANGE"
+	RequestColorYellow RequestColor = "YELLOW"
+	RequestColorGreen  RequestColor = "GREEN"
+	RequestColorCyan   RequestColor = "CYAN"
+	RequestColorBlue   RequestColor = "BLUE"
+	RequestColorPurple RequestColor = "PURPLE"
+	RequestColorPink   RequestColor = "PINK"
+)
+
+var AllRequestColor = []RequestColor{
+	RequestColorRed,
+	RequestColorOrange,
+	RequestColorYellow,
+	RequestColorGreen,
+	RequestColorCyan,
+	RequestColorBlue,
+	RequestColorPurple,
+	RequestColorPink,
+}
+
+func (e RequestColor) IsValid() bool {
+	switch e {
+	case RequestColorRed, RequestColorOrange, RequestColorYellow, RequestColorGreen, RequestColorCyan, RequestColorBlue, RequestColorPurple, RequestColorPink:
+		return true
+	}
+	return false
+}
+
+func (e RequestColor) String() string {
+	return string(e)
+}
+
+func (e *RequestColor) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = RequestColor(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid RequestColor", str)
+	}
+	return nil
+}
+
+func (e RequestColor) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RequestColor) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RequestColor) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Columns the history table can sort by (F-HIST-1).
+type RequestSortField string
+
+const (
+	RequestSortFieldID     RequestSortField = "ID"
+	RequestSortFieldHost   RequestSortField = "HOST"
+	RequestSortFieldMethod RequestSortField = "METHOD"
+	RequestSortFieldPath   RequestSortField = "PATH"
+	RequestSortFieldQuery  RequestSortField = "QUERY"
+	// Response status code; requests without a response sort as lowest.
+	RequestSortFieldStatus RequestSortField = "STATUS"
+	// Response length in bytes; requests without a response sort as lowest.
+	RequestSortFieldResponseLength RequestSortField = "RESPONSE_LENGTH"
+	RequestSortFieldExt            RequestSortField = "EXT"
+	// Roundtrip in ms; requests without a response sort as lowest.
+	RequestSortFieldRoundtrip RequestSortField = "ROUNDTRIP"
+	RequestSortFieldCreatedAt RequestSortField = "CREATED_AT"
+	RequestSortFieldTLS       RequestSortField = "TLS"
+	RequestSortFieldPort      RequestSortField = "PORT"
+	RequestSortFieldSource    RequestSortField = "SOURCE"
+	// Colour in `RequestColor` declaration order; no colour sorts as lowest.
+	RequestSortFieldColor RequestSortField = "COLOR"
+	// Note text; no note sorts as lowest.
+	RequestSortFieldNote RequestSortField = "NOTE"
+	// Edited records (`editedFrom` set) sort after unedited ones.
+	RequestSortFieldEdited RequestSortField = "EDITED"
+)
+
+var AllRequestSortField = []RequestSortField{
+	RequestSortFieldID,
+	RequestSortFieldHost,
+	RequestSortFieldMethod,
+	RequestSortFieldPath,
+	RequestSortFieldQuery,
+	RequestSortFieldStatus,
+	RequestSortFieldResponseLength,
+	RequestSortFieldExt,
+	RequestSortFieldRoundtrip,
+	RequestSortFieldCreatedAt,
+	RequestSortFieldTLS,
+	RequestSortFieldPort,
+	RequestSortFieldSource,
+	RequestSortFieldColor,
+	RequestSortFieldNote,
+	RequestSortFieldEdited,
+}
+
+func (e RequestSortField) IsValid() bool {
+	switch e {
+	case RequestSortFieldID, RequestSortFieldHost, RequestSortFieldMethod, RequestSortFieldPath, RequestSortFieldQuery, RequestSortFieldStatus, RequestSortFieldResponseLength, RequestSortFieldExt, RequestSortFieldRoundtrip, RequestSortFieldCreatedAt, RequestSortFieldTLS, RequestSortFieldPort, RequestSortFieldSource, RequestSortFieldColor, RequestSortFieldNote, RequestSortFieldEdited:
+		return true
+	}
+	return false
+}
+
+func (e RequestSortField) String() string {
+	return string(e)
+}
+
+func (e *RequestSortField) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = RequestSortField(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid RequestSortField", str)
+	}
+	return nil
+}
+
+func (e RequestSortField) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RequestSortField) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RequestSortField) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What produced a request record. Same values as the HTTPQL `source:` clause.
+type RequestSource string
+
+const (
+	// Captured by the proxy.
+	RequestSourceProxy RequestSource = "PROXY"
+	// Captured by the proxy and edited in Intercept before forwarding.
+	RequestSourceIntercept RequestSource = "INTERCEPT"
+	// Sent from a Replay session.
+	RequestSourceReplay RequestSource = "REPLAY"
+	// Sent by an Automate attack.
+	RequestSourceAutomate RequestSource = "AUTOMATE"
+	// Sent by a workflow.
+	RequestSourceWorkflow RequestSource = "WORKFLOW"
+	// Sent by a plugin.
+	RequestSourcePlugin RequestSource = "PLUGIN"
+)
+
+var AllRequestSource = []RequestSource{
+	RequestSourceProxy,
+	RequestSourceIntercept,
+	RequestSourceReplay,
+	RequestSourceAutomate,
+	RequestSourceWorkflow,
+	RequestSourcePlugin,
+}
+
+func (e RequestSource) IsValid() bool {
+	switch e {
+	case RequestSourceProxy, RequestSourceIntercept, RequestSourceReplay, RequestSourceAutomate, RequestSourceWorkflow, RequestSourcePlugin:
+		return true
+	}
+	return false
+}
+
+func (e RequestSource) String() string {
+	return string(e)
+}
+
+func (e *RequestSource) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = RequestSource(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid RequestSource", str)
+	}
+	return nil
+}
+
+func (e RequestSource) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *RequestSource) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e RequestSource) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Sort direction.
+type SortDirection string
+
+const (
+	SortDirectionAsc  SortDirection = "ASC"
+	SortDirectionDesc SortDirection = "DESC"
+)
+
+var AllSortDirection = []SortDirection{
+	SortDirectionAsc,
+	SortDirectionDesc,
+}
+
+func (e SortDirection) IsValid() bool {
+	switch e {
+	case SortDirectionAsc, SortDirectionDesc:
+		return true
+	}
+	return false
+}
+
+func (e SortDirection) String() string {
+	return string(e)
+}
+
+func (e *SortDirection) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SortDirection(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SortDirection", str)
+	}
+	return nil
+}
+
+func (e SortDirection) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *SortDirection) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e SortDirection) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

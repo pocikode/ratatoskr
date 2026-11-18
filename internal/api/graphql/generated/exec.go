@@ -29,6 +29,8 @@ func NewExecutableSchema(cfg Config) graphql.ExecutableSchema {
 type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
+	HttpRequest() HttpRequestResolver
+	HttpResponse() HttpResponseResolver
 	Mutation() MutationResolver
 	Query() QueryResolver
 	Subscription() SubscriptionResolver
@@ -38,13 +40,75 @@ type DirectiveRoot struct {
 }
 
 type ComplexityRoot struct {
+	Completion struct {
+		Detail      func(childComplexity int) int
+		InsertText  func(childComplexity int) int
+		IsExtension func(childComplexity int) int
+		Kind        func(childComplexity int) int
+		Label       func(childComplexity int) int
+	}
+
+	HttpRequest struct {
+		Body        func(childComplexity int, offset int64, limit int, decode bool) int
+		BodyLength  func(childComplexity int) int
+		Color       func(childComplexity int) int
+		CreatedAt   func(childComplexity int) int
+		EditedFrom  func(childComplexity int) int
+		Ext         func(childComplexity int) int
+		Head        func(childComplexity int) int
+		Host        func(childComplexity int) int
+		ID          func(childComplexity int) int
+		IsDropped   func(childComplexity int) int
+		IsTruncated func(childComplexity int) int
+		Length      func(childComplexity int) int
+		Method      func(childComplexity int) int
+		Note        func(childComplexity int) int
+		Path        func(childComplexity int) int
+		Port        func(childComplexity int) int
+		Query       func(childComplexity int) int
+		Response    func(childComplexity int) int
+		Source      func(childComplexity int) int
+		TLS         func(childComplexity int) int
+	}
+
+	HttpRequestConnection struct {
+		Edges      func(childComplexity int) int
+		PageInfo   func(childComplexity int) int
+		TotalCount func(childComplexity int) int
+	}
+
+	HttpRequestEdge struct {
+		Cursor func(childComplexity int) int
+		Node   func(childComplexity int) int
+	}
+
+	HttpResponse struct {
+		Body        func(childComplexity int, offset int64, limit int, decode bool) int
+		BodyLength  func(childComplexity int) int
+		Code        func(childComplexity int) int
+		CreatedAt   func(childComplexity int) int
+		Head        func(childComplexity int) int
+		Length      func(childComplexity int) int
+		RoundtripMs func(childComplexity int) int
+	}
+
 	Mutation struct {
 		CreateProject     func(childComplexity int, name string, selectArg bool) int
 		DeleteProject     func(childComplexity int, id string) int
+		DeleteRequests    func(childComplexity int, ids []string, query *string, scopeID *string) int
 		DuplicateProject  func(childComplexity int, id string, name *string) int
 		RenameProject     func(childComplexity int, id string, name string) int
 		SelectProject     func(childComplexity int, id string) int
 		SetDefaultProject func(childComplexity int, id *string) int
+		SetRequestColor   func(childComplexity int, ids []string, color *RequestColor) int
+		SetRequestNote    func(childComplexity int, id string, note *string) int
+	}
+
+	PageInfo struct {
+		EndCursor       func(childComplexity int) int
+		HasNextPage     func(childComplexity int) int
+		HasPreviousPage func(childComplexity int) int
+		StartCursor     func(childComplexity int) int
 	}
 
 	Ping struct {
@@ -70,10 +134,28 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		CurrentProject func(childComplexity int) int
-		Project        func(childComplexity int, id string) int
-		Projects       func(childComplexity int) int
-		ServerInfo     func(childComplexity int) int
+		CurrentProject   func(childComplexity int) int
+		Project          func(childComplexity int, id string) int
+		Projects         func(childComplexity int) int
+		QueryCompletions func(childComplexity int, language QueryLanguage, text string, cursor int) int
+		Request          func(childComplexity int, id string) int
+		Requests         func(childComplexity int, first *int, after *string, last *int, before *string, query *string, scopeID *string, sort *RequestSort) int
+		ServerInfo       func(childComplexity int) int
+	}
+
+	QueryCompletions struct {
+		From  func(childComplexity int) int
+		Items func(childComplexity int) int
+		To    func(childComplexity int) int
+	}
+
+	RequestUpdate struct {
+		Matches func(childComplexity int) int
+		Request func(childComplexity int) int
+	}
+
+	RequestsDeleted struct {
+		Ids func(childComplexity int) int
 	}
 
 	ServerInfo struct {
@@ -85,8 +167,11 @@ type ComplexityRoot struct {
 	}
 
 	Subscription struct {
-		Ping           func(childComplexity int) int
-		ProjectChanged func(childComplexity int) int
+		Ping            func(childComplexity int) int
+		ProjectChanged  func(childComplexity int) int
+		RequestAdded    func(childComplexity int, query *string, scopeID *string) int
+		RequestUpdated  func(childComplexity int, query *string, scopeID *string) int
+		RequestsDeleted func(childComplexity int) int
 	}
 }
 
@@ -94,6 +179,18 @@ type ComplexityRoot struct {
 
 // region    ************************** generated!.gotpl **************************
 
+type HttpRequestResolver interface {
+	EditedFrom(ctx context.Context, obj *HTTPRequest) (*HTTPRequest, error)
+
+	Head(ctx context.Context, obj *HTTPRequest) ([]byte, error)
+
+	Body(ctx context.Context, obj *HTTPRequest, offset int64, limit int, decode bool) ([]byte, error)
+}
+type HttpResponseResolver interface {
+	Head(ctx context.Context, obj *HTTPResponse) ([]byte, error)
+
+	Body(ctx context.Context, obj *HTTPResponse, offset int64, limit int, decode bool) ([]byte, error)
+}
 type MutationResolver interface {
 	CreateProject(ctx context.Context, name string, selectArg bool) (*Project, error)
 	RenameProject(ctx context.Context, id string, name string) (*Project, error)
@@ -101,15 +198,24 @@ type MutationResolver interface {
 	DeleteProject(ctx context.Context, id string) (string, error)
 	SetDefaultProject(ctx context.Context, id *string) (*Project, error)
 	SelectProject(ctx context.Context, id string) (*Project, error)
+	SetRequestColor(ctx context.Context, ids []string, color *RequestColor) ([]HTTPRequest, error)
+	SetRequestNote(ctx context.Context, id string, note *string) (*HTTPRequest, error)
+	DeleteRequests(ctx context.Context, ids []string, query *string, scopeID *string) (int64, error)
 }
 type QueryResolver interface {
 	ServerInfo(ctx context.Context) (*ServerInfo, error)
+	Requests(ctx context.Context, first *int, after *string, last *int, before *string, query *string, scopeID *string, sort *RequestSort) (*HTTPRequestConnection, error)
+	Request(ctx context.Context, id string) (*HTTPRequest, error)
+	QueryCompletions(ctx context.Context, language QueryLanguage, text string, cursor int) (*QueryCompletions, error)
 	Projects(ctx context.Context) ([]Project, error)
 	Project(ctx context.Context, id string) (*Project, error)
 	CurrentProject(ctx context.Context) (*Project, error)
 }
 type SubscriptionResolver interface {
 	Ping(ctx context.Context) (<-chan *Ping, error)
+	RequestAdded(ctx context.Context, query *string, scopeID *string) (<-chan *HTTPRequest, error)
+	RequestUpdated(ctx context.Context, query *string, scopeID *string) (<-chan *RequestUpdate, error)
+	RequestsDeleted(ctx context.Context) (<-chan *RequestsDeleted, error)
 	ProjectChanged(ctx context.Context) (<-chan *ProjectChange, error)
 }
 
@@ -130,6 +236,243 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	ec := newExecutionContext(nil, e, nil)
 	_ = ec
 	switch typeName + "." + field {
+
+	case "Completion.detail":
+		if e.ComplexityRoot.Completion.Detail == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.Detail(childComplexity), true
+	case "Completion.insertText":
+		if e.ComplexityRoot.Completion.InsertText == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.InsertText(childComplexity), true
+	case "Completion.isExtension":
+		if e.ComplexityRoot.Completion.IsExtension == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.IsExtension(childComplexity), true
+	case "Completion.kind":
+		if e.ComplexityRoot.Completion.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.Kind(childComplexity), true
+	case "Completion.label":
+		if e.ComplexityRoot.Completion.Label == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Completion.Label(childComplexity), true
+
+	case "HttpRequest.body":
+		if e.ComplexityRoot.HttpRequest.Body == nil {
+			break
+		}
+
+		args, err := ec.field_HttpRequest_body_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.HttpRequest.Body(childComplexity, args["offset"].(int64), args["limit"].(int), args["decode"].(bool)), true
+	case "HttpRequest.bodyLength":
+		if e.ComplexityRoot.HttpRequest.BodyLength == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.BodyLength(childComplexity), true
+	case "HttpRequest.color":
+		if e.ComplexityRoot.HttpRequest.Color == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Color(childComplexity), true
+	case "HttpRequest.createdAt":
+		if e.ComplexityRoot.HttpRequest.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.CreatedAt(childComplexity), true
+	case "HttpRequest.editedFrom":
+		if e.ComplexityRoot.HttpRequest.EditedFrom == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.EditedFrom(childComplexity), true
+	case "HttpRequest.ext":
+		if e.ComplexityRoot.HttpRequest.Ext == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Ext(childComplexity), true
+	case "HttpRequest.head":
+		if e.ComplexityRoot.HttpRequest.Head == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Head(childComplexity), true
+	case "HttpRequest.host":
+		if e.ComplexityRoot.HttpRequest.Host == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Host(childComplexity), true
+	case "HttpRequest.id":
+		if e.ComplexityRoot.HttpRequest.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.ID(childComplexity), true
+	case "HttpRequest.isDropped":
+		if e.ComplexityRoot.HttpRequest.IsDropped == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.IsDropped(childComplexity), true
+	case "HttpRequest.isTruncated":
+		if e.ComplexityRoot.HttpRequest.IsTruncated == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.IsTruncated(childComplexity), true
+	case "HttpRequest.length":
+		if e.ComplexityRoot.HttpRequest.Length == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Length(childComplexity), true
+	case "HttpRequest.method":
+		if e.ComplexityRoot.HttpRequest.Method == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Method(childComplexity), true
+	case "HttpRequest.note":
+		if e.ComplexityRoot.HttpRequest.Note == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Note(childComplexity), true
+	case "HttpRequest.path":
+		if e.ComplexityRoot.HttpRequest.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Path(childComplexity), true
+	case "HttpRequest.port":
+		if e.ComplexityRoot.HttpRequest.Port == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Port(childComplexity), true
+	case "HttpRequest.query":
+		if e.ComplexityRoot.HttpRequest.Query == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Query(childComplexity), true
+	case "HttpRequest.response":
+		if e.ComplexityRoot.HttpRequest.Response == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Response(childComplexity), true
+	case "HttpRequest.source":
+		if e.ComplexityRoot.HttpRequest.Source == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.Source(childComplexity), true
+	case "HttpRequest.tls":
+		if e.ComplexityRoot.HttpRequest.TLS == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.TLS(childComplexity), true
+
+	case "HttpRequestConnection.edges":
+		if e.ComplexityRoot.HttpRequestConnection.Edges == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequestConnection.Edges(childComplexity), true
+	case "HttpRequestConnection.pageInfo":
+		if e.ComplexityRoot.HttpRequestConnection.PageInfo == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequestConnection.PageInfo(childComplexity), true
+	case "HttpRequestConnection.totalCount":
+		if e.ComplexityRoot.HttpRequestConnection.TotalCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequestConnection.TotalCount(childComplexity), true
+
+	case "HttpRequestEdge.cursor":
+		if e.ComplexityRoot.HttpRequestEdge.Cursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequestEdge.Cursor(childComplexity), true
+	case "HttpRequestEdge.node":
+		if e.ComplexityRoot.HttpRequestEdge.Node == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequestEdge.Node(childComplexity), true
+
+	case "HttpResponse.body":
+		if e.ComplexityRoot.HttpResponse.Body == nil {
+			break
+		}
+
+		args, err := ec.field_HttpResponse_body_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.HttpResponse.Body(childComplexity, args["offset"].(int64), args["limit"].(int), args["decode"].(bool)), true
+	case "HttpResponse.bodyLength":
+		if e.ComplexityRoot.HttpResponse.BodyLength == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpResponse.BodyLength(childComplexity), true
+	case "HttpResponse.code":
+		if e.ComplexityRoot.HttpResponse.Code == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpResponse.Code(childComplexity), true
+	case "HttpResponse.createdAt":
+		if e.ComplexityRoot.HttpResponse.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpResponse.CreatedAt(childComplexity), true
+	case "HttpResponse.head":
+		if e.ComplexityRoot.HttpResponse.Head == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpResponse.Head(childComplexity), true
+	case "HttpResponse.length":
+		if e.ComplexityRoot.HttpResponse.Length == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpResponse.Length(childComplexity), true
+	case "HttpResponse.roundtripMs":
+		if e.ComplexityRoot.HttpResponse.RoundtripMs == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpResponse.RoundtripMs(childComplexity), true
 
 	case "Mutation.createProject":
 		if e.ComplexityRoot.Mutation.CreateProject == nil {
@@ -153,6 +496,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DeleteProject(childComplexity, args["id"].(string)), true
+	case "Mutation.deleteRequests":
+		if e.ComplexityRoot.Mutation.DeleteRequests == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteRequests_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteRequests(childComplexity, args["ids"].([]string), args["query"].(*string), args["scopeId"].(*string)), true
 	case "Mutation.duplicateProject":
 		if e.ComplexityRoot.Mutation.DuplicateProject == nil {
 			break
@@ -197,6 +551,53 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SetDefaultProject(childComplexity, args["id"].(*string)), true
+	case "Mutation.setRequestColor":
+		if e.ComplexityRoot.Mutation.SetRequestColor == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setRequestColor_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SetRequestColor(childComplexity, args["ids"].([]string), args["color"].(*RequestColor)), true
+	case "Mutation.setRequestNote":
+		if e.ComplexityRoot.Mutation.SetRequestNote == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setRequestNote_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SetRequestNote(childComplexity, args["id"].(string), args["note"].(*string)), true
+
+	case "PageInfo.endCursor":
+		if e.ComplexityRoot.PageInfo.EndCursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PageInfo.EndCursor(childComplexity), true
+	case "PageInfo.hasNextPage":
+		if e.ComplexityRoot.PageInfo.HasNextPage == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PageInfo.HasNextPage(childComplexity), true
+	case "PageInfo.hasPreviousPage":
+		if e.ComplexityRoot.PageInfo.HasPreviousPage == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PageInfo.HasPreviousPage(childComplexity), true
+	case "PageInfo.startCursor":
+		if e.ComplexityRoot.PageInfo.StartCursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PageInfo.StartCursor(childComplexity), true
 
 	case "Ping.at":
 		if e.ComplexityRoot.Ping.At == nil {
@@ -303,12 +704,84 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Projects(childComplexity), true
+	case "Query.queryCompletions":
+		if e.ComplexityRoot.Query.QueryCompletions == nil {
+			break
+		}
+
+		args, err := ec.field_Query_queryCompletions_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.QueryCompletions(childComplexity, args["language"].(QueryLanguage), args["text"].(string), args["cursor"].(int)), true
+	case "Query.request":
+		if e.ComplexityRoot.Query.Request == nil {
+			break
+		}
+
+		args, err := ec.field_Query_request_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.Request(childComplexity, args["id"].(string)), true
+	case "Query.requests":
+		if e.ComplexityRoot.Query.Requests == nil {
+			break
+		}
+
+		args, err := ec.field_Query_requests_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.Requests(childComplexity, args["first"].(*int), args["after"].(*string), args["last"].(*int), args["before"].(*string), args["query"].(*string), args["scopeId"].(*string), args["sort"].(*RequestSort)), true
 	case "Query.serverInfo":
 		if e.ComplexityRoot.Query.ServerInfo == nil {
 			break
 		}
 
 		return e.ComplexityRoot.Query.ServerInfo(childComplexity), true
+
+	case "QueryCompletions.from":
+		if e.ComplexityRoot.QueryCompletions.From == nil {
+			break
+		}
+
+		return e.ComplexityRoot.QueryCompletions.From(childComplexity), true
+	case "QueryCompletions.items":
+		if e.ComplexityRoot.QueryCompletions.Items == nil {
+			break
+		}
+
+		return e.ComplexityRoot.QueryCompletions.Items(childComplexity), true
+	case "QueryCompletions.to":
+		if e.ComplexityRoot.QueryCompletions.To == nil {
+			break
+		}
+
+		return e.ComplexityRoot.QueryCompletions.To(childComplexity), true
+
+	case "RequestUpdate.matches":
+		if e.ComplexityRoot.RequestUpdate.Matches == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RequestUpdate.Matches(childComplexity), true
+	case "RequestUpdate.request":
+		if e.ComplexityRoot.RequestUpdate.Request == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RequestUpdate.Request(childComplexity), true
+
+	case "RequestsDeleted.ids":
+		if e.ComplexityRoot.RequestsDeleted.Ids == nil {
+			break
+		}
+
+		return e.ComplexityRoot.RequestsDeleted.Ids(childComplexity), true
 
 	case "ServerInfo.authRequired":
 		if e.ComplexityRoot.ServerInfo.AuthRequired == nil {
@@ -353,6 +826,34 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.ProjectChanged(childComplexity), true
+	case "Subscription.requestAdded":
+		if e.ComplexityRoot.Subscription.RequestAdded == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_requestAdded_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Subscription.RequestAdded(childComplexity, args["query"].(*string), args["scopeId"].(*string)), true
+	case "Subscription.requestUpdated":
+		if e.ComplexityRoot.Subscription.RequestUpdated == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_requestUpdated_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Subscription.RequestUpdated(childComplexity, args["query"].(*string), args["scopeId"].(*string)), true
+	case "Subscription.requestsDeleted":
+		if e.ComplexityRoot.Subscription.RequestsDeleted == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.RequestsDeleted(childComplexity), true
 
 	}
 	return 0, false
@@ -362,7 +863,9 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	opCtx := graphql.GetOperationContext(ctx)
 	ec := newExecutionContext(opCtx, e, make(chan graphql.DeferredResult))
 	inputUnmarshalers := func() *graphql.InputUnmarshalerIndex {
-		return graphql.NewInputUnmarshalerIndex()
+		return graphql.NewInputUnmarshalerIndex(
+			graphql.NewInputUnmarshaler("RequestSort", ec.unmarshalInputRequestSort),
+		)
 	}
 	first := true
 
@@ -544,6 +1047,322 @@ type Subscription {
   ping: Ping!
 }
 `, BuiltIn: false},
+	{Name: "../schema/history.graphqls", Input: `# HTTP History (docs/01-feature-spec.md F-HIST-1..4) and query autocomplete
+# (docs/04-query-language.md §7). Owned by the lead; contract task T-013.
+# Byte offsets in this file are into the UTF-8 encoding of the text.
+
+"""
+Row colour of a request (F-HIST-1). ` + "`" + `null` + "`" + ` wherever a colour is optional means
+no colour. The UI picks the actual shades.
+"""
+enum RequestColor {
+  RED
+  ORANGE
+  YELLOW
+  GREEN
+  CYAN
+  BLUE
+  PURPLE
+  PINK
+}
+
+"What produced a request record. Same values as the HTTPQL ` + "`" + `source:` + "`" + ` clause."
+enum RequestSource {
+  "Captured by the proxy."
+  PROXY
+  "Captured by the proxy and edited in Intercept before forwarding."
+  INTERCEPT
+  "Sent from a Replay session."
+  REPLAY
+  "Sent by an Automate attack."
+  AUTOMATE
+  "Sent by a workflow."
+  WORKFLOW
+  "Sent by a plugin."
+  PLUGIN
+}
+
+"Columns the history table can sort by (F-HIST-1)."
+enum RequestSortField {
+  ID
+  HOST
+  METHOD
+  PATH
+  QUERY
+  "Response status code; requests without a response sort as lowest."
+  STATUS
+  "Response length in bytes; requests without a response sort as lowest."
+  RESPONSE_LENGTH
+  EXT
+  "Roundtrip in ms; requests without a response sort as lowest."
+  ROUNDTRIP
+  CREATED_AT
+  TLS
+  PORT
+  SOURCE
+  "Colour in ` + "`" + `RequestColor` + "`" + ` declaration order; no colour sorts as lowest."
+  COLOR
+  "Note text; no note sorts as lowest."
+  NOTE
+  "Edited records (` + "`" + `editedFrom` + "`" + ` set) sort after unedited ones."
+  EDITED
+}
+
+"Sort direction."
+enum SortDirection {
+  ASC
+  DESC
+}
+
+"""
+Order of a ` + "`" + `requests` + "`" + ` connection. Ties are always broken by ID in the same
+direction, so the order is total and cursors stay stable.
+"""
+input RequestSort {
+  field: RequestSortField!
+  direction: SortDirection! = ASC
+}
+
+"""
+A captured or sent HTTP request with its response, if any. Edited records
+(F-HIST-4): when Intercept or Match & Replace changes a request or its response,
+the changed exchange is stored as a new record whose ` + "`" + `editedFrom` + "`" + ` is the
+original record; both appear in history.
+"""
+type HttpRequest implements Node {
+  "Row ID; also the HTTPQL ` + "`" + `row.id` + "`" + `. Numeric, increasing in capture order."
+  id: ID!
+  source: RequestSource!
+  "From the Host header, or the target when there is none. Without port."
+  host: String!
+  port: Int!
+  "Whether the connection to the target used TLS."
+  tls: Boolean!
+  method: String!
+  "Path without the query string, as sent (not percent-decoded)."
+  path: String!
+  "Query string without the leading ` + "`" + `?` + "`" + `; empty when there is none."
+  query: String!
+  "Extension of the last path segment including the dot (` + "`" + `.js` + "`" + `); empty when there is none."
+  ext: String!
+  "Size in bytes of the whole request as sent: request line, headers and body."
+  length: Int64!
+  "When the request was sent or captured."
+  createdAt: Time!
+  "Row colour; null for none."
+  color: RequestColor
+  "Free-text note; null when there is none."
+  note: String
+  """
+  The original record this one was edited from; null for unedited records.
+  Lets the viewer toggle Original / Modified.
+  """
+  editedFrom: HttpRequest
+  "Whether Intercept dropped the request; such a record has no response."
+  isDropped: Boolean!
+  """
+  Whether the stored bytes were cut at the capture size limit. ` + "`" + `length` + "`" + ` is the
+  real size; ` + "`" + `head` + "`" + `, ` + "`" + `bodyLength` + "`" + ` and ` + "`" + `body` + "`" + ` describe what was stored.
+  """
+  isTruncated: Boolean!
+  """
+  Request line and headers exactly as sent, including the CRLF line endings
+  and the empty line that ends the headers.
+  """
+  head: Bytes!
+  "Number of stored body bytes, before any decoding."
+  bodyLength: Int64!
+  """
+  A slice of the body, so large bodies can be fetched in chunks. ` + "`" + `offset` + "`" + ` must
+  be ≥ 0 and ` + "`" + `limit` + "`" + ` between 1 and 4194304 (4 MiB), otherwise ` + "`" + `BAD_INPUT` + "`" + `;
+  past the end the result is shorter or empty. With ` + "`" + `decode: true` + "`" + `, the
+  ` + "`" + `Content-Encoding` + "`" + ` (gzip, deflate, br, zstd) and chunked transfer coding are
+  removed first and ` + "`" + `offset` + "`" + `/` + "`" + `limit` + "`" + ` apply to the decoded bytes (display only,
+  F-HIST-2); undecodable bodies are returned as stored.
+  """
+  body(offset: Int64! = 0, limit: Int! = 1048576, decode: Boolean! = false): Bytes!
+  "The response; null while waiting, or when the request failed or was dropped."
+  response: HttpResponse
+}
+
+"The response to an ` + "`" + `HttpRequest` + "`" + `."
+type HttpResponse {
+  "Status code."
+  code: Int!
+  "Size in bytes of the whole response as received: status line, headers and body."
+  length: Int64!
+  "Milliseconds from sending the first request byte to receiving the last response byte."
+  roundtripMs: Int!
+  "When the response was received."
+  createdAt: Time!
+  """
+  Status line and headers exactly as received, including the CRLF line
+  endings and the empty line that ends the headers.
+  """
+  head: Bytes!
+  "Number of stored body bytes, before any decoding."
+  bodyLength: Int64!
+  "A slice of the body; same rules as ` + "`" + `HttpRequest.body` + "`" + `."
+  body(offset: Int64! = 0, limit: Int! = 1048576, decode: Boolean! = false): Bytes!
+}
+
+"Relay-style page metadata."
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  "Cursor of the first edge; null for an empty page."
+  startCursor: String
+  "Cursor of the last edge; null for an empty page."
+  endCursor: String
+}
+
+"One request in a ` + "`" + `requests` + "`" + ` connection."
+type HttpRequestEdge {
+  "Opaque cursor of this position in the sort order; valid for the same arguments only."
+  cursor: String!
+  node: HttpRequest!
+}
+
+"A page of requests."
+type HttpRequestConnection {
+  edges: [HttpRequestEdge!]!
+  pageInfo: PageInfo!
+  "Number of requests matching ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + `, ignoring pagination."
+  totalCount: Int!
+}
+
+"Which query language a ` + "`" + `queryCompletions` + "`" + ` request is about."
+enum QueryLanguage {
+  "HTTP history filters (docs/04-query-language.md §1–3)."
+  HTTPQL
+  "WebSocket message filters (docs/04-query-language.md §6)."
+  STREAMQL
+}
+
+"What a completion inserts."
+enum CompletionKind {
+  "` + "`" + `req` + "`" + `, ` + "`" + `resp` + "`" + `, ` + "`" + `row` + "`" + `, ` + "`" + `ws` + "`" + `, ` + "`" + `stream` + "`" + `."
+  NAMESPACE
+  "A field such as ` + "`" + `host` + "`" + ` or ` + "`" + `header` + "`" + `."
+  FIELD
+  "An operator such as ` + "`" + `eq` + "`" + ` or ` + "`" + `cont` + "`" + `."
+  OPERATOR
+  "A filter preset name or alias, after ` + "`" + `preset:` + "`" + `."
+  PRESET
+  "A value: distinct values from the project, booleans, sources, and so on."
+  VALUE
+}
+
+"One autocomplete suggestion."
+type Completion {
+  "Text shown in the list."
+  label: String!
+  "Text that replaces ` + "`" + `QueryCompletions.from` + "`" + `..` + "`" + `to` + "`" + `."
+  insertText: String!
+  kind: CompletionKind!
+  "Short secondary text, e.g. the field type or a value's occurrence count; empty when none."
+  detail: String!
+  "Whether this is a Ratatoskr extension beyond the HTTPQL-compatible language (docs/04 §2)."
+  isExtension: Boolean!
+}
+
+"Suggestions for the token at the cursor."
+type QueryCompletions {
+  "Byte offset where the replaced token starts."
+  from: Int!
+  "Byte offset where the replaced token ends (exclusive); at least the cursor."
+  to: Int!
+  "Suggestions, best first; at most 100."
+  items: [Completion!]!
+}
+
+"A change to one request, from ` + "`" + `requestUpdated` + "`" + `."
+type RequestUpdate {
+  "The record after the change."
+  request: HttpRequest!
+  """
+  Whether the record matches the subscription's ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + ` after
+  the change. Clients drop rows that stop matching and insert rows that start
+  matching.
+  """
+  matches: Boolean!
+}
+
+"Requests removed by ` + "`" + `deleteRequests` + "`" + ` (any client)."
+type RequestsDeleted {
+  "IDs of deleted requests; one deletion is reported in batches of at most 1000 IDs."
+  ids: [ID!]!
+}
+
+extend type Query {
+  """
+  Requests of the selected project matching an HTTPQL ` + "`" + `query` + "`" + ` (empty or null
+  matches everything; parse errors are ` + "`" + `BAD_QUERY` + "`" + ` with a span) and, when
+  ` + "`" + `scopeId` + "`" + ` is set, the scope preset (` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID). Paginate
+  forward with ` + "`" + `first` + "`" + `/` + "`" + `after` + "`" + ` or backward with ` + "`" + `last` + "`" + `/` + "`" + `before` + "`" + `; ` + "`" + `first` + "`" + ` and
+  ` + "`" + `last` + "`" + ` are 1..1000 and only one of them may be given (` + "`" + `BAD_INPUT` + "`" + `). With
+  neither, ` + "`" + `first: 100` + "`" + ` is used. Default sort: ID ascending.
+  """
+  requests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+    scopeId: ID
+    sort: RequestSort
+  ): HttpRequestConnection!
+  "One request, or null if no request has this ID."
+  request(id: ID!): HttpRequest
+  """
+  Autocomplete for the query bar (docs/04-query-language.md §7). ` + "`" + `cursor` + "`" + ` is a
+  byte offset into ` + "`" + `text` + "`" + ` (0..len, else ` + "`" + `BAD_INPUT` + "`" + `). Never fails on an
+  unparsable ` + "`" + `text` + "`" + `: it completes what can be inferred.
+  """
+  queryCompletions(language: QueryLanguage!, text: String!, cursor: Int!): QueryCompletions!
+}
+
+extend type Mutation {
+  """
+  Sets (or with ` + "`" + `color: null` + "`" + ` clears) the row colour of each request. Unknown
+  IDs are ` + "`" + `NOT_FOUND` + "`" + ` and nothing changes. Returns the updated requests in
+  ` + "`" + `ids` + "`" + ` order and emits ` + "`" + `requestUpdated` + "`" + ` for each.
+  """
+  setRequestColor(ids: [ID!]!, color: RequestColor): [HttpRequest!]!
+  """
+  Sets the note of a request. The note is trimmed; null or empty clears it.
+  ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID. Emits ` + "`" + `requestUpdated` + "`" + `.
+  """
+  setRequestNote(id: ID!, note: String): HttpRequest!
+  """
+  Deletes requests with their responses, either the given ` + "`" + `ids` + "`" + ` (unknown IDs
+  are ignored) or everything matching the HTTPQL ` + "`" + `query` + "`" + ` within ` + "`" + `scopeId` + "`" + `.
+  Exactly one of ` + "`" + `ids` + "`" + ` and ` + "`" + `query` + "`" + ` must be given (` + "`" + `BAD_INPUT` + "`" + `); ` + "`" + `query: ""` + "`" + `
+  deletes all requests. Records edited from a deleted request keep existing
+  with ` + "`" + `editedFrom: null` + "`" + `. Returns the number deleted and emits
+  ` + "`" + `requestsDeleted` + "`" + `.
+  """
+  deleteRequests(ids: [ID!], query: String, scopeId: ID): Int64!
+}
+
+extend type Subscription {
+  """
+  Each new request of the selected project that matches ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + `
+  (same rules as ` + "`" + `requests` + "`" + `), as it is stored. The response may arrive later
+  through ` + "`" + `requestUpdated` + "`" + `. The server ends the subscription if the client
+  falls too far behind; clients then resubscribe and refetch.
+  """
+  requestAdded(query: String, scopeId: ID): HttpRequest!
+  """
+  Each change to an existing request: response stored, colour or note set.
+  Reports every change, with ` + "`" + `matches` + "`" + ` telling whether the record matches
+  ` + "`" + `query` + "`" + ` and ` + "`" + `scopeId` + "`" + ` afterwards. Same lag rule as ` + "`" + `requestAdded` + "`" + `.
+  """
+  requestUpdated(query: String, scopeId: ID): RequestUpdate!
+  "Requests deleted by any client. Same lag rule as ` + "`" + `requestAdded` + "`" + `."
+  requestsDeleted: RequestsDeleted!
+}
+`, BuiltIn: false},
 	{Name: "../schema/project.graphqls", Input: `# Projects (docs/01-feature-spec.md F-WSP-1). Owned by the lead; resolvers: T-006.
 # Project-scoped data lives in the selected project's database; every other page
 # resets and re-subscribes when ` + "`" + `projectChanged` + "`" + ` reports a SELECTED change.
@@ -661,6 +1480,124 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // Each function is generated once per unique object type, deduplicating the
 // switch statements that were previously inlined in every fieldContext_* function.
 
+func (ec *executionContext) childFields_Completion(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "label":
+		return ec.fieldContext_Completion_label(ctx, field)
+	case "insertText":
+		return ec.fieldContext_Completion_insertText(ctx, field)
+	case "kind":
+		return ec.fieldContext_Completion_kind(ctx, field)
+	case "detail":
+		return ec.fieldContext_Completion_detail(ctx, field)
+	case "isExtension":
+		return ec.fieldContext_Completion_isExtension(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Completion", field.Name)
+}
+
+func (ec *executionContext) childFields_HttpRequest(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_HttpRequest_id(ctx, field)
+	case "source":
+		return ec.fieldContext_HttpRequest_source(ctx, field)
+	case "host":
+		return ec.fieldContext_HttpRequest_host(ctx, field)
+	case "port":
+		return ec.fieldContext_HttpRequest_port(ctx, field)
+	case "tls":
+		return ec.fieldContext_HttpRequest_tls(ctx, field)
+	case "method":
+		return ec.fieldContext_HttpRequest_method(ctx, field)
+	case "path":
+		return ec.fieldContext_HttpRequest_path(ctx, field)
+	case "query":
+		return ec.fieldContext_HttpRequest_query(ctx, field)
+	case "ext":
+		return ec.fieldContext_HttpRequest_ext(ctx, field)
+	case "length":
+		return ec.fieldContext_HttpRequest_length(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_HttpRequest_createdAt(ctx, field)
+	case "color":
+		return ec.fieldContext_HttpRequest_color(ctx, field)
+	case "note":
+		return ec.fieldContext_HttpRequest_note(ctx, field)
+	case "editedFrom":
+		return ec.fieldContext_HttpRequest_editedFrom(ctx, field)
+	case "isDropped":
+		return ec.fieldContext_HttpRequest_isDropped(ctx, field)
+	case "isTruncated":
+		return ec.fieldContext_HttpRequest_isTruncated(ctx, field)
+	case "head":
+		return ec.fieldContext_HttpRequest_head(ctx, field)
+	case "bodyLength":
+		return ec.fieldContext_HttpRequest_bodyLength(ctx, field)
+	case "body":
+		return ec.fieldContext_HttpRequest_body(ctx, field)
+	case "response":
+		return ec.fieldContext_HttpRequest_response(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type HttpRequest", field.Name)
+}
+
+func (ec *executionContext) childFields_HttpRequestConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "edges":
+		return ec.fieldContext_HttpRequestConnection_edges(ctx, field)
+	case "pageInfo":
+		return ec.fieldContext_HttpRequestConnection_pageInfo(ctx, field)
+	case "totalCount":
+		return ec.fieldContext_HttpRequestConnection_totalCount(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type HttpRequestConnection", field.Name)
+}
+
+func (ec *executionContext) childFields_HttpRequestEdge(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "cursor":
+		return ec.fieldContext_HttpRequestEdge_cursor(ctx, field)
+	case "node":
+		return ec.fieldContext_HttpRequestEdge_node(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type HttpRequestEdge", field.Name)
+}
+
+func (ec *executionContext) childFields_HttpResponse(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "code":
+		return ec.fieldContext_HttpResponse_code(ctx, field)
+	case "length":
+		return ec.fieldContext_HttpResponse_length(ctx, field)
+	case "roundtripMs":
+		return ec.fieldContext_HttpResponse_roundtripMs(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_HttpResponse_createdAt(ctx, field)
+	case "head":
+		return ec.fieldContext_HttpResponse_head(ctx, field)
+	case "bodyLength":
+		return ec.fieldContext_HttpResponse_bodyLength(ctx, field)
+	case "body":
+		return ec.fieldContext_HttpResponse_body(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type HttpResponse", field.Name)
+}
+
+func (ec *executionContext) childFields_PageInfo(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "hasNextPage":
+		return ec.fieldContext_PageInfo_hasNextPage(ctx, field)
+	case "hasPreviousPage":
+		return ec.fieldContext_PageInfo_hasPreviousPage(ctx, field)
+	case "startCursor":
+		return ec.fieldContext_PageInfo_startCursor(ctx, field)
+	case "endCursor":
+		return ec.fieldContext_PageInfo_endCursor(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type PageInfo", field.Name)
+}
+
 func (ec *executionContext) childFields_Ping(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "seq":
@@ -703,6 +1640,36 @@ func (ec *executionContext) childFields_ProjectChange(ctx context.Context, field
 		return ec.fieldContext_ProjectChange_project(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ProjectChange", field.Name)
+}
+
+func (ec *executionContext) childFields_QueryCompletions(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "from":
+		return ec.fieldContext_QueryCompletions_from(ctx, field)
+	case "to":
+		return ec.fieldContext_QueryCompletions_to(ctx, field)
+	case "items":
+		return ec.fieldContext_QueryCompletions_items(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type QueryCompletions", field.Name)
+}
+
+func (ec *executionContext) childFields_RequestUpdate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "request":
+		return ec.fieldContext_RequestUpdate_request(ctx, field)
+	case "matches":
+		return ec.fieldContext_RequestUpdate_matches(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type RequestUpdate", field.Name)
+}
+
+func (ec *executionContext) childFields_RequestsDeleted(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "ids":
+		return ec.fieldContext_RequestsDeleted_ids(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type RequestsDeleted", field.Name)
 }
 
 func (ec *executionContext) childFields_ServerInfo(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -837,6 +1804,66 @@ func (ec *executionContext) childFields___Type(ctx context.Context, field graphq
 
 // region    ***************************** args.gotpl *****************************
 
+func (ec *executionContext) field_HttpRequest_body_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "offset",
+		func(ctx context.Context, v any) (int64, error) {
+			return ec.unmarshalNInt642int64(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "decode",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["decode"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_HttpResponse_body_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "offset",
+		func(ctx context.Context, v any) (int64, error) {
+			return ec.unmarshalNInt642int64(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["offset"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "limit",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["limit"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "decode",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["decode"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -870,6 +1897,36 @@ func (ec *executionContext) field_Mutation_deleteProject_args(ctx context.Contex
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_deleteRequests_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "ids",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalOID2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["ids"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "query",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["query"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "scopeId",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOID2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["scopeId"] = arg2
 	return args, nil
 }
 
@@ -945,6 +2002,50 @@ func (ec *executionContext) field_Mutation_setDefaultProject_args(ctx context.Co
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_setRequestColor_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "ids",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalNID2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["ids"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "color",
+		func(ctx context.Context, v any) (*RequestColor, error) {
+			return ec.unmarshalORequestColor2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestColor(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["color"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setRequestNote_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "note",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["note"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -970,6 +2071,156 @@ func (ec *executionContext) field_Query_project_args(ctx context.Context, rawArg
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_queryCompletions_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "language",
+		func(ctx context.Context, v any) (QueryLanguage, error) {
+			return ec.unmarshalNQueryLanguage2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐQueryLanguage(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["language"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "text",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["text"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "cursor",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["cursor"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_request_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_requests_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "first",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["first"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["after"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "last",
+		func(ctx context.Context, v any) (*int, error) {
+			return ec.unmarshalOInt2ᚖint(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["last"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "before",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["before"] = arg3
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "query",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["query"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "scopeId",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOID2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["scopeId"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "sort",
+		func(ctx context.Context, v any) (*RequestSort, error) {
+			return ec.unmarshalORequestSort2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSort(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["sort"] = arg6
+	return args, nil
+}
+
+func (ec *executionContext) field_Subscription_requestAdded_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "query",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["query"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "scopeId",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOID2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["scopeId"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Subscription_requestUpdated_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "query",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["query"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "scopeId",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOID2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["scopeId"] = arg1
 	return args, nil
 }
 
@@ -1046,6 +2297,944 @@ func (ec *executionContext) field___Type_inputFields_args(ctx context.Context, r
 // endregion ***************************** args.gotpl *****************************
 
 // region    **************************** field.gotpl *****************************
+
+func (ec *executionContext) _Completion_label(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_label(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Label, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_label(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, "String")
+}
+
+func (ec *executionContext) _Completion_insertText(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_insertText(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.InsertText, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_insertText(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, "String")
+}
+
+func (ec *executionContext) _Completion_kind(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v CompletionKind) graphql.Marshaler {
+			return ec.marshalNCompletionKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCompletionKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, "CompletionKind")
+}
+
+func (ec *executionContext) _Completion_detail(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_detail(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Detail, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_detail(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, "String")
+}
+
+func (ec *executionContext) _Completion_isExtension(ctx context.Context, field graphql.CollectedField, obj *Completion) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Completion_isExtension(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IsExtension, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Completion_isExtension(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Completion", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _HttpRequest_id(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "ID")
+}
+
+func (ec *executionContext) _HttpRequest_source(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_source(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Source, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v RequestSource) graphql.Marshaler {
+			return ec.marshalNRequestSource2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSource(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_source(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "RequestSource")
+}
+
+func (ec *executionContext) _HttpRequest_host(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_host(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Host, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_host(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "String")
+}
+
+func (ec *executionContext) _HttpRequest_port(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_port(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Port, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_port(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "Int")
+}
+
+func (ec *executionContext) _HttpRequest_tls(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_tls(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TLS, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_tls(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _HttpRequest_method(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_method(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Method, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_method(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "String")
+}
+
+func (ec *executionContext) _HttpRequest_path(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_path(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "String")
+}
+
+func (ec *executionContext) _HttpRequest_query(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_query(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Query, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_query(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "String")
+}
+
+func (ec *executionContext) _HttpRequest_ext(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_ext(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Ext, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_ext(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "String")
+}
+
+func (ec *executionContext) _HttpRequest_length(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_length(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Length, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int64) graphql.Marshaler {
+			return ec.marshalNInt642int64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_length(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "Int64")
+}
+
+func (ec *executionContext) _HttpRequest_createdAt(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "Time")
+}
+
+func (ec *executionContext) _HttpRequest_color(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_color(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Color, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *RequestColor) graphql.Marshaler {
+			return ec.marshalORequestColor2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestColor(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_color(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "RequestColor")
+}
+
+func (ec *executionContext) _HttpRequest_note(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_note(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Note, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_note(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "String")
+}
+
+func (ec *executionContext) _HttpRequest_editedFrom(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_editedFrom(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HttpRequest().EditedFrom(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalOHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_editedFrom(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HttpRequest",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HttpRequest_isDropped(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_isDropped(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IsDropped, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_isDropped(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _HttpRequest_isTruncated(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_isTruncated(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IsTruncated, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_isTruncated(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _HttpRequest_head(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_head(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HttpRequest().Head(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []byte) graphql.Marshaler {
+			return ec.marshalNBytes2ᚕbyte(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_head(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, true, true, "Bytes")
+}
+
+func (ec *executionContext) _HttpRequest_bodyLength(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_bodyLength(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.BodyLength, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int64) graphql.Marshaler {
+			return ec.marshalNInt642int64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_bodyLength(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequest", field, false, false, "Int64")
+}
+
+func (ec *executionContext) _HttpRequest_body(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_body(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.HttpRequest().Body(ctx, obj, fc.Args["offset"].(int64), fc.Args["limit"].(int), fc.Args["decode"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []byte) graphql.Marshaler {
+			return ec.marshalNBytes2ᚕbyte(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_body(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HttpRequest",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Bytes does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_HttpRequest_body_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HttpRequest_response(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_response(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Response, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPResponse) graphql.Marshaler {
+			return ec.marshalOHttpResponse2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPResponse(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_response(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HttpRequest",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpResponse(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HttpRequestConnection_edges(ctx context.Context, field graphql.CollectedField, obj *HTTPRequestConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequestConnection_edges(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Edges, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []HTTPRequestEdge) graphql.Marshaler {
+			return ec.marshalNHttpRequestEdge2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequestEdgeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequestConnection_edges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HttpRequestConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequestEdge(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HttpRequestConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *HTTPRequestConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequestConnection_pageInfo(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.PageInfo, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *PageInfo) graphql.Marshaler {
+			return ec.marshalNPageInfo2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐPageInfo(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequestConnection_pageInfo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HttpRequestConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_PageInfo(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HttpRequestConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *HTTPRequestConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequestConnection_totalCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TotalCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequestConnection_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequestConnection", field, false, false, "Int")
+}
+
+func (ec *executionContext) _HttpRequestEdge_cursor(ctx context.Context, field graphql.CollectedField, obj *HTTPRequestEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequestEdge_cursor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Cursor, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequestEdge_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpRequestEdge", field, false, false, "String")
+}
+
+func (ec *executionContext) _HttpRequestEdge_node(ctx context.Context, field graphql.CollectedField, obj *HTTPRequestEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequestEdge_node(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Node, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalNHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequestEdge_node(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HttpRequestEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _HttpResponse_code(ctx context.Context, field graphql.CollectedField, obj *HTTPResponse) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpResponse_code(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Code, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpResponse_code(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpResponse", field, false, false, "Int")
+}
+
+func (ec *executionContext) _HttpResponse_length(ctx context.Context, field graphql.CollectedField, obj *HTTPResponse) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpResponse_length(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Length, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int64) graphql.Marshaler {
+			return ec.marshalNInt642int64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpResponse_length(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpResponse", field, false, false, "Int64")
+}
+
+func (ec *executionContext) _HttpResponse_roundtripMs(ctx context.Context, field graphql.CollectedField, obj *HTTPResponse) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpResponse_roundtripMs(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RoundtripMs, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpResponse_roundtripMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpResponse", field, false, false, "Int")
+}
+
+func (ec *executionContext) _HttpResponse_createdAt(ctx context.Context, field graphql.CollectedField, obj *HTTPResponse) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpResponse_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpResponse_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpResponse", field, false, false, "Time")
+}
+
+func (ec *executionContext) _HttpResponse_head(ctx context.Context, field graphql.CollectedField, obj *HTTPResponse) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpResponse_head(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HttpResponse().Head(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []byte) graphql.Marshaler {
+			return ec.marshalNBytes2ᚕbyte(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpResponse_head(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpResponse", field, true, true, "Bytes")
+}
+
+func (ec *executionContext) _HttpResponse_bodyLength(ctx context.Context, field graphql.CollectedField, obj *HTTPResponse) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpResponse_bodyLength(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.BodyLength, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int64) graphql.Marshaler {
+			return ec.marshalNInt642int64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpResponse_bodyLength(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("HttpResponse", field, false, false, "Int64")
+}
+
+func (ec *executionContext) _HttpResponse_body(ctx context.Context, field graphql.CollectedField, obj *HTTPResponse) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpResponse_body(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.HttpResponse().Body(ctx, obj, fc.Args["offset"].(int64), fc.Args["limit"].(int), fc.Args["decode"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []byte) graphql.Marshaler {
+			return ec.marshalNBytes2ᚕbyte(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_HttpResponse_body(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HttpResponse",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Bytes does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_HttpResponse_body_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
 
 func (ec *executionContext) _Mutation_createProject(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
@@ -1309,6 +3498,230 @@ func (ec *executionContext) fieldContext_Mutation_selectProject(ctx context.Cont
 		return fc, err
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setRequestColor(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_setRequestColor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SetRequestColor(ctx, fc.Args["ids"].([]string), fc.Args["color"].(*RequestColor))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []HTTPRequest) graphql.Marshaler {
+			return ec.marshalNHttpRequest2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequestᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_setRequestColor(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setRequestColor_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setRequestNote(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_setRequestNote(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SetRequestNote(ctx, fc.Args["id"].(string), fc.Args["note"].(*string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalNHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_setRequestNote(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setRequestNote_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteRequests(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_deleteRequests(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteRequests(ctx, fc.Args["ids"].([]string), fc.Args["query"].(*string), fc.Args["scopeId"].(*string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int64) graphql.Marshaler {
+			return ec.marshalNInt642int64(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_deleteRequests(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int64 does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteRequests_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PageInfo_hasNextPage(ctx context.Context, field graphql.CollectedField, obj *PageInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PageInfo_hasNextPage(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.HasNextPage, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PageInfo_hasNextPage(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PageInfo", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _PageInfo_hasPreviousPage(ctx context.Context, field graphql.CollectedField, obj *PageInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PageInfo_hasPreviousPage(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.HasPreviousPage, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PageInfo_hasPreviousPage(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PageInfo", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _PageInfo_startCursor(ctx context.Context, field graphql.CollectedField, obj *PageInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PageInfo_startCursor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.StartCursor, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_PageInfo_startCursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PageInfo", field, false, false, "String")
+}
+
+func (ec *executionContext) _PageInfo_endCursor(ctx context.Context, field graphql.CollectedField, obj *PageInfo) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PageInfo_endCursor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EndCursor, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_PageInfo_endCursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PageInfo", field, false, false, "String")
 }
 
 func (ec *executionContext) _Ping_seq(ctx context.Context, field graphql.CollectedField, obj *Ping) (ret graphql.Marshaler) {
@@ -1651,6 +4064,138 @@ func (ec *executionContext) fieldContext_Query_serverInfo(_ context.Context, fie
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_requests(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_requests(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().Requests(ctx, fc.Args["first"].(*int), fc.Args["after"].(*string), fc.Args["last"].(*int), fc.Args["before"].(*string), fc.Args["query"].(*string), fc.Args["scopeId"].(*string), fc.Args["sort"].(*RequestSort))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequestConnection) graphql.Marshaler {
+			return ec.marshalNHttpRequestConnection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequestConnection(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_requests(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequestConnection(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_requests_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_request(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_request(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().Request(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalOHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_request(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_request_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_queryCompletions(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_queryCompletions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().QueryCompletions(ctx, fc.Args["language"].(QueryLanguage), fc.Args["text"].(string), fc.Args["cursor"].(int))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *QueryCompletions) graphql.Marshaler {
+			return ec.marshalNQueryCompletions2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐQueryCompletions(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_queryCompletions(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_QueryCompletions(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_queryCompletions_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_projects(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -1835,6 +4380,162 @@ func (ec *executionContext) fieldContext_Query___schema(_ context.Context, field
 	return fc, nil
 }
 
+func (ec *executionContext) _QueryCompletions_from(ctx context.Context, field graphql.CollectedField, obj *QueryCompletions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_QueryCompletions_from(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.From, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_QueryCompletions_from(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("QueryCompletions", field, false, false, "Int")
+}
+
+func (ec *executionContext) _QueryCompletions_to(ctx context.Context, field graphql.CollectedField, obj *QueryCompletions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_QueryCompletions_to(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.To, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_QueryCompletions_to(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("QueryCompletions", field, false, false, "Int")
+}
+
+func (ec *executionContext) _QueryCompletions_items(ctx context.Context, field graphql.CollectedField, obj *QueryCompletions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_QueryCompletions_items(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Items, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []Completion) graphql.Marshaler {
+			return ec.marshalNCompletion2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCompletionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_QueryCompletions_items(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "QueryCompletions",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Completion(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RequestUpdate_request(ctx context.Context, field graphql.CollectedField, obj *RequestUpdate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RequestUpdate_request(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Request, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalNHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RequestUpdate_request(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "RequestUpdate",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _RequestUpdate_matches(ctx context.Context, field graphql.CollectedField, obj *RequestUpdate) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RequestUpdate_matches(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Matches, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RequestUpdate_matches(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RequestUpdate", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _RequestsDeleted_ids(ctx context.Context, field graphql.CollectedField, obj *RequestsDeleted) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_RequestsDeleted_ids(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Ids, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNID2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_RequestsDeleted_ids(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("RequestsDeleted", field, false, false, "ID")
+}
+
 func (ec *executionContext) _ServerInfo_version(ctx context.Context, field graphql.CollectedField, obj *ServerInfo) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -1977,6 +4678,126 @@ func (ec *executionContext) fieldContext_Subscription_ping(_ context.Context, fi
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_Ping(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_requestAdded(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_requestAdded(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Subscription().RequestAdded(ctx, fc.Args["query"].(*string), fc.Args["scopeId"].(*string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalNHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_requestAdded(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Subscription_requestAdded_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_requestUpdated(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_requestUpdated(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Subscription().RequestUpdated(ctx, fc.Args["query"].(*string), fc.Args["scopeId"].(*string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *RequestUpdate) graphql.Marshaler {
+			return ec.marshalNRequestUpdate2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestUpdate(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_requestUpdated(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_RequestUpdate(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Subscription_requestUpdated_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_requestsDeleted(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_requestsDeleted(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().RequestsDeleted(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *RequestsDeleted) graphql.Marshaler {
+			return ec.marshalNRequestsDeleted2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestsDeleted(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_requestsDeleted(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_RequestsDeleted(ctx, field)
 		},
 	}
 	return fc, nil
@@ -3087,6 +5908,59 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputRequestSort(ctx context.Context, obj any) (RequestSort, error) {
+	var it RequestSort
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["direction"]; !present {
+		asMap["direction"] = "ASC"
+	}
+
+	fieldsInOrder := [...]string{"field", "direction"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "field":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("field"))
+			data, err := ec.unmarshalNRequestSortField2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSortField(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Field = data
+		case "direction":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("direction"))
+			data, err := ec.unmarshalNSortDirection2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSortDirection(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Direction = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalRequestSort unmarshals raw into the RequestSort input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalRequestSort(ctx context.Context, raw any) (RequestSort, error) {
+	var out RequestSort
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "RequestSort", raw, &out)
+	return out, err
+}
+
 // endregion **************************** input.gotpl *****************************
 
 // region    ************************** interface.gotpl ***************************
@@ -3102,6 +5976,13 @@ func (ec *executionContext) _Node(ctx context.Context, sel ast.SelectionSet, obj
 			return graphql.Null
 		}
 		return ec._Project(ctx, sel, obj)
+	case HTTPRequest:
+		return ec._HttpRequest(ctx, sel, &obj)
+	case *HTTPRequest:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._HttpRequest(ctx, sel, obj)
 	default:
 		if typedObj, ok := obj.(graphql.Marshaler); ok {
 			return typedObj
@@ -3114,6 +5995,336 @@ func (ec *executionContext) _Node(ctx context.Context, sel ast.SelectionSet, obj
 // endregion ************************** interface.gotpl ***************************
 
 // region    **************************** object.gotpl ****************************
+
+var completionImplementors = []string{"Completion"}
+
+func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSet, obj *Completion) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, completionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Completion")
+		case "label":
+			out.Values[i] = ec._Completion_label(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "insertText":
+			out.Values[i] = ec._Completion_insertText(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._Completion_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "detail":
+			out.Values[i] = ec._Completion_detail(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "isExtension":
+			out.Values[i] = ec._Completion_isExtension(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var httpRequestImplementors = []string{"HttpRequest", "Node"}
+
+func (ec *executionContext) _HttpRequest(ctx context.Context, sel ast.SelectionSet, obj *HTTPRequest) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, httpRequestImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("HttpRequest")
+		case "id":
+			out.Values[i] = ec._HttpRequest_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "source":
+			out.Values[i] = ec._HttpRequest_source(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "host":
+			out.Values[i] = ec._HttpRequest_host(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "port":
+			out.Values[i] = ec._HttpRequest_port(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "tls":
+			out.Values[i] = ec._HttpRequest_tls(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "method":
+			out.Values[i] = ec._HttpRequest_method(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "path":
+			out.Values[i] = ec._HttpRequest_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "query":
+			out.Values[i] = ec._HttpRequest_query(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "ext":
+			out.Values[i] = ec._HttpRequest_ext(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "length":
+			out.Values[i] = ec._HttpRequest_length(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "createdAt":
+			out.Values[i] = ec._HttpRequest_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "color":
+			out.Values[i] = ec._HttpRequest_color(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "note":
+			out.Values[i] = ec._HttpRequest_note(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "editedFrom":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._HttpRequest_editedFrom(ctx, field, obj)
+				})
+		case "isDropped":
+			out.Values[i] = ec._HttpRequest_isDropped(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "isTruncated":
+			out.Values[i] = ec._HttpRequest_isTruncated(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "head":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._HttpRequest_head(ctx, field, obj)
+				})
+		case "bodyLength":
+			out.Values[i] = ec._HttpRequest_bodyLength(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "body":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._HttpRequest_body(ctx, field, obj)
+				})
+		case "response":
+			out.Values[i] = ec._HttpRequest_response(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var httpRequestConnectionImplementors = []string{"HttpRequestConnection"}
+
+func (ec *executionContext) _HttpRequestConnection(ctx context.Context, sel ast.SelectionSet, obj *HTTPRequestConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, httpRequestConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("HttpRequestConnection")
+		case "edges":
+			out.Values[i] = ec._HttpRequestConnection_edges(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pageInfo":
+			out.Values[i] = ec._HttpRequestConnection_pageInfo(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalCount":
+			out.Values[i] = ec._HttpRequestConnection_totalCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var httpRequestEdgeImplementors = []string{"HttpRequestEdge"}
+
+func (ec *executionContext) _HttpRequestEdge(ctx context.Context, sel ast.SelectionSet, obj *HTTPRequestEdge) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, httpRequestEdgeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("HttpRequestEdge")
+		case "cursor":
+			out.Values[i] = ec._HttpRequestEdge_cursor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "node":
+			out.Values[i] = ec._HttpRequestEdge_node(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var httpResponseImplementors = []string{"HttpResponse"}
+
+func (ec *executionContext) _HttpResponse(ctx context.Context, sel ast.SelectionSet, obj *HTTPResponse) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, httpResponseImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("HttpResponse")
+		case "code":
+			out.Values[i] = ec._HttpResponse_code(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "length":
+			out.Values[i] = ec._HttpResponse_length(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "roundtripMs":
+			out.Values[i] = ec._HttpResponse_roundtripMs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "createdAt":
+			out.Values[i] = ec._HttpResponse_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "head":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._HttpResponse_head(ctx, field, obj)
+				})
+		case "bodyLength":
+			out.Values[i] = ec._HttpResponse_bodyLength(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "body":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._HttpResponse_body(ctx, field, obj)
+				})
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
 
 var mutationImplementors = []string{"Mutation"}
 
@@ -3174,6 +6385,75 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 				return ec._Mutation_selectProject(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setRequestColor":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setRequestColor(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setRequestNote":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setRequestNote(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteRequests":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteRequests(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var pageInfoImplementors = []string{"PageInfo"}
+
+func (ec *executionContext) _PageInfo(ctx context.Context, sel ast.SelectionSet, obj *PageInfo) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, pageInfoImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PageInfo")
+		case "hasNextPage":
+			out.Values[i] = ec._PageInfo_hasNextPage(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "hasPreviousPage":
+			out.Values[i] = ec._PageInfo_hasPreviousPage(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "startCursor":
+			out.Values[i] = ec._PageInfo_startCursor(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "endCursor":
+			out.Values[i] = ec._PageInfo_endCursor(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:
@@ -3367,6 +6647,24 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_serverInfo(ctx, field)
 				})
+		case "requests":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_requests(ctx, field)
+				})
+		case "request":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_request(ctx, field)
+				})
+		case "queryCompletions":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_queryCompletions(ctx, field)
+				})
 		case "projects":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
@@ -3398,6 +6696,120 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			})
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var queryCompletionsImplementors = []string{"QueryCompletions"}
+
+func (ec *executionContext) _QueryCompletions(ctx context.Context, sel ast.SelectionSet, obj *QueryCompletions) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, queryCompletionsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("QueryCompletions")
+		case "from":
+			out.Values[i] = ec._QueryCompletions_from(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "to":
+			out.Values[i] = ec._QueryCompletions_to(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "items":
+			out.Values[i] = ec._QueryCompletions_items(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var requestUpdateImplementors = []string{"RequestUpdate"}
+
+func (ec *executionContext) _RequestUpdate(ctx context.Context, sel ast.SelectionSet, obj *RequestUpdate) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, requestUpdateImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RequestUpdate")
+		case "request":
+			out.Values[i] = ec._RequestUpdate_request(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "matches":
+			out.Values[i] = ec._RequestUpdate_matches(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var requestsDeletedImplementors = []string{"RequestsDeleted"}
+
+func (ec *executionContext) _RequestsDeleted(ctx context.Context, sel ast.SelectionSet, obj *RequestsDeleted) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, requestsDeletedImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("RequestsDeleted")
+		case "ids":
+			out.Values[i] = ec._RequestsDeleted_ids(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
 			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
@@ -3484,6 +6896,12 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 	switch fields[0].Name {
 	case "ping":
 		return ec._Subscription_ping(ctx, fields[0])
+	case "requestAdded":
+		return ec._Subscription_requestAdded(ctx, fields[0])
+	case "requestUpdated":
+		return ec._Subscription_requestUpdated(ctx, fields[0])
+	case "requestsDeleted":
+		return ec._Subscription_requestsDeleted(ctx, fields[0])
 	case "projectChanged":
 		return ec._Subscription_projectChanged(ctx, fields[0])
 	default:
@@ -3867,6 +7285,110 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
+func (ec *executionContext) unmarshalNBytes2ᚕbyte(ctx context.Context, v any) ([]byte, error) {
+	res, err := scalars.UnmarshalBytes(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNBytes2ᚕbyte(ctx context.Context, sel ast.SelectionSet, v []byte) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "Bytes!")
+		return graphql.Null
+	}
+	_ = sel
+	res := scalars.MarshalBytes(v)
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "Bytes!")
+	}
+	return res
+}
+
+func (ec *executionContext) marshalNCompletion2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCompletion(ctx context.Context, sel ast.SelectionSet, v Completion) graphql.Marshaler {
+	return ec._Completion(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNCompletion2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCompletionᚄ(ctx context.Context, sel ast.SelectionSet, v []Completion) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNCompletion2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCompletion(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNCompletionKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCompletionKind(ctx context.Context, v any) (CompletionKind, error) {
+	var res CompletionKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNCompletionKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCompletionKind(ctx context.Context, sel ast.SelectionSet, v CompletionKind) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNHttpRequest2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx context.Context, sel ast.SelectionSet, v HTTPRequest) graphql.Marshaler {
+	return ec._HttpRequest(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNHttpRequest2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequestᚄ(ctx context.Context, sel ast.SelectionSet, v []HTTPRequest) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNHttpRequest2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx context.Context, sel ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "HttpRequest!")
+		return graphql.Null
+	}
+	return ec._HttpRequest(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNHttpRequestConnection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequestConnection(ctx context.Context, sel ast.SelectionSet, v *HTTPRequestConnection) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "HttpRequestConnection!")
+		return graphql.Null
+	}
+	return ec._HttpRequestConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNHttpRequestEdge2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequestEdge(ctx context.Context, sel ast.SelectionSet, v HTTPRequestEdge) graphql.Marshaler {
+	return ec._HttpRequestEdge(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNHttpRequestEdge2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequestEdgeᚄ(ctx context.Context, sel ast.SelectionSet, v []HTTPRequestEdge) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNHttpRequestEdge2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequestEdge(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalNID2string(ctx context.Context, v any) (string, error) {
 	res, err := graphql.UnmarshalID(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -3877,6 +7399,49 @@ func (ec *executionContext) marshalNID2string(ctx context.Context, sel ast.Selec
 	res := graphql.MarshalID(v)
 	if res == graphql.Null {
 		graphql.AddInvalidNullFromMarshaler(ctx, "ID!")
+	}
+	return res
+}
+
+func (ec *executionContext) unmarshalNID2ᚕstringᚄ(ctx context.Context, v any) ([]string, error) {
+	vSlice := graphql.CoerceList(v)
+	var err error
+	res := make([]string, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNID2string(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalNID2ᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v []string) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	for i := range v {
+		ret[i] = ec.marshalNID2string(ctx, sel, v[i])
+	}
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNInt2int(ctx context.Context, v any) (int, error) {
+	res, err := graphql.UnmarshalInt(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNInt2int(ctx context.Context, sel ast.SelectionSet, v int) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalInt(v)
+	if res == graphql.Null {
+		graphql.AddInvalidNullFromMarshaler(ctx, "Int!")
 	}
 	return res
 }
@@ -3893,6 +7458,14 @@ func (ec *executionContext) marshalNInt642int64(ctx context.Context, sel ast.Sel
 		graphql.AddInvalidNullFromMarshaler(ctx, "Int64!")
 	}
 	return res
+}
+
+func (ec *executionContext) marshalNPageInfo2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐPageInfo(ctx context.Context, sel ast.SelectionSet, v *PageInfo) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "PageInfo!")
+		return graphql.Null
+	}
+	return ec._PageInfo(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNPing2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐPing(ctx context.Context, sel ast.SelectionSet, v *Ping) graphql.Marshaler {
@@ -3949,12 +7522,76 @@ func (ec *executionContext) marshalNProjectChangeKind2githubᚗcomᚋpocikodeᚋ
 	return v
 }
 
+func (ec *executionContext) marshalNQueryCompletions2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐQueryCompletions(ctx context.Context, sel ast.SelectionSet, v *QueryCompletions) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "QueryCompletions!")
+		return graphql.Null
+	}
+	return ec._QueryCompletions(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNQueryLanguage2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐQueryLanguage(ctx context.Context, v any) (QueryLanguage, error) {
+	var res QueryLanguage
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNQueryLanguage2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐQueryLanguage(ctx context.Context, sel ast.SelectionSet, v QueryLanguage) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNRequestSortField2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSortField(ctx context.Context, v any) (RequestSortField, error) {
+	var res RequestSortField
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRequestSortField2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSortField(ctx context.Context, sel ast.SelectionSet, v RequestSortField) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) unmarshalNRequestSource2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSource(ctx context.Context, v any) (RequestSource, error) {
+	var res RequestSource
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNRequestSource2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSource(ctx context.Context, sel ast.SelectionSet, v RequestSource) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNRequestUpdate2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestUpdate(ctx context.Context, sel ast.SelectionSet, v *RequestUpdate) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "RequestUpdate!")
+		return graphql.Null
+	}
+	return ec._RequestUpdate(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNRequestsDeleted2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestsDeleted(ctx context.Context, sel ast.SelectionSet, v *RequestsDeleted) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "RequestsDeleted!")
+		return graphql.Null
+	}
+	return ec._RequestsDeleted(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNServerInfo2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐServerInfo(ctx context.Context, sel ast.SelectionSet, v *ServerInfo) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "ServerInfo!")
 		return graphql.Null
 	}
 	return ec._ServerInfo(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNSortDirection2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSortDirection(ctx context.Context, v any) (SortDirection, error) {
+	var res SortDirection
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNSortDirection2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSortDirection(ctx context.Context, sel ast.SelectionSet, v SortDirection) graphql.Marshaler {
+	return v
 }
 
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) (string, error) {
@@ -4157,6 +7794,55 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
+func (ec *executionContext) marshalOHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx context.Context, sel ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._HttpRequest(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalOHttpResponse2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPResponse(ctx context.Context, sel ast.SelectionSet, v *HTTPResponse) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._HttpResponse(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOID2ᚕstringᚄ(ctx context.Context, v any) ([]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	vSlice := graphql.CoerceList(v)
+	var err error
+	res := make([]string, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNID2string(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalOID2ᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v []string) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	ret := make(graphql.Array, len(v))
+	for i := range v {
+		ret[i] = ec.marshalNID2string(ctx, sel, v[i])
+	}
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
 func (ec *executionContext) unmarshalOID2ᚖstring(ctx context.Context, v any) (*string, error) {
 	if v == nil {
 		return nil, nil
@@ -4175,11 +7861,53 @@ func (ec *executionContext) marshalOID2ᚖstring(ctx context.Context, sel ast.Se
 	return res
 }
 
+func (ec *executionContext) unmarshalOInt2ᚖint(ctx context.Context, v any) (*int, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := graphql.UnmarshalInt(v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.SelectionSet, v *int) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalInt(*v)
+	return res
+}
+
 func (ec *executionContext) marshalOProject2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐProject(ctx context.Context, sel ast.SelectionSet, v *Project) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Project(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalORequestColor2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestColor(ctx context.Context, v any) (*RequestColor, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(RequestColor)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalORequestColor2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestColor(ctx context.Context, sel ast.SelectionSet, v *RequestColor) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
+}
+
+func (ec *executionContext) unmarshalORequestSort2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSort(ctx context.Context, v any) (*RequestSort, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputRequestSort(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) unmarshalOString2ᚖstring(ctx context.Context, v any) (*string, error) {

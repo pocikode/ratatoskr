@@ -1,0 +1,315 @@
+# HTTP History (docs/01-feature-spec.md F-HIST-1..4) and query autocomplete
+# (docs/04-query-language.md §7). Owned by the lead; contract task T-013.
+# Byte offsets in this file are into the UTF-8 encoding of the text.
+
+"""
+Row colour of a request (F-HIST-1). `null` wherever a colour is optional means
+no colour. The UI picks the actual shades.
+"""
+enum RequestColor {
+  RED
+  ORANGE
+  YELLOW
+  GREEN
+  CYAN
+  BLUE
+  PURPLE
+  PINK
+}
+
+"What produced a request record. Same values as the HTTPQL `source:` clause."
+enum RequestSource {
+  "Captured by the proxy."
+  PROXY
+  "Captured by the proxy and edited in Intercept before forwarding."
+  INTERCEPT
+  "Sent from a Replay session."
+  REPLAY
+  "Sent by an Automate attack."
+  AUTOMATE
+  "Sent by a workflow."
+  WORKFLOW
+  "Sent by a plugin."
+  PLUGIN
+}
+
+"Columns the history table can sort by (F-HIST-1)."
+enum RequestSortField {
+  ID
+  HOST
+  METHOD
+  PATH
+  QUERY
+  "Response status code; requests without a response sort as lowest."
+  STATUS
+  "Response length in bytes; requests without a response sort as lowest."
+  RESPONSE_LENGTH
+  EXT
+  "Roundtrip in ms; requests without a response sort as lowest."
+  ROUNDTRIP
+  CREATED_AT
+  TLS
+  PORT
+  SOURCE
+  "Colour in `RequestColor` declaration order; no colour sorts as lowest."
+  COLOR
+  "Note text; no note sorts as lowest."
+  NOTE
+  "Edited records (`editedFrom` set) sort after unedited ones."
+  EDITED
+}
+
+"Sort direction."
+enum SortDirection {
+  ASC
+  DESC
+}
+
+"""
+Order of a `requests` connection. Ties are always broken by ID in the same
+direction, so the order is total and cursors stay stable.
+"""
+input RequestSort {
+  field: RequestSortField!
+  direction: SortDirection! = ASC
+}
+
+"""
+A captured or sent HTTP request with its response, if any. Edited records
+(F-HIST-4): when Intercept or Match & Replace changes a request or its response,
+the changed exchange is stored as a new record whose `editedFrom` is the
+original record; both appear in history.
+"""
+type HttpRequest implements Node {
+  "Row ID; also the HTTPQL `row.id`. Numeric, increasing in capture order."
+  id: ID!
+  source: RequestSource!
+  "From the Host header, or the target when there is none. Without port."
+  host: String!
+  port: Int!
+  "Whether the connection to the target used TLS."
+  tls: Boolean!
+  method: String!
+  "Path without the query string, as sent (not percent-decoded)."
+  path: String!
+  "Query string without the leading `?`; empty when there is none."
+  query: String!
+  "Extension of the last path segment including the dot (`.js`); empty when there is none."
+  ext: String!
+  "Size in bytes of the whole request as sent: request line, headers and body."
+  length: Int64!
+  "When the request was sent or captured."
+  createdAt: Time!
+  "Row colour; null for none."
+  color: RequestColor
+  "Free-text note; null when there is none."
+  note: String
+  """
+  The original record this one was edited from; null for unedited records.
+  Lets the viewer toggle Original / Modified.
+  """
+  editedFrom: HttpRequest
+  "Whether Intercept dropped the request; such a record has no response."
+  isDropped: Boolean!
+  """
+  Whether the stored bytes were cut at the capture size limit. `length` is the
+  real size; `head`, `bodyLength` and `body` describe what was stored.
+  """
+  isTruncated: Boolean!
+  """
+  Request line and headers exactly as sent, including the CRLF line endings
+  and the empty line that ends the headers.
+  """
+  head: Bytes!
+  "Number of stored body bytes, before any decoding."
+  bodyLength: Int64!
+  """
+  A slice of the body, so large bodies can be fetched in chunks. `offset` must
+  be ≥ 0 and `limit` between 1 and 4194304 (4 MiB), otherwise `BAD_INPUT`;
+  past the end the result is shorter or empty. With `decode: true`, the
+  `Content-Encoding` (gzip, deflate, br, zstd) and chunked transfer coding are
+  removed first and `offset`/`limit` apply to the decoded bytes (display only,
+  F-HIST-2); undecodable bodies are returned as stored.
+  """
+  body(offset: Int64! = 0, limit: Int! = 1048576, decode: Boolean! = false): Bytes!
+  "The response; null while waiting, or when the request failed or was dropped."
+  response: HttpResponse
+}
+
+"The response to an `HttpRequest`."
+type HttpResponse {
+  "Status code."
+  code: Int!
+  "Size in bytes of the whole response as received: status line, headers and body."
+  length: Int64!
+  "Milliseconds from sending the first request byte to receiving the last response byte."
+  roundtripMs: Int!
+  "When the response was received."
+  createdAt: Time!
+  """
+  Status line and headers exactly as received, including the CRLF line
+  endings and the empty line that ends the headers.
+  """
+  head: Bytes!
+  "Number of stored body bytes, before any decoding."
+  bodyLength: Int64!
+  "A slice of the body; same rules as `HttpRequest.body`."
+  body(offset: Int64! = 0, limit: Int! = 1048576, decode: Boolean! = false): Bytes!
+}
+
+"Relay-style page metadata."
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  "Cursor of the first edge; null for an empty page."
+  startCursor: String
+  "Cursor of the last edge; null for an empty page."
+  endCursor: String
+}
+
+"One request in a `requests` connection."
+type HttpRequestEdge {
+  "Opaque cursor of this position in the sort order; valid for the same arguments only."
+  cursor: String!
+  node: HttpRequest!
+}
+
+"A page of requests."
+type HttpRequestConnection {
+  edges: [HttpRequestEdge!]!
+  pageInfo: PageInfo!
+  "Number of requests matching `query` and `scopeId`, ignoring pagination."
+  totalCount: Int!
+}
+
+"Which query language a `queryCompletions` request is about."
+enum QueryLanguage {
+  "HTTP history filters (docs/04-query-language.md §1–3)."
+  HTTPQL
+  "WebSocket message filters (docs/04-query-language.md §6)."
+  STREAMQL
+}
+
+"What a completion inserts."
+enum CompletionKind {
+  "`req`, `resp`, `row`, `ws`, `stream`."
+  NAMESPACE
+  "A field such as `host` or `header`."
+  FIELD
+  "An operator such as `eq` or `cont`."
+  OPERATOR
+  "A filter preset name or alias, after `preset:`."
+  PRESET
+  "A value: distinct values from the project, booleans, sources, and so on."
+  VALUE
+}
+
+"One autocomplete suggestion."
+type Completion {
+  "Text shown in the list."
+  label: String!
+  "Text that replaces `QueryCompletions.from`..`to`."
+  insertText: String!
+  kind: CompletionKind!
+  "Short secondary text, e.g. the field type or a value's occurrence count; empty when none."
+  detail: String!
+  "Whether this is a Ratatoskr extension beyond the HTTPQL-compatible language (docs/04 §2)."
+  isExtension: Boolean!
+}
+
+"Suggestions for the token at the cursor."
+type QueryCompletions {
+  "Byte offset where the replaced token starts."
+  from: Int!
+  "Byte offset where the replaced token ends (exclusive); at least the cursor."
+  to: Int!
+  "Suggestions, best first; at most 100."
+  items: [Completion!]!
+}
+
+"A change to one request, from `requestUpdated`."
+type RequestUpdate {
+  "The record after the change."
+  request: HttpRequest!
+  """
+  Whether the record matches the subscription's `query` and `scopeId` after
+  the change. Clients drop rows that stop matching and insert rows that start
+  matching.
+  """
+  matches: Boolean!
+}
+
+"Requests removed by `deleteRequests` (any client)."
+type RequestsDeleted {
+  "IDs of deleted requests; one deletion is reported in batches of at most 1000 IDs."
+  ids: [ID!]!
+}
+
+extend type Query {
+  """
+  Requests of the selected project matching an HTTPQL `query` (empty or null
+  matches everything; parse errors are `BAD_QUERY` with a span) and, when
+  `scopeId` is set, the scope preset (`NOT_FOUND` for an unknown ID). Paginate
+  forward with `first`/`after` or backward with `last`/`before`; `first` and
+  `last` are 1..1000 and only one of them may be given (`BAD_INPUT`). With
+  neither, `first: 100` is used. Default sort: ID ascending.
+  """
+  requests(
+    first: Int
+    after: String
+    last: Int
+    before: String
+    query: String
+    scopeId: ID
+    sort: RequestSort
+  ): HttpRequestConnection!
+  "One request, or null if no request has this ID."
+  request(id: ID!): HttpRequest
+  """
+  Autocomplete for the query bar (docs/04-query-language.md §7). `cursor` is a
+  byte offset into `text` (0..len, else `BAD_INPUT`). Never fails on an
+  unparsable `text`: it completes what can be inferred.
+  """
+  queryCompletions(language: QueryLanguage!, text: String!, cursor: Int!): QueryCompletions!
+}
+
+extend type Mutation {
+  """
+  Sets (or with `color: null` clears) the row colour of each request. Unknown
+  IDs are `NOT_FOUND` and nothing changes. Returns the updated requests in
+  `ids` order and emits `requestUpdated` for each.
+  """
+  setRequestColor(ids: [ID!]!, color: RequestColor): [HttpRequest!]!
+  """
+  Sets the note of a request. The note is trimmed; null or empty clears it.
+  `NOT_FOUND` for an unknown ID. Emits `requestUpdated`.
+  """
+  setRequestNote(id: ID!, note: String): HttpRequest!
+  """
+  Deletes requests with their responses, either the given `ids` (unknown IDs
+  are ignored) or everything matching the HTTPQL `query` within `scopeId`.
+  Exactly one of `ids` and `query` must be given (`BAD_INPUT`); `query: ""`
+  deletes all requests. Records edited from a deleted request keep existing
+  with `editedFrom: null`. Returns the number deleted and emits
+  `requestsDeleted`.
+  """
+  deleteRequests(ids: [ID!], query: String, scopeId: ID): Int64!
+}
+
+extend type Subscription {
+  """
+  Each new request of the selected project that matches `query` and `scopeId`
+  (same rules as `requests`), as it is stored. The response may arrive later
+  through `requestUpdated`. The server ends the subscription if the client
+  falls too far behind; clients then resubscribe and refetch.
+  """
+  requestAdded(query: String, scopeId: ID): HttpRequest!
+  """
+  Each change to an existing request: response stored, colour or note set.
+  Reports every change, with `matches` telling whether the record matches
+  `query` and `scopeId` afterwards. Same lag rule as `requestAdded`.
+  """
+  requestUpdated(query: String, scopeId: ID): RequestUpdate!
+  "Requests deleted by any client. Same lag rule as `requestAdded`."
+  requestsDeleted: RequestsDeleted!
+}

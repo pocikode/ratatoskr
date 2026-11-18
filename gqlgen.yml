@@ -29,3 +29,13 @@ models:
   Int64:
     model:
       - github.com/pocikode/ratatoskr/internal/api/graphql/scalars.Int64
+  # Loaded lazily by field resolvers so list queries do not read raw bytes.
+  HttpRequest:
+    fields:
+      head: { resolver: true }
+      body: { resolver: true }
+      editedFrom: { resolver: true }
+  HttpResponse:
+    fields:
+      head: { resolver: true }
+      body: { resolver: true }
