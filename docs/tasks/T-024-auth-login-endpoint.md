@@ -136,3 +136,25 @@ limiter map is bounded, and the mutex is held with no I/O. `Auth.Logger` stays n
 `slog.Default`, which main.go sets. pprof routes still go through `Handler` and are not affected.
 
 Verdict: **changes_requested** (fix the major finding; the minors should be fixed or written up as follow-ups).
+
+### Re-review (round 2)
+Reviewed `1e97af8` against `main`. Code files: `internal/api/middleware/auth*.go` and `docs/03-architecture.md`, all
+in `paths`. `docs/08-roadmap.md`, `docs/tasks/TEMPLATE.md` and `docs/tasks/T-029-*.md` changed in the lead's commit
+`4d5384d`. That is the lead's lane, so it is fine. `make check`: green (exit 0). `go test -race -count=5
+./internal/api/middleware/`: ok. `make test-int` not needed: proxy, store and rawhttp are untouched.
+
+All findings from round 1 are resolved. The major one: `attempt` checks, resets and increments under one lock, after
+the body is parsed (`auth_login.go:96-103`). `TestLoginLimiterConcurrent` covers it. The minors: auth off answers 401
+before the limiter and the log (`TestLoginAuthDisabledQuiet`). The 500 for a token that a cookie cannot carry is pinned
+by a test and handed to T-029. I re-checked `makeRoom` with the new reset path. An expired entry for the same IP is
+swept, then created again, so the map stays bounded. A reset never evicts a live entry by mistake.
+
+- [ ] [nit] docs/tasks/T-024-auth-login-endpoint.md:64 — the Handoff still says "5 failed logins/min … (429, then the
+      window slides)". The limiter now counts attempts, and the window is fixed: it starts at the first attempt. →
+      Change it to "5 login attempts/min per TCP peer IP (fixed window from the first attempt; 429 after that)".
+- [ ] [nit] internal/api/middleware/auth_login.go:185 — the map is still called `failures`, but it now counts all
+      attempts. A reader may think successful attempts are not counted. → Rename it to `attempts`. That is three
+      lines in the code and two in the tests.
+
+Verdict: **approve** (only nits are left; fixing them is optional). The status stays `in_review`, and the operator
+sets `done` after the merge.
