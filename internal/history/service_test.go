@@ -24,6 +24,7 @@ import (
 
 type seedRow struct {
 	host, method, path, source string
+	port                       int // 0: 80
 	code                       int // 0: no response
 	color, note                string
 	editedFrom                 int64
@@ -60,7 +61,7 @@ func (e *env) seed(t *testing.T, r seedRow) int64 {
 		var err error
 
 		id, err = store.InsertRequestTx(t.Context(), tx, store.Request{
-			Source: r.source, Host: r.host, Port: 80, Method: r.method, Path: r.path,
+			Source: r.source, Host: r.host, Port: cmpOr(r.port, 80), Method: r.method, Path: r.path,
 			Raw: []byte(r.req), BodyOffset: strings.Index(r.req, "\r\n\r\n") + 4, CreatedAt: 1000,
 		})
 		if err != nil {

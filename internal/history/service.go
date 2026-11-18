@@ -65,6 +65,10 @@ type ServiceDeps struct {
 	Bus *events.Bus[Event]
 	// Scope resolves scopeId arguments; nil means no scope exists.
 	Scope ScopeFunc
+	// ExpandText parses a query and expands its preset: references (cycles and
+	// unknown names are BAD_QUERY errors); nil leaves preset: unresolved, which
+	// the compiler then rejects.
+	ExpandText func(ctx context.Context, src string) (core.Node, error)
 }
 
 // Service reads and changes the stored history and streams its changes.
@@ -101,7 +105,7 @@ func (s *Service) filter(ctx context.Context, query, scopeID *string) (filter, e
 	var node core.Node
 
 	if query != nil {
-		n, err := httpql.Parse(*query)
+		n, err := s.parseQuery(ctx, *query)
 		if err != nil {
 			return filter{}, queryErr(err)
 		}
@@ -110,7 +114,6 @@ func (s *Service) filter(ctx context.Context, query, scopeID *string) (filter, e
 	}
 
 	if scopeID != nil {
-		// TODO(T-090): wire Scope in internal/app; until then every scopeId is NOT_FOUND.
 		if s.deps.Scope == nil {
 			return filter{}, apperr.New(apperr.NotFound, "scope %q not found", *scopeID)
 		}
@@ -129,6 +132,16 @@ func (s *Service) filter(ctx context.Context, query, scopeID *string) (filter, e
 	}
 
 	return filter{node: node, sql: q}, nil
+}
+
+// parseQuery parses a user query, expanding preset: when a preset store is
+// wired. Both back-ends (SQL and the evaluator) then see plain clauses.
+func (s *Service) parseQuery(ctx context.Context, src string) (core.Node, error) {
+	if s.deps.ExpandText != nil {
+		return s.deps.ExpandText(ctx, src) //nolint:wrapcheck // T-090: already apperr-coded by the preset service
+	}
+
+	return httpql.Parse(src)
 }
 
 func and(l, r core.Node) core.Node {
