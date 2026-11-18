@@ -71,9 +71,11 @@ type App struct {
 	grace time.Duration
 }
 
-// New prepares an instance (ctx only carries values: opening the databases is not cancellable, so a cancelled ctx still shuts down cleanly): it rejects options that are not implemented yet,
+// New prepares an instance: it rejects options that are not implemented yet,
 // creates the data dir (0700), opens instance.db and the project service, and
 // builds the UI/API handler.
+//
+// ctx only carries values: a cancelled ctx does not abort opening the databases.
 func New(ctx context.Context, opts Options) (*App, error) {
 	cfg := opts.Config
 	if err := cfg.Validate(); err != nil {

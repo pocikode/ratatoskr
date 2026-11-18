@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -54,7 +54,7 @@ The schema part (`project.graphqls`) is added by the lead in T-007's follow-up c
 ## Handoff (implementer)
 **What changed**
 - `internal/project`: `Service` (Open/Close, List/Get/Current, Create, Rename, Duplicate, Delete, SetDefault, Select, `DB()`, `Subscribe`). Project data lives in `projects/<id>/` (via `os.Root`); the registry is the `projects` table in instance.db.
-- Temporary flag is stored in instance.db `settings` key `project.temporary` (no column exists; migrations are out of lane). `Open` purges leftover temp projects and orphan dirs; `Close` deletes temp projects.
+- Temporary flag is the `projects.is_temporary` column (migration 0002, round 5). `Open` purges leftover temp projects and orphan dirs; `Close` deletes temp projects.
 - Duplicate snapshots project.db with `VACUUM INTO` over its own read-only connection (store's reader is query_only, its writer is transactional) and copies other files.
 - `resolvers/project.go`: real resolvers over a `ProjectService` interface; `Deps.Projects` nil keeps returning NOT_IMPLEMENTED.
 - Events: bounded channel (64) per subscriber; a subscriber that falls behind is closed (GraphQL subscription ends, client resubscribes + refetches).
@@ -62,14 +62,14 @@ The schema part (`project.graphqls`) is added by the lead in T-007's follow-up c
 **Verify**: `go test -race ./internal/project ./internal/api/graphql/resolvers`; `make check` green.
 
 **Limitations / follow-ups**
-- Out of lane, NOT done: `internal/app/app.go` must build `project.Service` (after `store.OpenInstance`), pass it as `resolvers.Deps.Projects`, and `Close()` it on shutdown, else the API still answers NOT_IMPLEMENTED. Also edited `resolvers/resolver.go` (one `Deps` field) — outside `paths`, flagging for the reviewer.
-- SQLite reuses IDs of deleted rows (no AUTOINCREMENT), so a deleted project's ID may later name a new project.
+- Resolved in round 5: app wiring done; IDs never reused (AUTOINCREMENT). `resolver.go` is now in `paths`.
+- Follow-up (store-owned): test upgrading a v1 instance.db with rows through migration 0002.
 - The subscription is tested at resolver level, not over a real WebSocket.
 
 ### Round 5 — implementer (lead decisions applied)
 - Migration `0002_projects.sql`: `projects` rebuilt with AUTOINCREMENT + `is_temporary`; `project.temporary` settings handling removed (`loadTemp`/`saveTemp` gone; purge uses `WHERE is_temporary = 1`; Rename clears the flag). Test `TestIDsAreNeverReused`.
 - `internal/app/app.go`: `New` opens instance.db + `project.Service`, passes it as `Deps.Projects`; `Close` closes project, instance db, data dir (errors joined). Tests `TestProjectsAreWired`, `TestCloseRemovesTemporaryProject`.
-- **Out-of-paths, flagged**: `New` now takes `ctx` (`New(ctx, opts)`) because contextcheck rejects opening DBs without one; one-line call-site change in `cmd/ratatoskr/main.go` (approved by operator). New uses `context.WithoutCancel(ctx)` so an already-cancelled ctx still shuts down cleanly (main tests rely on it). `project.Service` keeps Open's ctx (WithoutCancel) for `Close`.
+- **Out-of-paths, flagged**: `New` now takes `ctx` (`New(ctx, opts)`) because contextcheck rejects opening DBs without one; one-line call-site change in `cmd/ratatoskr/main.go`. **Round 6**: I tried reverting to `New(opts)` + nolint, but contextcheck then flags the caller in `main.go` itself, which no in-lane nolint can silence. So `main.go` must be added to `paths` by the lead. New uses `context.WithoutCancel(ctx)` so an already-cancelled ctx still shuts down cleanly (main tests rely on it). `project.Service` keeps Open's ctx (WithoutCancel) for `Close`.
 - Handoff limitation "IDs reused" and "app.go not wired" are now resolved. `make check` green.
 
 ## Review (reviewer)
@@ -175,3 +175,7 @@ Set `status: changes_requested` (or `in_review`) once the lead amends `paths`.
 - [ ] [nit] docs/tasks/T-006-projects.md:43,57,65-66 — Plan/Handoff still say the temporary flag is in `settings["project.temporary"]`, that `app.go` is not wired, and that IDs are reused. All three are now false, and only Round 5 says otherwise. → Edit the Handoff "What changed" and "Limitations" bullets so they match the current state (strike through or remove the resolved items).
 
 **Verdict: changes_requested.** The code is correct and every AC is covered and green, including the integration tests. The only blocker is the out-of-`paths` edit to `cmd/ratatoskr/main.go`. It needs a recorded `paths` amendment (then approve without another code round) or a switch to the in-lane alternative.
+
+### Round 6 — implementer
+- [nit] app.go doc comment split; [nit] Handoff text corrected; migration upgrade test noted as store follow-up.
+- [major] `cmd/ratatoskr/main.go`: option (b) is not feasible (contextcheck reports at the `app.New` call in main.go, nolint in app.go is "unused"). **Lead: add `cmd/ratatoskr/main.go` to `paths`** (one-line change, `app.New(ctx, …)`). No code change otherwise.
