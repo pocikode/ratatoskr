@@ -3,7 +3,7 @@ id: T-022
 title: Command registry, shortcuts manager and context menu builder
 milestone: M1
 role: frontend
-status: in_review
+status: done
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-022-commands-shortcuts
@@ -153,4 +153,4 @@ handler on `window` keydown in the bubble phase, so CodeMirror keys it already h
 
 AC coverage: AC1 ✔ · AC2 ✔ · AC3 ✔. Missing E2E is justified (T-021 follow-up in Handoff).
 
-Verdict: **approve** — status stays `in_review` until the operator merges and sets `done`.
+Verdict: **approve** — operator set `done` and opened the PR.
