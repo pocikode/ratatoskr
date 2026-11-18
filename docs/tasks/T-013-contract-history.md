@@ -3,7 +3,7 @@ id: T-013
 title: Contract - history queries, subscriptions, completions, colour/note mutations
 milestone: M1
 role: lead
-status: in_review
+status: done
 depends_on: [T-007]
 owner: "claude-code/opus-5.5"
 branch: task/T-013-contract-history
