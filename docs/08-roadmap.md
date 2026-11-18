@@ -48,7 +48,7 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | ID | Title | Role |
 |---|---|---|
 | T-030 | Contract: intercept, replay, M&R, environment | L |
-| T-031 | Intercept queue engine (req/resp), conditions, release semantics, drop response | B |
+| T-031 | Intercept queue engine (req/resp), conditions, release semantics, drop response; `history.NewPending` pending row (deferred from T-011) | B |
 | T-032 | Intercept page + top-bar toggle + sidebar badge | F |
 | T-033 | Replay backend: collections, sessions, entries, sender (rawhttp), cancel, redirects, env interpolation | B |
 | T-034 | Replay page: session sidebar, tab strip, connection bar, editor with `{{var}}` support, history nav | F |

@@ -15,6 +15,10 @@ unlimited projects/plugins) are **free and unlimited** here.
 - Default listener `127.0.0.1:8080` serves **both** the proxy and the UI/API (like Hetty/Caido):
   - absolute-form request (`GET http://…`) or `CONNECT` → proxy;
   - origin-form request with `Host` = listener address or `ratatoskr.localhost` → UI/API.
+  - origin-form request with any other `Host` → `421 Misdirected Request` (not forwarded) unless the listener has
+    invisible mode on (F-NET-6). An absolute-form target equal to the listener address is treated as UI, never forwarded (loop guard).
+  - Upstream failures (dial, TLS, timeout, malformed response) → the client gets a Ratatoskr `502` page; the exchange is
+    recorded with that `502` as its response and the error text in its body (no separate error column in v1).
 - Multiple listeners (address:port list) configurable in Settings → Network and via CLI `--listen` (repeatable).
 - AC: `curl -x http://127.0.0.1:8080 http://example.test/` is recorded in history; `http://127.0.0.1:8080/` serves the UI.
 
@@ -24,6 +28,8 @@ unlimited projects/plugins) are **free and unlimited** here.
 - CA can be downloaded (PEM + DER) at `http://ratatoskr.localhost/ca.crt` and from Settings → Certificate;
   can be regenerated, imported (PEM cert+key) and exported.
 - ALPN to client: `http/1.1` only (v1.0). Upstream: HTTP/1.1 by default.
+- Upstream certificates are **not verified** (testing tool: targets often have self-signed/expired certs). A verify toggle
+  in Settings → Network is a later addition.
 - AC: browser with CA installed loads `https://example.com` with no warning; request appears with `tls=true`.
 
 ### F-NET-3 Raw fidelity
