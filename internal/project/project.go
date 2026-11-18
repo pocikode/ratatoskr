@@ -31,10 +31,7 @@ import (
 )
 
 const (
-	projectsDir = "projects"
-	// tempKey is the instance.db settings key holding the IDs of temporary
-	// projects. The projects table has no column for it.
-	tempKey      = "project.temporary"
+	projectsDir  = "projects"
 	tempName     = "Temporary project"
 	copySuffix   = " (copy)"
 	maxNameRunes = 200
@@ -75,6 +72,9 @@ type Service struct {
 	// mu serializes mutations (create, select, delete, close, ...).
 	mu     sync.Mutex
 	closed bool
+	// closeCtx is Open's context without its cancellation: Close must finish
+	// even when the caller's context is gone.
+	closeCtx context.Context
 
 	cur   atomic.Pointer[store.DB]
 	curID atomic.Int64
@@ -89,7 +89,7 @@ func Open(ctx context.Context, deps Deps) (*Service, error) {
 		return nil, errors.New("project: Instance and Root are required")
 	}
 
-	s := &Service{inst: deps.Instance, root: deps.Root, log: deps.Logger, now: deps.Now}
+	s := &Service{inst: deps.Instance, root: deps.Root, log: deps.Logger, now: deps.Now, closeCtx: context.WithoutCancel(ctx)}
 	if s.log == nil {
 		s.log = slog.Default()
 	}
@@ -150,8 +150,7 @@ func (s *Service) Close() error {
 
 	s.curID.Store(0)
 
-	// Close must finish even when the caller's context is gone.
-	ctx := context.Background()
+	ctx := s.closeCtx
 
 	ids, err := s.tempIDs(ctx)
 	errs = append(errs, err)
@@ -180,12 +179,7 @@ func (s *Service) List(ctx context.Context) ([]Project, error) {
 	var out []Project
 
 	err := s.inst.View(ctx, func(tx *sql.Tx) error {
-		temp, err := loadTemp(ctx, tx)
-		if err != nil {
-			return err
-		}
-
-		rows, err := tx.QueryContext(ctx, `SELECT id, name, created_at, last_opened_at, is_default FROM projects
+		rows, err := tx.QueryContext(ctx, `SELECT `+rowCols+` FROM projects
 			ORDER BY COALESCE(last_opened_at, created_at) DESC, id DESC`)
 		if err != nil {
 			return err
@@ -198,7 +192,7 @@ func (s *Service) List(ctx context.Context) ([]Project, error) {
 				return err
 			}
 
-			out = append(out, s.project(r, temp))
+			out = append(out, s.project(r))
 		}
 
 		return rows.Err()
@@ -220,12 +214,7 @@ func (s *Service) Get(ctx context.Context, id int64) (Project, error) {
 			return err
 		}
 
-		temp, err := loadTemp(ctx, tx)
-		if err != nil {
-			return err
-		}
-
-		p = s.project(r, temp)
+		p = s.project(r)
 
 		return nil
 	})
@@ -277,24 +266,13 @@ func (s *Service) Rename(ctx context.Context, id int64, name string) (Project, e
 	}
 
 	err = s.inst.Write(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE projects SET name = ? WHERE id = ?`, name, id)
+		res, err := tx.ExecContext(ctx, `UPDATE projects SET name = ?, is_temporary = 0 WHERE id = ?`, name, id)
 		if err != nil {
 			return err
 		}
 
 		if n, _ := res.RowsAffected(); n == 0 {
 			return errNotFound(id)
-		}
-
-		temp, err := loadTemp(ctx, tx)
-		if err != nil {
-			return err
-		}
-
-		if temp[id] {
-			delete(temp, id)
-
-			return saveTemp(ctx, tx, temp)
 		}
 
 		return nil
@@ -417,16 +395,12 @@ func (s *Service) SetDefault(ctx context.Context, id *int64) (*Project, error) {
 
 	err := s.inst.Write(ctx, func(tx *sql.Tx) error {
 		if id != nil {
-			if _, err := getRow(ctx, tx, *id); err != nil {
-				return err
-			}
-
-			temp, err := loadTemp(ctx, tx)
+			r, err := getRow(ctx, tx, *id)
 			if err != nil {
 				return err
 			}
 
-			if temp[*id] {
+			if r.temp {
 				return apperr.New(apperr.BadInput, "a temporary project cannot be the default; rename it to save it first")
 			}
 		}
@@ -583,8 +557,8 @@ func (s *Service) createQuiet(ctx context.Context, name string, temp bool) (Proj
 	var id int64
 
 	err := s.inst.Write(ctx, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `INSERT INTO projects (name, path, created_at) VALUES (?, '', ?)`,
-			name, s.now().UnixMilli())
+		res, err := tx.ExecContext(ctx, `INSERT INTO projects (name, path, created_at, is_temporary) VALUES (?, '', ?, ?)`,
+			name, s.now().UnixMilli(), temp)
 		if err != nil {
 			return err
 		}
@@ -593,22 +567,9 @@ func (s *Service) createQuiet(ctx context.Context, name string, temp bool) (Proj
 			return err
 		}
 
-		if _, err := tx.ExecContext(ctx, `UPDATE projects SET path = ? WHERE id = ?`, dirOf(id), id); err != nil {
-			return err
-		}
+		_, err = tx.ExecContext(ctx, `UPDATE projects SET path = ? WHERE id = ?`, dirOf(id), id)
 
-		if !temp {
-			return nil
-		}
-
-		set, err := loadTemp(ctx, tx)
-		if err != nil {
-			return err
-		}
-
-		set[id] = true
-
-		return saveTemp(ctx, tx, set)
+		return err
 	})
 	if err != nil {
 		return Project{}, fmt.Errorf("project: create: %w", err)
@@ -646,25 +607,12 @@ func (s *Service) removeProject(ctx context.Context, id int64) error {
 	return s.root.RemoveAll(dirOf(id))
 }
 
-// removeRow deletes the registry row (and temporary mark) of id.
+// removeRow deletes the registry row of id.
 func (s *Service) removeRow(ctx context.Context, id int64) error {
 	return s.inst.Write(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
-			return err
-		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
 
-		temp, err := loadTemp(ctx, tx)
-		if err != nil {
-			return err
-		}
-
-		if !temp[id] {
-			return nil
-		}
-
-		delete(temp, id)
-
-		return saveTemp(ctx, tx, temp)
+		return err
 	})
 }
 
@@ -730,22 +678,26 @@ func (s *Service) tempIDs(ctx context.Context) ([]int64, error) {
 	var ids []int64
 
 	err := s.inst.View(ctx, func(tx *sql.Tx) error {
-		set, err := loadTemp(ctx, tx)
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM projects WHERE is_temporary = 1 ORDER BY id`)
 		if err != nil {
 			return err
 		}
+		defer rows.Close()
 
-		for id := range set {
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+
 			ids = append(ids, id)
 		}
 
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return nil, fmt.Errorf("project: load temporary projects: %w", err)
 	}
-
-	slices.Sort(ids)
 
 	return ids, nil
 }
@@ -771,11 +723,11 @@ func (s *Service) defaultID(ctx context.Context) (int64, error) {
 
 // project builds the API view of a row. Size errors read as zero: the file
 // does not exist until the project is first opened.
-func (s *Service) project(r row, temp map[int64]bool) Project {
+func (s *Service) project(r row) Project {
 	p := Project{
 		ID:        r.id,
 		Name:      r.name,
-		Temporary: temp[r.id],
+		Temporary: r.temp,
 		Default:   r.def,
 		Selected:  s.curID.Load() == r.id,
 		CreatedAt: time.UnixMilli(r.created),

@@ -734,3 +734,27 @@ func TestDuplicateEmitsOneCreated(t *testing.T) {
 		t.Fatalf("event = %+v", c)
 	}
 }
+
+func TestIDsAreNeverReused(t *testing.T) {
+	t.Parallel()
+
+	s := newEnv(t).open(t)
+
+	last, err := s.Create(t.Context(), "Last", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Delete(t.Context(), last.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	next, err := s.Create(t.Context(), "Next", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if next.ID <= last.ID {
+		t.Errorf("new ID %d reuses or precedes deleted ID %d", next.ID, last.ID)
+	}
+}

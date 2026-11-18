@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -65,6 +65,12 @@ The schema part (`project.graphqls`) is added by the lead in T-007's follow-up c
 - Out of lane, NOT done: `internal/app/app.go` must build `project.Service` (after `store.OpenInstance`), pass it as `resolvers.Deps.Projects`, and `Close()` it on shutdown, else the API still answers NOT_IMPLEMENTED. Also edited `resolvers/resolver.go` (one `Deps` field) — outside `paths`, flagging for the reviewer.
 - SQLite reuses IDs of deleted rows (no AUTOINCREMENT), so a deleted project's ID may later name a new project.
 - The subscription is tested at resolver level, not over a real WebSocket.
+
+### Round 5 — implementer (lead decisions applied)
+- Migration `0002_projects.sql`: `projects` rebuilt with AUTOINCREMENT + `is_temporary`; `project.temporary` settings handling removed (`loadTemp`/`saveTemp` gone; purge uses `WHERE is_temporary = 1`; Rename clears the flag). Test `TestIDsAreNeverReused`.
+- `internal/app/app.go`: `New` opens instance.db + `project.Service`, passes it as `Deps.Projects`; `Close` closes project, instance db, data dir (errors joined). Tests `TestProjectsAreWired`, `TestCloseRemovesTemporaryProject`.
+- **Out-of-paths, flagged**: `New` now takes `ctx` (`New(ctx, opts)`) because contextcheck rejects opening DBs without one; one-line call-site change in `cmd/ratatoskr/main.go` (approved by operator). New uses `context.WithoutCancel(ctx)` so an already-cancelled ctx still shuts down cleanly (main tests rely on it). `project.Service` keeps Open's ctx (WithoutCancel) for `Close`.
+- Handoff limitation "IDs reused" and "app.go not wired" are now resolved. `make check` green.
 
 ## Review (reviewer)
 
