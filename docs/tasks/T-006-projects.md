@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -116,3 +116,20 @@ Fixed 5 code findings; major (paths/app wiring), spec note (§5.1) and schema do
 ### Round 3 — implementer
 - Fixed in code: Duplicate event test (`TestDuplicateEmitsOneCreated`: one `Created`, `DBSize > 0`); Duplicate now still emits `Created` if the re-read fails (logs a warning); `hub.subscribe` registers `AfterFunc` in a single critical section. `make check` green.
 - Still lead decisions (not implementer-fixable): major `resolver.go` out of `paths` + `app.go` wiring; §5.1 `project.temporary` note; schema doc nit for subscription ending.
+
+### Round 3 — reviewer (claude-code, opus 5.5), 2026-11-18
+**Scope check**: Fix commit `e2428db` touches only `internal/project/{events,project,project_test}.go` and this task file, so it is in lane. The branch still contains the out-of-`paths` edit to `resolvers/resolver.go` (+2 lines, `Deps.Projects`). The front-matter `paths` haven't changed on this branch or on `main`, and `internal/app/app.go` still doesn't build or wire the service.
+**`make check`**: green (exit 0; vet, golangci-lint, `go test -race`, svelte-check, eslint, prettier, vitest 50/50). I also ran `go test -race -count=5 ./internal/project ./internal/api/graphql/resolvers` with no cache, and it passed, so the new event test isn't flaky. `make test-int` not needed.
+
+**Round-2 fixes verified**
+- Duplicate event test: `TestDuplicateEmitsOneCreated` (`project_test.go:704-736`) selects the source so its DB exists, subscribes, duplicates, and asserts exactly one buffered event: `Created` for `cp.ID` with `DBSize > 0`. `emit` is a synchronous non-blocking send, so `len(ch) == 1` is deterministic. Done.
+- Re-read failure: `Created` is now emitted with the `createQuiet` result and a warning is logged (`project.go:346-353`). Done.
+- `hub.subscribe` now registers `AfterFunc` inside a single critical section (`events.go:59-62`). This is safe: if ctx is already done, the callback runs in its own goroutine and `remove` waits on `h.mu`, and `remove` is idempotent with respect to `emit` and `closeAll`. Done.
+
+**Findings**
+- [ ] [major] internal/api/graphql/resolvers/resolver.go:28 — still open since round 1. The file is outside `paths` (hard rule 1), and F-WSP-1 can't be used end to end until `internal/app/app.go` builds `project.Service`, passes it in `Deps.Projects` and calls `Close()` on shutdown. The implementer can't fix this. → Lead: amend `paths` to include `internal/api/graphql/resolvers/resolver.go`, and either add `internal/app/app.go` to `paths` (the implementer then does the wiring here) or open a follow-up task for the wiring. After that, this task can be approved with no further code changes.
+- Still open for the lead and not blocking on their own: the §5.1 `settings["project.temporary"]` decision (minor) and the schema doc on `projectChanged` saying the server may end the subscription (nit).
+
+No new code findings this round.
+
+**Verdict: changes_requested.** All code findings from rounds 1 and 2 are fixed and verified. The only thing still blocking is the lead's `paths`/wiring decision (major). The verdict will become approve once the lead changes `paths` and the wiring is either done here or tracked in a follow-up task.
