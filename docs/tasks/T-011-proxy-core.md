@@ -3,7 +3,7 @@ id: T-011
 title: Proxy core - listener multiplexing, CONNECT, MITM, forwarding, capture
 milestone: M1
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-005, T-008, T-010]
 owner: "claude (sonnet 5.5)"
 branch: task/T-011-proxy-core
@@ -220,3 +220,34 @@ and has a rollback test. I confirmed three new problems with temporary tests (no
 - Upstream writes get a `HeaderTimeout` write deadline before `out.WriteTo(up)`.
 - Handoff wording fixed ("deferred to T-031").
 - Nit 2 (lead's uncommitted spec edits in docs/01, 03, 08): left untouched in the worktree; lead must commit them.
+
+### Re-review (round 4)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: changes_requested**
+
+Scope: all changed files are inside `paths`. `make check` green (exit 0). `make test-int` green (exit 0). The round-3 findings
+are fixed and tested: the client deadline is cleared on upgrade and UI hand-off, `isUIHost` now matches the listener IP, the pool
+probes outside the lock, and the handoff wording is fixed. Two new problems were found. I confirmed the first with temporary tests
+(now deleted). The second follows directly from reading the code.
+
+- [ ] [major] internal/proxy/forward.go:123 — The new upstream write deadline is one fixed time limit, `now+HeaderTimeout`
+  (60 s). It is never cleared, and `netx.Conn` writes do not go through `IdleConn`. This causes two breakages:
+  (a) `upgrade` calls only `up.SetIdle(0)`, which clears the **read** deadline. So in every WebSocket, client→server writes fail
+  60 s after the handshake. With MITM it is the same, and a write timeout on a `tls.Conn` cannot be undone. (b) Request bodies are
+  streamed to the upstream (`Builder` streams the original body). Any upload that takes longer than 60 s therefore ends in a 502
+  `i/o timeout`, even while bytes keep moving. Temp tests with `HeaderTimeout=300ms`: an upgrade followed by a client message at
+  600 ms got EOF instead of the echo. A 10-byte POST body sent 1 byte every 80 ms got `502 … write tcp …: i/o timeout`.
+  → Use an idle deadline for each write, not one total deadline: `out.WriteTo(&netx.IdleConn{Conn: up, Idle: c.s.deps.IdleTimeout})`.
+  After that, call `_ = up.SetWriteDeadline(time.Time{})`, which also clears it for the 101 tunnel and for pooled reuse. Add two
+  regression tests with a short `HeaderTimeout`: client→server data after the upgrade, and a slow upload whose total time is longer
+  than `HeaderTimeout` but whose gaps between writes are shorter than `IdleTimeout`.
+- [ ] [major] internal/proxy/server.go:126-130, 394-405 — With `--listen 0.0.0.0:8080` (or `[::]`), `info.ip` is the
+  unspecified address. A remote browser that opens `http://192.168.1.5:8080/` sends `Host: 192.168.1.5:8080`. That IP is not
+  loopback and is not equal to `0.0.0.0`, so the request gets `421`. The UI cannot be reached from other machines, but F-WSP-4
+  ("remote use", `--auth-token`) depends on exactly that. Also, an absolute-form `http://<own-LAN-IP>:8080/` is no longer caught
+  by the loop guard; it costs one extra hop, then the 421 stops it.
+  → Compare with the address the client actually connected to, not the listen address: in `isUIHost`, use
+  `netip.ParseAddrPort(c.conn.LocalAddr().String())` and match `ip.Unmap() == local.Addr().Unmap()`. Keep the loopback and
+  `localhost` checks. This removes `listenerInfo.ip`. Add a test: listener on `0.0.0.0:0`, connect via a non-loopback local IP
+  if one exists (else `t.Skip`), and expect the UI. Alternatively, unit-test `isUIHost` with a fake `LocalAddr`.
+- [ ] [nit] (carried over) The lead's spec edits in docs/01, docs/03 and docs/08 are still uncommitted in the worktree. The 421
+  behaviour and the loop guard depend on them. The lead must commit them before merge.
