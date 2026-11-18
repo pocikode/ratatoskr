@@ -1,0 +1,607 @@
+"""
+Raw bytes, serialized as standard base64 with padding (RFC 4648 §4). Used for
+message bytes so that nothing is lost to text decoding.
+"""
+scalar Bytes
+
+"""One autocomplete suggestion."""
+type Completion {
+  """
+  Short secondary text, e.g. the field type or a value's occurrence count; empty when none.
+  """
+  detail: String!
+
+  """Text that replaces `QueryCompletions.from`..`to`."""
+  insertText: String!
+
+  """
+  Whether this is a Ratatoskr extension beyond the HTTPQL-compatible language (docs/04 §2).
+  """
+  isExtension: Boolean!
+  kind: CompletionKind!
+
+  """Text shown in the list."""
+  label: String!
+}
+
+"""What a completion inserts."""
+enum CompletionKind {
+  """A field such as `host` or `header`."""
+  FIELD
+
+  """`req`, `resp`, `row`, `ws`, `stream`."""
+  NAMESPACE
+
+  """An operator such as `eq` or `cont`."""
+  OPERATOR
+
+  """A filter preset name or alias, after `preset:`."""
+  PRESET
+
+  """
+  A value: distinct values from the project, booleans, sources, and so on.
+  """
+  VALUE
+}
+
+"""
+Values of `extensions.code` on GraphQL errors. Errors produced by the server's
+GraphQL layer itself use `GRAPHQL_PARSE_FAILED` or `GRAPHQL_VALIDATION_FAILED`
+instead. `BAD_QUERY` errors also carry `extensions.span = {start, end}`: byte
+offsets (end exclusive) into the HTTPQL/StreamQL text that failed.
+"""
+enum ErrorCode {
+  """An argument failed validation, e.g. an empty name."""
+  BAD_INPUT
+
+  """
+  An HTTPQL/StreamQL query failed to parse or type-check; see `extensions.span`.
+  """
+  BAD_QUERY
+
+  """The operation conflicts with the current state."""
+  CONFLICT
+
+  """
+  Unexpected server failure. The message is generic; details are in the server log.
+  """
+  INTERNAL
+
+  """The referenced object does not exist (any more)."""
+  NOT_FOUND
+
+  """The field is part of the contract but its feature has not landed yet."""
+  NOT_IMPLEMENTED
+
+  """Authentication is required and no valid token was presented."""
+  UNAUTHENTICATED
+}
+
+"""
+A captured or sent HTTP request with its response, if any. Edited records
+(F-HIST-4): when Intercept or Match & Replace changes a request or its response,
+the changed exchange is stored as a new record whose `editedFrom` is the
+original record; both appear in history.
+"""
+type HttpRequest implements Node {
+  """
+  A slice of the body, so large bodies can be fetched in chunks. `offset` must
+  be ≥ 0 and `limit` between 1 and 4194304 (4 MiB), otherwise `BAD_INPUT`;
+  past the end the result is shorter or empty. With `decode: true`, the
+  `Content-Encoding` (gzip, deflate, br, zstd) and chunked transfer coding are
+  removed first and `offset`/`limit` apply to the decoded bytes (display only,
+  F-HIST-2); undecodable bodies are returned as stored.
+  """
+  body(decode: Boolean! = false, limit: Int! = 1048576, offset: Int64! = 0): Bytes!
+
+  """Number of stored body bytes, before any decoding."""
+  bodyLength: Int64!
+
+  """Row colour; null for none."""
+  color: RequestColor
+
+  """When the request was sent or captured."""
+  createdAt: Time!
+
+  """
+  The original record this one was edited from; null for unedited records.
+  Lets the viewer toggle Original / Modified.
+  """
+  editedFrom: HttpRequest
+
+  """
+  Extension of the last path segment including the dot (`.js`); empty when there is none.
+  """
+  ext: String!
+
+  """
+  Request line and headers exactly as sent, including the CRLF line endings
+  and the empty line that ends the headers.
+  """
+  head: Bytes!
+
+  """From the Host header, or the target when there is none. Without port."""
+  host: String!
+
+  """
+  Row ID; also the HTTPQL `row.id`. Numeric, increasing in capture order.
+  """
+  id: ID!
+
+  """Whether Intercept dropped the request; such a record has no response."""
+  isDropped: Boolean!
+
+  """
+  Whether the stored bytes were cut at the capture size limit. `length` is the
+  real size; `head`, `bodyLength` and `body` describe what was stored.
+  """
+  isTruncated: Boolean!
+
+  """
+  Size in bytes of the whole request as sent: request line, headers and body.
+  """
+  length: Int64!
+  method: String!
+
+  """Free-text note; null when there is none."""
+  note: String
+
+  """Path without the query string, as sent (not percent-decoded)."""
+  path: String!
+  port: Int!
+
+  """Query string without the leading `?`; empty when there is none."""
+  query: String!
+
+  """
+  The response; null while waiting, or when the request failed or was dropped.
+  """
+  response: HttpResponse
+  source: RequestSource!
+
+  """Whether the connection to the target used TLS."""
+  tls: Boolean!
+}
+
+"""A page of requests."""
+type HttpRequestConnection {
+  edges: [HttpRequestEdge!]!
+  pageInfo: PageInfo!
+
+  """
+  Number of requests matching `query` and `scopeId`, ignoring pagination.
+  """
+  totalCount: Int!
+}
+
+"""One request in a `requests` connection."""
+type HttpRequestEdge {
+  """
+  Opaque cursor of this position in the sort order; valid for the same arguments only.
+  """
+  cursor: String!
+  node: HttpRequest!
+}
+
+"""The response to an `HttpRequest`."""
+type HttpResponse {
+  """A slice of the body; same rules as `HttpRequest.body`."""
+  body(decode: Boolean! = false, limit: Int! = 1048576, offset: Int64! = 0): Bytes!
+
+  """Number of stored body bytes, before any decoding."""
+  bodyLength: Int64!
+
+  """Status code."""
+  code: Int!
+
+  """When the response was received."""
+  createdAt: Time!
+
+  """
+  Status line and headers exactly as received, including the CRLF line
+  endings and the empty line that ends the headers.
+  """
+  head: Bytes!
+
+  """
+  Size in bytes of the whole response as received: status line, headers and body.
+  """
+  length: Int64!
+
+  """
+  Milliseconds from sending the first request byte to receiving the last response byte.
+  """
+  roundtripMs: Int!
+}
+
+"""
+A signed 64-bit integer serialized as a JSON string of its decimal form
+(`"9007199254740993"`), because JSON numbers lose precision above 2^53 in
+JavaScript. Inputs accept the string form or a JSON integer.
+"""
+scalar Int64
+
+"""Mutations. Other schema files extend this type."""
+type Mutation {
+  """
+  Creates a project. `name` is trimmed and must not be empty (`BAD_INPUT`).
+  When `select` is true the new project also becomes the selected one.
+  """
+  createProject(name: String!, select: Boolean! = false): Project!
+
+  """
+  Deletes a project and its directory, returning its ID. Deleting the selected
+  project first selects the default project, or a new temporary project when the
+  deleted one was the default or no default exists. `NOT_FOUND` for an unknown ID.
+  """
+  deleteProject(id: ID!): ID!
+
+  """
+  Deletes requests with their responses, either the given `ids` (unknown IDs
+  are ignored) or everything matching the HTTPQL `query` within `scopeId`.
+  Exactly one of `ids` and `query` must be given (`BAD_INPUT`); `query: ""`
+  deletes all requests. Records edited from a deleted request keep existing
+  with `editedFrom: null`. Returns the number deleted and emits
+  `requestsDeleted`.
+  """
+  deleteRequests(ids: [ID!], query: String, scopeId: ID): Int64!
+
+  """
+  Copies a project's data into a new, unselected project. `name` defaults to the
+  source name with a " (copy)" suffix. `NOT_FOUND` for an unknown ID.
+  """
+  duplicateProject(id: ID!, name: String): Project!
+
+  """
+  Renames a project and, if it was temporary, saves it. `name` is trimmed and
+  must not be empty (`BAD_INPUT`). `NOT_FOUND` for an unknown ID.
+  """
+  renameProject(id: ID!, name: String!): Project!
+
+  """
+  Selects a project: the old project's database is closed, the new one opened,
+  and a SELECTED `projectChanged` event is emitted. Selecting the already
+  selected project is a no-op. `NOT_FOUND` for an unknown ID.
+  """
+  selectProject(id: ID!): Project!
+
+  """
+  Makes this project the default (opened at start), clearing the flag on any
+  other project. Passing `id: null` clears the default. Temporary projects cannot
+  be the default (`BAD_INPUT`). `NOT_FOUND` for an unknown ID.
+  """
+  setDefaultProject(id: ID): Project
+
+  """
+  Sets (or with `color: null` clears) the row colour of each request. Unknown
+  IDs are `NOT_FOUND` and nothing changes. Returns the updated requests in
+  `ids` order and emits `requestUpdated` for each.
+  """
+  setRequestColor(color: RequestColor, ids: [ID!]!): [HttpRequest!]!
+
+  """
+  Sets the note of a request. The note is trimmed; null or empty clears it.
+  `NOT_FOUND` for an unknown ID. Emits `requestUpdated`.
+  """
+  setRequestNote(id: ID!, note: String): HttpRequest!
+}
+
+"""
+An object with a stable identifier. IDs are opaque strings, unique per type;
+clients must not parse them.
+"""
+interface Node {
+  """Opaque identifier, stable for the object's lifetime."""
+  id: ID!
+}
+
+"""Relay-style page metadata."""
+type PageInfo {
+  """Cursor of the last edge; null for an empty page."""
+  endCursor: String
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+
+  """Cursor of the first edge; null for an empty page."""
+  startCursor: String
+}
+
+"""One tick of the `ping` subscription."""
+type Ping {
+  """Server time of the tick."""
+  at: Time!
+
+  """Tick number, starting at 1 for each subscription."""
+  seq: Int64!
+}
+
+"""
+A project: one isolated database of captured traffic, sessions and settings.
+Exactly one project is selected at any time; when none exists, a temporary one
+is created.
+"""
+type Project implements Node {
+  """When the project was created."""
+  createdAt: Time!
+
+  """Size of the project's database file in bytes."""
+  dbSizeBytes: Int64!
+  id: ID!
+
+  """
+  Whether this project is opened at start. At most one project is the default.
+  """
+  isDefault: Boolean!
+
+  """Whether this is the currently selected project."""
+  isSelected: Boolean!
+
+  """
+  Temporary projects are created when no project exists and are deleted on clean
+  shutdown. Renaming a temporary project saves it (it stops being temporary).
+  """
+  isTemporary: Boolean!
+
+  """When the project was last selected; null if never."""
+  lastOpenedAt: Time
+
+  """Display name. Not required to be unique."""
+  name: String!
+}
+
+"""One change to the set of projects."""
+type ProjectChange {
+  """What happened."""
+  kind: ProjectChangeKind!
+
+  """The project after the change; null for DELETED."""
+  project: Project
+
+  """ID of the affected project."""
+  projectId: ID!
+}
+
+"""What happened to a project in a `projectChanged` event."""
+enum ProjectChangeKind {
+  """
+  A project was created (including by duplication or as a temporary project).
+  """
+  CREATED
+
+  """A project was deleted. `project` is null."""
+  DELETED
+
+  """
+  A different project was selected. Clients must drop all project-scoped state
+  and re-run their queries and subscriptions.
+  """
+  SELECTED
+
+  """A project's fields changed: name, temporary or default flag."""
+  UPDATED
+}
+
+type Query {
+  """The selected project. There is always one."""
+  currentProject: Project!
+
+  """One project, or null if no project has this ID."""
+  project(id: ID!): Project
+
+  """
+  All projects, most recently opened first. The list is small, so it is not paginated.
+  """
+  projects: [Project!]!
+
+  """
+  Autocomplete for the query bar (docs/04-query-language.md §7). `cursor` is a
+  byte offset into `text` (0..len, else `BAD_INPUT`). Never fails on an
+  unparsable `text`: it completes what can be inferred.
+  """
+  queryCompletions(cursor: Int!, language: QueryLanguage!, text: String!): QueryCompletions!
+
+  """One request, or null if no request has this ID."""
+  request(id: ID!): HttpRequest
+
+  """
+  Requests of the selected project matching an HTTPQL `query` (empty or null
+  matches everything; parse errors are `BAD_QUERY` with a span) and, when
+  `scopeId` is set, the scope preset (`NOT_FOUND` for an unknown ID). Paginate
+  forward with `first`/`after` or backward with `last`/`before`; `first` and
+  `last` are 1..1000 and only one of them may be given (`BAD_INPUT`). With
+  neither, `first: 100` is used. Default sort: ID ascending.
+  """
+  requests(after: String, before: String, first: Int, last: Int, query: String, scopeId: ID, sort: RequestSort): HttpRequestConnection!
+
+  """
+  Facts about the running instance; also used by the UI as a liveness probe.
+  """
+  serverInfo: ServerInfo!
+}
+
+"""Suggestions for the token at the cursor."""
+type QueryCompletions {
+  """Byte offset where the replaced token starts."""
+  from: Int!
+
+  """Suggestions, best first; at most 100."""
+  items: [Completion!]!
+
+  """
+  Byte offset where the replaced token ends (exclusive); at least the cursor.
+  """
+  to: Int!
+}
+
+"""Which query language a `queryCompletions` request is about."""
+enum QueryLanguage {
+  """HTTP history filters (docs/04-query-language.md §1–3)."""
+  HTTPQL
+
+  """WebSocket message filters (docs/04-query-language.md §6)."""
+  STREAMQL
+}
+
+"""
+Row colour of a request (F-HIST-1). `null` wherever a colour is optional means
+no colour. The UI picks the actual shades.
+"""
+enum RequestColor {
+  BLUE
+  CYAN
+  GREEN
+  ORANGE
+  PINK
+  PURPLE
+  RED
+  YELLOW
+}
+
+"""
+Order of a `requests` connection. Ties are always broken by ID in the same
+direction, so the order is total and cursors stay stable.
+"""
+input RequestSort {
+  direction: SortDirection! = ASC
+  field: RequestSortField!
+}
+
+"""Columns the history table can sort by (F-HIST-1)."""
+enum RequestSortField {
+  """Colour in `RequestColor` declaration order; no colour sorts as lowest."""
+  COLOR
+  CREATED_AT
+
+  """Edited records (`editedFrom` set) sort after unedited ones."""
+  EDITED
+  EXT
+  HOST
+  ID
+  METHOD
+
+  """Note text; no note sorts as lowest."""
+  NOTE
+  PATH
+  PORT
+  QUERY
+
+  """Response length in bytes; requests without a response sort as lowest."""
+  RESPONSE_LENGTH
+
+  """Roundtrip in ms; requests without a response sort as lowest."""
+  ROUNDTRIP
+  SOURCE
+
+  """Response status code; requests without a response sort as lowest."""
+  STATUS
+  TLS
+}
+
+"""
+What produced a request record. Same values as the HTTPQL `source:` clause.
+"""
+enum RequestSource {
+  """Sent by an Automate attack."""
+  AUTOMATE
+
+  """Captured by the proxy and edited in Intercept before forwarding."""
+  INTERCEPT
+
+  """Sent by a plugin."""
+  PLUGIN
+
+  """Captured by the proxy."""
+  PROXY
+
+  """Sent from a Replay session."""
+  REPLAY
+
+  """Sent by a workflow."""
+  WORKFLOW
+}
+
+"""A change to one request, from `requestUpdated`."""
+type RequestUpdate {
+  """
+  Whether the record matches the subscription's `query` and `scopeId` after
+  the change. Clients drop rows that stop matching and insert rows that start
+  matching.
+  """
+  matches: Boolean!
+
+  """The record after the change."""
+  request: HttpRequest!
+}
+
+"""Requests removed by `deleteRequests` (any client)."""
+type RequestsDeleted {
+  """
+  IDs of deleted requests; one deletion is reported in batches of at most 1000 IDs.
+  """
+  ids: [ID!]!
+}
+
+"""Build and runtime facts about the running instance."""
+type ServerInfo {
+  """Whether the UI/API requires a token (`--auth-token`)."""
+  authRequired: Boolean!
+
+  """
+  VCS revision the binary was built from (12 hex chars, `-dirty` suffix when modified), or `unknown`.
+  """
+  commit: String!
+
+  """Go toolchain the binary was built with, e.g. `go1.27.4`."""
+  goVersion: String!
+
+  """When this instance started."""
+  startedAt: Time!
+
+  """Release version, or `dev` for local builds."""
+  version: String!
+}
+
+"""Sort direction."""
+enum SortDirection {
+  ASC
+  DESC
+}
+
+type Subscription {
+  """
+  Emits one `Ping` per second until the client unsubscribes. The UI uses it to
+  show whether the live connection is up.
+  """
+  ping: Ping!
+
+  """
+  Every create, update, delete and selection of a project, in the order they happen.
+  The server ends this subscription if the client falls too far behind; clients
+  must then resubscribe and refetch `projects`.
+  """
+  projectChanged: ProjectChange!
+
+  """
+  Each new request of the selected project that matches `query` and `scopeId`
+  (same rules as `requests`), as it is stored. The response may arrive later
+  through `requestUpdated`. The server ends the subscription if the client
+  falls too far behind; clients then resubscribe and refetch.
+  """
+  requestAdded(query: String, scopeId: ID): HttpRequest!
+
+  """
+  Each change to an existing request: response stored, colour or note set.
+  Reports every change, with `matches` telling whether the record matches
+  `query` and `scopeId` afterwards. Same lag rule as `requestAdded`.
+  """
+  requestUpdated(query: String, scopeId: ID): RequestUpdate!
+
+  """Requests deleted by any client. Same lag rule as `requestAdded`."""
+  requestsDeleted: RequestsDeleted!
+}
+
+"""
+An instant in time, serialized as an RFC 3339 string with nanoseconds in UTC,
+e.g. `2026-11-18T09:30:00.123456789Z`. Inputs accept any RFC 3339 offset.
+"""
+scalar Time

@@ -11,10 +11,10 @@ import (
 )
 
 // HttpRequest returns the HttpRequest field resolver.
-func (r *Resolver) HttpRequest() generated.HttpRequestResolver { return &httpRequestResolver{r} }
+func (r *Resolver) HttpRequest() generated.HttpRequestResolver { return &httpRequestResolver{r} } //nolint:revive // T-013: name fixed by gqlgen ResolverRoot (GraphQL type HttpRequest).
 
 // HttpResponse returns the HttpResponse field resolver.
-func (r *Resolver) HttpResponse() generated.HttpResponseResolver { return &httpResponseResolver{r} }
+func (r *Resolver) HttpResponse() generated.HttpResponseResolver { return &httpResponseResolver{r} } //nolint:revive // T-013: name fixed by gqlgen ResolverRoot (GraphQL type HttpResponse).
 
 type (
 	httpRequestResolver  struct{ *Resolver }

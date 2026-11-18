@@ -15,7 +15,7 @@
 | Virtualized tables | `@tanstack/svelte-virtual` (or in-house `VirtualList` if it lags Svelte 5 — decide in T-012) |
 | Node graph (workflows) | `@xyflow/svelte` |
 | Icons | `@lucide/svelte` |
-| GraphQL client | `@urql/core` (+ `graphql` peer) + `graphql-ws` + `wonka` (urql's stream library, direct dep for subscription operators like `onEnd`); types via `@graphql-codegen/cli` client preset (`bun run codegen`). Not `@urql/svelte`: its API is built on `svelte/store`, which §3 rules out; state classes call the shared client from `$lib/api` directly (T-007). |
+| GraphQL client | `@urql/core` (+ `graphql` peer) + `graphql-ws` + `wonka` (urql's stream library, direct dep for subscription operators like `onEnd`); types via `@graphql-codegen/cli` client preset (`bun run codegen`). `@graphql-codegen/schema-ast` also writes the merged SDL to `generated/schema.graphql` for the mock exchange in `lib/api/mocks` (T-013), which runs it with `graphql`'s executor; no MSW. Not `@urql/svelte`: its API is built on `svelte/store`, which §3 rules out; state classes call the shared client from `$lib/api` directly (T-007). |
 | Markdown | `marked` + `DOMPurify` (findings, assistant) |
 | Tests | `vitest` + `@testing-library/svelte` (unit/component), `@playwright/test` (E2E against a real `ratatoskr` binary) |
 | Lint/format | `eslint` + `eslint-plugin-svelte` + `typescript-eslint`, `prettier` + `prettier-plugin-svelte` + `prettier-plugin-tailwindcss` |
