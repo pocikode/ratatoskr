@@ -11,6 +11,7 @@ paths:
   - internal/api/rest/auth*.go
   - internal/api/rest/router.go
   - internal/api/middleware/auth*.go
+  - docs/03-architecture.md   # §8 only; added by lead (AC 2 requires it)
 spec:
   - docs/01-feature-spec.md#F-WSP-4
   - docs/03-architecture.md §8
@@ -87,6 +88,15 @@ that T-007's auth middleware already accepts, and `POST /api/rest/auth/logout` c
 - Major: `loginLimiter.attempt(ip)` reserves under one lock, after the body is parsed; `blocked`/`failed` removed.
   Concurrent test added. Minor 1: test pins the 500; docs/03 §8 lists cookie-safe bytes; config `Validate` follow-up
   proposed (outside paths). Minor 2: auth off returns 401 before limiter/log. Nit docs: lead's call. IPv6 /64 nit skipped.
+
+## Lead decisions (2026-11-18)
+- Docs nit: accepted. `docs/03-architecture.md` is now in `paths`. TEMPLATE now says that a doc an AC requires goes in `paths`.
+- IPv6 /64 nit: **won't fix**. The spec says "per remote IP". The default listener is loopback, and the token's
+  entropy is the real defence. A determined attacker gets around any per-address limit anyway, through the capped map
+  or through many IPv4 addresses. Keep the key at /128. Reviewer: tick it as resolved.
+- Cookie-unsafe token minor: follow-up **T-029** (config `Validate` rejects such tokens). The 500 that is pinned here stays
+  until T-029 lands.
+- Login page: T-025 is reserved for it. I will write that task file when M0 finishes.
 
 ## Review (reviewer)
 Reviewed `ad1cfc2` against `main`. Files: `internal/api/middleware/auth*.go` (in `paths`), `docs/03-architecture.md`

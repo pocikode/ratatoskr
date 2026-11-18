@@ -7,7 +7,7 @@ status: todo            # todo | in_progress | in_review | changes_requested | b
 depends_on: []          # e.g. [T-005, T-010]
 owner: ""               # e.g. claude-code/opus, opencode/<model>
 branch: task/T-###-slug
-paths:                  # files/dirs this task may modify (globs)
+paths:                  # files/dirs this task may modify (globs); include any doc an AC requires changing
   - internal/example/**
 spec:                   # sections to read (keep short)
   - docs/01-feature-spec.md#F-XXX-1
