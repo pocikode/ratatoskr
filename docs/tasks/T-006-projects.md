@@ -203,3 +203,18 @@ Set `status: changes_requested` (or `in_review`) once the lead amends `paths`.
 ### Round 8 — implementer
 - [major] main.go: resolved by lead (`paths` amended, Lead decision 4). No code change.
 - [nit] Task file: Plan line is struck through as superseded; "Out-of-scope change needed" marks `app.go` resolved and lists `cmd/ratatoskr/main.go`. `make check` green.
+
+### Round 9 — reviewer (claude-code, opus 5.5), 2026-11-18
+**Scope check**: Since round 7, the branch has only two docs commits: `9dd8dec`, the lead's `paths` amendment plus Lead decision 4 and the notes in T-011/T-027, and `acf213f`, the implementer's task-file reply. There is no code change. Every file in `git diff --stat main...HEAD` is now covered by the front-matter `paths`, except for files the lead owns or authorised: `docs/03-architecture.md` §5.1, `project.graphqls`, the generated `exec.go` from `make gen`, and the T-011/T-027 notes. `cmd/ratatoskr/main.go` is in `paths` now, with a dated lead note. The branch is based on the current `main` (`658f18e`), so no rebase is needed.
+**`make check`**: green (exit 0; vet, golangci-lint, `go test -race`, svelte-check, eslint, prettier, vitest 50/50). **`make test-int`**: green (exit 0).
+
+**Round-7 findings verified**
+- [major] `cmd/ratatoskr/main.go:82` is resolved. The lead added it to `paths` and recorded Lead decision 4, which names the signature `app.New(ctx, opts)` with `context.WithoutCancel`. T-011 and T-027 both carry a note about the new signature. Every round-1 to round-5 item the lead had to decide is also settled: `resolver.go`/`app.go` paths (decision 1), the `is_temporary` migration (decision 2), and the doc saying the subscription can end (decision 3).
+- [nit] The task file is fixed. Plan line 46 is struck through as superseded, and "Out-of-scope change needed" marks `app.go` resolved and lists `main.go` as resolved in round 7.
+
+**Findings**
+- [ ] [nit] docs/tasks/T-006-projects.md:93,102,103,127,128,129,130,150,176,177,178,179 — several older finding checkboxes are still `[ ]` even though their items are resolved (by lead decisions 1–4 or by the round 3 and round 6 fixes). Someone scanning the file could read them as open. → Optional: tick them when merging. This doesn't block approval.
+- Process note: this task went past the 3-round review limit (docs/07 §review). The rounds past 3 were waiting on lead decisions, not on code quality, and the lead was involved throughout, so no escalation is needed now.
+- Follow-up kept from the Handoff: a store-owned test that upgrades a v1 instance.db with existing rows through migration 0002.
+
+**Verdict: approve.** All AC are covered by tests, both make targets are green, and the code was already verified correct in rounds 5 and 7. With the lead's amendment, every changed file is now inside `paths`. No blocker or major findings remain. `status` stays `in_review` for the operator to merge and set `done`.
