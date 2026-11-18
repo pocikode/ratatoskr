@@ -4,7 +4,7 @@ title: Scope and filter preset resolvers, app wiring, scope reorder
 milestone: M1
 role: backend
 status: todo
-depends_on: [T-091]
+depends_on: [T-091, T-090]  # serialized: both own internal/app
 owner: ""
 branch: task/T-092-scope-filter-resolvers
 paths:
@@ -13,7 +13,7 @@ paths:
   - internal/api/graphql/resolvers/stubs_scope.go
   - internal/api/graphql/resolvers/stubs_filter.go
   - internal/api/graphql/resolvers/resolver.go
-  - internal/scope/**
+  - internal/scope/service*.go
   - internal/store/migrations/project/0002_scope_sort_order.sql
   - internal/app/app.go
   - internal/app/app_test.go

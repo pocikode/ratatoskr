@@ -45,7 +45,7 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | T-022 | Command registry, shortcuts manager (rebindable, persisted), context menu builder | F | T-003 |
 | T-090 | History `scopeId` + `preset:` expansion: scope preset → HTTPQL AST, wire into `history.Service` (follow-up of T-016) | B | T-016, T-018 |
 | T-091 | Contract: scope presets + filter presets (schema, stubs, mocks) (follow-up of T-018) | L | T-018 |
-| T-092 | Scope/filter preset resolvers, app wiring, scope reorder migration | B | T-091 |
+| T-092 | Scope/filter preset resolvers, app wiring, scope reorder migration | B | T-091, T-090 |
 
 ## M2 — Intercept, Replay, Match & Replace, Environment
 
