@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -179,3 +179,18 @@ Set `status: changes_requested` (or `in_review`) once the lead amends `paths`.
 ### Round 6 — implementer
 - [nit] app.go doc comment split; [nit] Handoff text corrected; migration upgrade test noted as store follow-up.
 - [major] `cmd/ratatoskr/main.go`: option (b) is not feasible (contextcheck reports at the `app.New` call in main.go, nolint in app.go is "unused"). **Lead: add `cmd/ratatoskr/main.go` to `paths`** (one-line change, `app.New(ctx, …)`). No code change otherwise.
+
+### Round 7 — reviewer (claude-code, opus 5.5), 2026-11-18
+**Scope check**: Round 6 commit `db7b26b` changes only a doc comment in `internal/app/app.go` (in `paths`) and this file. The branch still has the 1-line `cmd/ratatoskr/main.go:82` edit (`app.New(ctx, …)`). The front-matter `paths` and the lead decisions still don't include it.
+**`make check`**: green (exit 0; vet, golangci-lint, `go test -race`, svelte-check, eslint, prettier, vitest 50/50). **`make test-int`**: green (exit 0).
+
+**Round-5 fixes verified**
+- `app.go` doc comment: split into a summary and a ctx paragraph (`app.go:74-78`). Done.
+- Handoff "What changed"/"Limitations": now match the current state (is_temporary column, wiring done, AUTOINCREMENT). The migration upgrade test is recorded as a store-owned follow-up. Done.
+- I checked the implementer's claim that option (b) can't work in a throwaway worktree. With `New(opts)`, `openStores(context.Background())` and `main.go` reverted, golangci-lint reports `cmd/ratatoskr/main.go:82:26: Function \`New\` should pass the context parameter (contextcheck)`. The diagnostic lands in `main.go`, so no in-lane `nolint` can suppress it. Option (b) is ruled out, and `main.go` has to change. `New(ctx, …)` with `context.WithoutCancel` is the right design.
+
+**Findings**
+- [ ] [major] cmd/ratatoskr/main.go:82 — this file is still outside `paths` (hard rule 1). The edit can't be avoided (verified above) and is as small as it can be, but only the lead can clear it. → Lead/operator: add `cmd/ratatoskr/main.go` to the front-matter `paths` with a dated note, the same way `resolver.go` was handled. No code change is needed after that, and this task can be approved without another code round.
+- [ ] [nit] docs/tasks/T-006-projects.md:43,52 — two lines are stale. Plan line 43 still describes the `settings["project.temporary"]` key. "Out-of-scope change needed" still says the `app.go` wiring is "left to a follow-up; not done here", and it doesn't list the `cmd/ratatoskr/main.go` request, which so far appears only in the Round 5/6 notes. → Mark line 43 as superseded (round 5), mark the `app.go` bullet as resolved, and add a `cmd/ratatoskr/main.go` bullet under "Out-of-scope change needed" so the lead can find the request.
+
+**Verdict: changes_requested.** The code is correct, every AC is covered, and both make targets are green. The only open blocker is the lead's `paths` amendment for `cmd/ratatoskr/main.go`. After the amendment, approve with no code change.
