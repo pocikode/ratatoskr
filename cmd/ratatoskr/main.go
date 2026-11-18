@@ -79,7 +79,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 
 	logger.Info("ratatoskr starting", "version", version, "commit", commit(), "config", *cfg)
 
-	instance, err := app.New(app.Options{
+	instance, err := app.New(ctx, app.Options{
 		Config: *cfg, Logger: logger, Logs: ring, Version: version, Commit: commit(),
 	})
 	if err != nil {

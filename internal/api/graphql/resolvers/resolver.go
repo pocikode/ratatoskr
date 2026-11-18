@@ -24,6 +24,8 @@ type Deps struct {
 	AuthRequired bool
 	// PingInterval is the period of the ping subscription; zero means one second.
 	PingInterval time.Duration
+	// Projects serves the project operations; nil reports NOT_IMPLEMENTED.
+	Projects ProjectService
 }
 
 // Resolver is the root resolver.

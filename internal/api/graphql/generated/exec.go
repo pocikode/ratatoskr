@@ -646,7 +646,11 @@ type Mutation {
 }
 
 extend type Subscription {
-  "Every create, update, delete and selection of a project, in the order they happen."
+  """
+  Every create, update, delete and selection of a project, in the order they happen.
+  The server ends this subscription if the client falls too far behind; clients
+  must then resubscribe and refetch ` + "`" + `projects` + "`" + `.
+  """
   projectChanged: ProjectChange!
 }
 `, BuiltIn: false},

@@ -26,7 +26,7 @@ func newTestApp(t *testing.T, handler http.Handler) (*App, *bytes.Buffer) {
 
 	var logs bytes.Buffer
 
-	a, err := New(Options{
+	a, err := New(t.Context(), Options{
 		Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dataDir(t)},
 		Logger: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	})
@@ -87,7 +87,7 @@ func TestNewRejectsUnimplementedOptions(t *testing.T) {
 
 			tt.cfg.DataDir = dataDir(t)
 
-			a, err := New(Options{Config: tt.cfg})
+			a, err := New(t.Context(), Options{Config: tt.cfg})
 			if err == nil {
 				_ = a.Close()
 				t.Fatalf("New(%+v) = nil error, want ErrNotImplemented", tt.cfg)
@@ -109,7 +109,7 @@ func TestNewCreatesDataDir(t *testing.T) {
 
 	dir := t.TempDir() + "/nested/data"
 
-	a, err := New(Options{Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dir}})
+	a, err := New(t.Context(), Options{Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dir}})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestNewWarnsOnWideDataDirPermissions(t *testing.T) {
 
 	var logs bytes.Buffer
 
-	a, err := New(Options{
+	a, err := New(t.Context(), Options{
 		Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dir},
 		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
 	})
@@ -221,7 +221,7 @@ func TestHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			a, err := New(Options{Config: config.Config{
+			a, err := New(t.Context(), Options{Config: config.Config{
 				Listen:    []string{"127.0.0.1:0"},
 				DataDir:   dataDir(t),
 				Debug:     tt.debug,
@@ -392,7 +392,7 @@ func TestLogs(t *testing.T) {
 
 	ring := logging.NewRing(logging.Options{Capacity: 4, Level: slog.LevelDebug})
 
-	a, err := New(Options{
+	a, err := New(t.Context(), Options{
 		Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dataDir(t)},
 		Logs:   ring,
 	})
@@ -427,5 +427,47 @@ func TestIsLoopback(t *testing.T) {
 		if got := isLoopback(tt.addr); got != tt.want {
 			t.Errorf("isLoopback(%q) = %v, want %v", tt.addr, got, tt.want)
 		}
+	}
+}
+
+func TestProjectsAreWired(t *testing.T) {
+	t.Parallel()
+
+	a, _ := newTestApp(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/graphql",
+		strings.NewReader(`{"query":"{ projects { id name isTemporary isSelected } }"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Ratatoskr", "1")
+
+	rec := httptest.NewRecorder()
+	a.handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || strings.Contains(body, "NOT_IMPLEMENTED") || !strings.Contains(body, `"isTemporary":true`) {
+		t.Fatalf("status %d, body %s; want the temporary project listed", rec.Code, body)
+	}
+}
+
+func TestCloseRemovesTemporaryProject(t *testing.T) {
+	t.Parallel()
+
+	dir := dataDir(t)
+
+	a, err := New(t.Context(), Options{Config: config.Config{Listen: []string{"127.0.0.1:0"}, DataDir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if entries, _ := os.ReadDir(dir + "/projects"); len(entries) != 1 {
+		t.Fatalf("project dirs after New = %d, want 1", len(entries))
+	}
+
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if entries, _ := os.ReadDir(dir + "/projects"); len(entries) != 0 {
+		t.Errorf("project dirs after Close = %d, want 0", len(entries))
 	}
 }

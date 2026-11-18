@@ -23,6 +23,8 @@ import (
 	"github.com/pocikode/ratatoskr/internal/api/static"
 	"github.com/pocikode/ratatoskr/internal/config"
 	"github.com/pocikode/ratatoskr/internal/logging"
+	"github.com/pocikode/ratatoskr/internal/project"
+	"github.com/pocikode/ratatoskr/internal/store"
 )
 
 const (
@@ -61,6 +63,8 @@ type App struct {
 	log     *slog.Logger
 	logs    *logging.Ring
 	data    *os.Root
+	inst    *store.DB
+	project *project.Service
 	handler http.Handler
 
 	// grace is the shutdown deadline; tests shorten it.
@@ -68,8 +72,11 @@ type App struct {
 }
 
 // New prepares an instance: it rejects options that are not implemented yet,
-// creates the data dir (0700) and builds the UI/API handler.
-func New(opts Options) (*App, error) {
+// creates the data dir (0700), opens instance.db and the project service, and
+// builds the UI/API handler.
+//
+// ctx only carries values: a cancelled ctx does not abort opening the databases.
+func New(ctx context.Context, opts Options) (*App, error) {
 	cfg := opts.Config
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -109,9 +116,35 @@ func New(opts Options) (*App, error) {
 			"data_dir", cfg.DataDir, "perm", info.Mode().Perm().String())
 	}
 
+	if err := a.openStores(context.WithoutCancel(ctx)); err != nil {
+		_ = a.Close()
+
+		return nil, err
+	}
+
 	a.handler = a.buildHandler(buildInfo(opts.Version, opts.Commit))
 
 	return a, nil
+}
+
+// openStores opens instance.db and the project service (which selects the
+// default project, or a temporary one).
+func (a *App) openStores(ctx context.Context) error {
+	inst, err := store.OpenInstance(ctx, a.data)
+	if err != nil {
+		return fmt.Errorf("app: open instance db: %w", err)
+	}
+
+	a.inst = inst
+
+	svc, err := project.Open(ctx, project.Deps{Instance: inst, Root: a.data, Logger: a.log})
+	if err != nil {
+		return fmt.Errorf("app: open projects: %w", err)
+	}
+
+	a.project = svc
+
+	return nil
 }
 
 // Run listens on the configured address and serves until ctx is cancelled.
@@ -181,20 +214,36 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	return nil
 }
 
-// Close releases the data dir. Run or Serve must have returned first.
+// Close closes the project service (deleting an unsaved temporary project),
+// then instance.db, then the data dir. Run or Serve must have returned first.
 func (a *App) Close() error {
-	if a.data == nil {
-		return nil
+	var errs []error
+
+	if a.project != nil {
+		if err := a.project.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("app: close projects: %w", err))
+		}
+
+		a.project = nil
 	}
 
-	err := a.data.Close()
-	a.data = nil
+	if a.inst != nil {
+		if err := a.inst.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("app: close instance db: %w", err))
+		}
 
-	if err != nil {
-		return fmt.Errorf("app: close data dir: %w", err)
+		a.inst = nil
 	}
 
-	return nil
+	if a.data != nil {
+		if err := a.data.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("app: close data dir: %w", err))
+		}
+
+		a.data = nil
+	}
+
+	return errors.Join(errs...)
 }
 
 // DataRoot is the data dir, opened as an [os.Root]. The store, the CA and the
@@ -222,7 +271,7 @@ func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
 	}
 
 	mux.Handle("/api/", api.NewHandler(api.Options{
-		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now()},
+		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now(), Projects: a.project},
 		Auth:      auth,
 		Logger:    a.log,
 	}))

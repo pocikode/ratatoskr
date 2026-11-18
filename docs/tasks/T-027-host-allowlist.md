@@ -39,6 +39,8 @@ reach the API of an instance bound to loopback, and `--allow-guests` must say th
 - [ ] `make check` green.
 
 ## Notes from lead
+- (2026-11-18, T-006) `app.New` is now `app.New(ctx, opts)`. It opens instance.db plus `project.Service` (`ctx` is wrapped in `context.WithoutCancel`). Rebase on T-006 and keep that signature.
+- T-006 also edits `internal/app/app.go` (project service wiring). Start from a `main` that includes T-006, or rebase onto it before review.
 - The listen address is known in `internal/app`; pass the allowed hosts into `api.Options`, keep the middleware pure.
 
 ## Plan (implementer, ≤15 lines)
