@@ -218,3 +218,22 @@ truncation (+test), `untrack(start)`, `detailLoading` reset, history-step reset.
 
 ### Verdict (round 2)
 `changes_requested` — 1 major (in-flight query dropped by sort/reload). Minors can ride along.
+
+### Round 3 — claude-code/opus-5.5 · 2026-11-18 · @ 8bbfd64
+**Scope:** unchanged, all files within `paths` or the approved out-of-scope list. **`make check`:** green (183/183 vitest,
+svelte-check 0/0, eslint, prettier; Go unchanged, `make test-int` not needed). Round-2 fixes verified: `sent` tracks the
+in-flight query and `setSort`/`reload` reuse it (+test that fails on the old code), rollback on `BAD_QUERY`, `apply` keeps
+`pending`, `//` host-filter regression test, `userEvent` kept by the single-line filter.
+
+- [ ] [minor] web/src/pages/http-history/history.svelte.ts:133 — `apply` still compares against `applied`, not the
+  in-flight `sent`. Repro: `applied = ''`, apply `a` (in flight), then run "Clear query" (`apply('')`) before it resolves →
+  `'' === applied` returns early, `a`'s result lands and becomes `applied`; the bar is empty but the table is filtered by
+  `a`, with no error. → `if (next === this.sent) return;` (one line); add a test: `apply('x')`, `apply('')` before
+  resolving, assert `applied === ''`.
+- [ ] [nit] web/src/pages/http-history/history.svelte.ts:104 — when a sort change rides on a query that comes back
+  `BAD_QUERY`, the header shows the new sort but the kept rows are in the old order (and live rows are inserted with the
+  new sort). Narrow window; → after rolling back `sent`, call `void this.reload()` if `this.sort` changed since the
+  rows were loaded, or leave as a known limitation.
+
+### Verdict (round 3)
+`approve` — no blocker/major remain. The minor is a one-line fix that can go in before merge or as a follow-up.
