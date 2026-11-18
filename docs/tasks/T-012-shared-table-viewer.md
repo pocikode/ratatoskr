@@ -232,3 +232,38 @@ against the code (`MessageTable` index key + 128 KB / 500-row sample, `{#if mode
 #### Verdict
 **changes_requested**. Fix the major (a few lines plus one test). The minors and the nit can go to follow-ups if they are
 written in the Handoff.
+
+### Round 3
+Reviewer: claude-code (reviewer agent) · 2026-11-18 · branch `task/T-012-shared-table-viewer` @ 45cdeb0
+
+`make check`: green (exit 0; svelte-check 0/0, eslint, prettier, vitest 19 files / 123 tests). `make test-int`: not run
+(no proxy/store/rawhttp changes). Scope: every changed file is inside `paths`; `routes.ts` unchanged this round.
+Load assumed: one user, up to 100k rows in the table, 5 MB bodies in the viewer (AC + docs/02 §9).
+
+Round 2 findings, checked against the code:
+- Major (view state kept across messages): fixed. `$effect.pre` on `raw` with an `untrack`ed reset of `limit`, `hexLimit`
+  and `current` (MessageViewer.svelte:40-47). The new test checks the counter `1/1` and the 128 KB first chunk after `rerender`.
+- Minor (`active` past the end): fixed. `from` is clamped (TrafficTable.svelte:87), and `aria-activedescendant` and the
+  `active` prop drop an index outside the rows. The test (600 → 10 rows, ArrowUp → row 8, Enter → id 592) is correct.
+- Minor (unreachable matches): fixed. The counter shows `N/1000+`, and the test asserts `3/1000+`.
+- Nit (`'İ'` offsets): fixed. Search uses an escaped `giu` regex on the original text. The escape set covers every regex
+  syntax character, so the `u` flag never sees an invalid escape. Bench on a 5 MB body: 74 ms for 5M one-character matches
+  (the old `indexOf` took 40 ms), 7 ms for 350k matches of "proxy". That is fine for one search per keystroke.
+
+#### Findings
+- [ ] [minor] web/src/lib/components/TrafficTable/TrafficTable.svelte:51,79-84 — `active` is a row position, not a row key.
+  History adds new rows at the top (newest first). Say the cursor is on row 5 and a new request arrives: the cursor
+  now marks a different request, while the selection (which is stored by key) stays on the old one. This does not
+  happen in this task (the gallery data does not change), so it belongs in a follow-up. → Store the active row's key
+  (`activeKey`) and get its position with `keys.indexOf(activeKey)` when needed. Add one test that adds a row at the
+  top with `rerender`. Record it under Follow-ups when the History page (F-HIST-1) uses this table.
+
+#### AC coverage
+- Demo route `#/dev/components` with 100k rows: yes (smoke test; the Handoff says the gallery is not in the prod build).
+- Column show/hide/reorder/resize, sort, multi-select, keyboard, context menu: yes, including when the rows shrink.
+- 5 MB body without freezing + Ctrl+F: Raw, Hex and Table are covered, and the viewer now resets when the message changes.
+- Selection and column-config callback tests: yes.
+
+#### Verdict
+**approve**. No blocker or major remains. The one minor can go to a follow-up. Status stays `in_review`, and the
+operator sets `done` after the merge.
