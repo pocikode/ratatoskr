@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: changes_requested
+status: blocked
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -133,3 +133,11 @@ Fixed 5 code findings; major (paths/app wiring), spec note (§5.1) and schema do
 No new code findings this round.
 
 **Verdict: changes_requested.** All code findings from rounds 1 and 2 are fixed and verified. The only thing still blocking is the lead's `paths`/wiring decision (major). The verdict will become approve once the lead changes `paths` and the wiring is either done here or tracked in a follow-up task.
+
+
+### Round 4 — implementer
+No unchecked finding is fixable inside this task's `paths`. Nothing changed in code.
+- **Blocked on lead** (major, `resolvers/resolver.go:28`): add `internal/api/graphql/resolvers/resolver.go` to `paths`, and either add `internal/app/app.go` to `paths` (I do the wiring here) or open a follow-up wiring task.
+- **Lead** (minor): record `settings["project.temporary"]` in docs/03 §5.1, or schedule a migration adding `projects.is_temporary`.
+- **Lead** (nit): `project.graphqls` `projectChanged` doc should say the server may end the subscription and clients must resubscribe and refetch `projects`.
+Set `status: changes_requested` (or `in_review`) once the lead amends `paths`.
