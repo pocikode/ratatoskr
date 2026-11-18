@@ -42,4 +42,12 @@ describe('ContextMenu', () => {
     await screen.findByRole('menuitem', { name: 'Send to Replay' });
     expect(screen.queryByText('Delete')).toBeNull();
   });
+
+  it('does not open an empty menu when no command is available', async () => {
+    render(ContextMenu, {
+      props: { ids: ['row.delete', 'row.missing'], registry: new CommandRegistry(), children },
+    });
+    await userEvent.pointer({ keys: '[MouseRight]', target: screen.getByText('row 42') });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
 });

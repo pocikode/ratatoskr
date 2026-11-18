@@ -71,9 +71,14 @@ export class ShortcutManager {
     const key = e.key.toLowerCase();
     const page = this.#page();
 
-    // Page-specific binding wins over an unscoped one on the same key.
+    // Page-specific binding wins over an unscoped one on the same key. Only runnable
+    // commands count, so an unregistered/hidden one leaves the browser default alone.
     const hits = this.bindings.filter(
-      (b) => b.key === key && !!b.mod === mod && (!b.page || b.page === page),
+      (b) =>
+        b.key === key &&
+        !!b.mod === mod &&
+        (!b.page || b.page === page) &&
+        this.#runnable(b.command, page),
     );
     const hit = hits.find((b) => b.page) ?? hits[0];
     if (hit && (!isEditable(e.target) || hit.global)) {
@@ -99,9 +104,17 @@ export class ShortcutManager {
   /** Bindings that collide with `key`/`mod` in an overlapping scope. */
   conflictFor(key: string, mod = false, page?: string): Binding[] {
     const k = key.toLowerCase();
-    return this.bindings.filter(
+    const conflicts = this.bindings.filter(
       (b) => b.key === k && !!b.mod === mod && (!b.page || !page || b.page === page),
     );
+    if (!mod) {
+      // `g` starts the chord, a goto letter completes it; both would be shadowed.
+      const route = routes.find((r) => r.goto === k);
+      if (k === 'g' || route) {
+        conflicts.push({ key: k, command: route ? `nav.goto.${route.id}` : 'nav.goto' });
+      }
+    }
+    return conflicts;
   }
 
   /**
@@ -133,6 +146,11 @@ export class ShortcutManager {
 
   #changed() {
     this.#persist?.(this.bindings.map((b) => ({ ...b })));
+  }
+
+  #runnable(id: string, page?: string): boolean {
+    const cmd = this.registry.get(id);
+    return !!cmd && (cmd.when?.({ page }) ?? true);
   }
 
   #reset() {

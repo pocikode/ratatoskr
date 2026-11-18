@@ -9,9 +9,8 @@ export function commandMenu(
   ids: string[],
   ctx: CommandContext = {},
 ): Command[] {
-  const available = new Set(registry.available(ctx).map((c) => c.id));
   return ids.flatMap((id) => {
     const cmd = registry.get(id);
-    return cmd && available.has(id) ? [cmd] : [];
+    return cmd && (cmd.when?.(ctx) ?? true) ? [cmd] : [];
   });
 }

@@ -25,7 +25,7 @@
 {/snippet}
 
 <Menu.Root>
-  <Menu.Trigger child={trigger} />
+  <Menu.Trigger child={trigger} disabled={items.length === 0} />
   <Menu.Portal>
     <Menu.Content
       class="z-50 min-w-40 rounded-token border border-line bg-elevated p-1"

@@ -3,7 +3,7 @@ id: T-022
 title: Command registry, shortcuts manager and context menu builder
 milestone: M1
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-022-commands-shortcuts
@@ -57,8 +57,18 @@ spec:
   `menu.test.ts` (order, unknown ids, `when`), `ContextMenu.test.ts` (right-click renders items from the registry and runs
   the picked command with its context; `when`-hidden commands absent).
 
+### Round 2 — review fixes
+- `shortcuts.ts`: a hit only counts when its command is registered and `when({ page })` passes (`#runnable`), so
+  ⌘R/⌘F/⌘[ /`/`/Delete fall through to the browser default instead of being swallowed. Tests for both the unregistered and
+  the `when`-rejected case assert `defaultPrevented === false`.
+- `conflictFor` now reports the `g` chord: plain `g` conflicts with `nav.goto`, a goto letter with `nav.goto.<route id>`.
+  `rebind` therefore refuses both (and still allows `⌘g`).
+- `ContextMenu`: `disabled={items.length === 0}` on the trigger, so a menu with no runnable command leaves the native menu
+  alone (test added; verified it fails without the fix).
+- `menu.ts`: `when` checked per id instead of scanning `registry.available()`.
+
 ### How to verify
-- `cd web && bun run test` (136 tests) and `make check` (green). `cd web && bun run build` re-checked: no `dist` changes
+- `cd web && bun run test` (140 tests) and `make check` (green). `cd web && bun run build` re-checked: no `dist` changes
   tracked (build output is gitignored), bundle 274.9 kB / 84.7 kB gzip (budget 400 kB).
 - Manual: `cd web && bun run dev` → ⌘K palette, `g h` / `g r`, `/` outside inputs, typing letters in a filter input does
   not navigate.
@@ -79,11 +89,11 @@ spec:
 ## Review (reviewer)
 Reviewer: claude-opus-5-5 · 2026-11-18 · branch `task/T-022-commands-shortcuts` @ 41a5226
 
-Scope: all changed files are inside `paths`. `make check` green (svelte-check 0/0, eslint, prettier, 136 vitest tests).
+Scope: all changed files are inside `paths`. `make check` green (svelte-check 0/0, eslint, prettier, 140 vitest tests).
 No Go/proxy/store changes, so `make test-int` was not needed. No new deps; no Caido material.
 
 Findings:
-- [ ] [major] web/src/lib/commands/shortcuts.ts:75-81 — `handle` calls `e.preventDefault()` for any matching binding, even when its
+- [x] [major] web/src/lib/commands/shortcuts.ts:75-81 — `handle` calls `e.preventDefault()` for any matching binding, even when its
   command is not registered or its `when` rejects the context (`registry.run` then returns false). Today only nav/palette/sidebar/theme
   are registered (`commands/builtin.ts`), so after merge ⌘/Ctrl+R no longer reloads, ⌘F (browser find, also inside inputs because
   `global`), ⌘[ / ⌘] (browser back/forward on macOS), `/` and Backspace/Delete are swallowed and do nothing. The same happens later on
@@ -91,14 +101,14 @@ Findings:
   add `&& this.#runnable(b.command, page)` to the `filter` at :75, where `#runnable` = `const c = this.registry.get(id); return !!c && (c.when?.({ page }) ?? true)`.
   An unrunnable binding then falls through and the browser default stays. Add a test: ⌘R with no `history.sendToReplay`
   registered leaves `e.defaultPrevented === false`.
-- [ ] [minor] web/src/lib/commands/shortcuts.ts:100-104 — `conflictFor`/`rebind` ignore the `g` chord. `rebind('x', 'g')` is accepted
+- [x] [minor] web/src/lib/commands/shortcuts.ts:100-104 — `conflictFor`/`rebind` ignore the `g` chord. `rebind('x', 'g')` is accepted
   and `g` then never starts the chord (the binding check at :75 runs first); `rebind('x', 'h')` is accepted and `g h` runs `x`
   instead of going to History. F-UI-2 says conflicts are warned. → In `conflictFor`, when `!mod` also report the chord: `key === 'g'`
   or `routes.some((r) => r.goto === k)` → return a pseudo binding `{ key: k, command: 'nav.goto.<id>' }` (or `'nav.goto'` for `g`). One test.
-- [ ] [minor] web/src/lib/components/ContextMenu/ContextMenu.svelte:28 — when every id is hidden by `when` or unregistered, right-click
+- [x] [minor] web/src/lib/components/ContextMenu/ContextMenu.svelte:28 — when every id is hidden by `when` or unregistered, right-click
   still opens an empty bordered box and blocks the native menu. → `<Menu.Trigger child={trigger} disabled={items.length === 0} />`
   (`disabled` exists on bits-ui `ContextMenuTriggerProps`, verified in node_modules types).
-- [ ] [nit] web/src/lib/commands/menu.ts:12-16 — `registry.available(ctx)` runs `when` for every registered command just to filter a
+- [x] [nit] web/src/lib/commands/menu.ts:12-16 — `registry.available(ctx)` runs `when` for every registered command just to filter a
   few ids. → `return ids.flatMap((id) => { const c = registry.get(id); return c && (c.when?.(ctx) ?? true) ? [c] : []; });`
 
 AC coverage: AC1 (shared registry: palette/shortcuts/`commandMenu` + ContextMenu tests) ✔ · AC2 (default table, rebind, conflict,

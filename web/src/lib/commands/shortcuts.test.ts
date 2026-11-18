@@ -84,6 +84,26 @@ describe('ShortcutManager', () => {
     expect(calls).toEqual([]);
   });
 
+  it('leaves the browser default alone when the bound command is not runnable', () => {
+    const { sm } = setup(); // no `history.sendToReplay` registered
+    const e = key('r', { metaKey: true });
+    sm.handle(e);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it('leaves the browser default alone when the command when() rejects the page', () => {
+    const { reg, sm } = setup();
+    reg.register({
+      id: 'history.sendToReplay',
+      title: 'Send to Replay',
+      when: () => false,
+      run: vi.fn(),
+    });
+    const e = key('r', { metaKey: true });
+    sm.handle(e);
+    expect(e.defaultPrevented).toBe(false);
+  });
+
   it('covers the docs/02 §4 default table', () => {
     const first = (command: string) => defaultBindings.find((b) => b.command === command);
     expect(first('palette.open')).toMatchObject({ key: 'k', mod: true, global: true });
@@ -131,6 +151,17 @@ describe('ShortcutManager', () => {
       mod: true,
       page: 'intercept',
     });
+  });
+
+  it('reports the g chord as a conflict for plain keys', () => {
+    const { sm } = setup();
+    expect(sm.rebind('palette.open', 'g')).toBe('nav.goto');
+    expect(sm.rebind('sidebar.toggle', 'h')).toBe('nav.goto.http-history');
+    expect(sm.bindings.find((b) => b.command === 'sidebar.toggle')).toMatchObject({
+      key: 'b',
+      mod: true,
+    });
+    expect(sm.rebind('palette.open', 'g', { mod: true })).toBeNull();
   });
 
   it('resets to the defaults', () => {
