@@ -13,6 +13,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
+
 	"github.com/pocikode/ratatoskr/internal/apperr"
 	"github.com/pocikode/ratatoskr/internal/rawhttp"
 )
@@ -213,6 +216,17 @@ func uncompress(coding string, data []byte) ([]byte, bool) {
 		} else {
 			r = flate.NewReader(bytes.NewReader(data))
 		}
+	case "br":
+		r = brotli.NewReader(bytes.NewReader(data))
+	case "zstd":
+		zr, err := zstd.NewReader(bytes.NewReader(data), zstd.WithDecoderMaxMemory(maxDecoded))
+		if err != nil {
+			return nil, false
+		}
+
+		defer zr.Close()
+
+		r = zr
 	default:
 		return nil, false
 	}

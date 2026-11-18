@@ -6,11 +6,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/pocikode/ratatoskr/internal/apperr"
 	"github.com/pocikode/ratatoskr/internal/events"
@@ -526,6 +530,31 @@ func gz(t *testing.T, s string) string {
 	return b.String()
 }
 
+func encode(t *testing.T, coding, s string) string {
+	t.Helper()
+
+	var b bytes.Buffer
+
+	var w io.WriteCloser
+
+	switch coding {
+	case "br":
+		w = brotli.NewWriter(&b)
+	default:
+		zw, err := zstd.NewWriter(&b)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		w = zw
+	}
+
+	_, _ = w.Write([]byte(s))
+	_ = w.Close()
+
+	return b.String()
+}
+
 func TestHeadAndBody(t *testing.T) {
 	t.Parallel()
 
@@ -537,7 +566,11 @@ func TestHeadAndBody(t *testing.T) {
 	plain := e.seed(t, seedRow{code: 200, resp: "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"})
 	gzipped := e.seed(t, seedRow{code: 200, resp: "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(len(zipped)) + "\r\n\r\n" + zipped})
 	chunk := e.seed(t, seedRow{code: 200, resp: "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" + chunked})
-	brotli := e.seed(t, seedRow{code: 200, resp: "HTTP/1.1 200 OK\r\nContent-Encoding: br\r\nContent-Length: 3\r\n\r\nabc"})
+	brBody := encode(t, "br", "brotli text")
+	zstdBody := encode(t, "zstd", "zstd text")
+	br := e.seed(t, seedRow{code: 200, resp: "HTTP/1.1 200 OK\r\nContent-Encoding: br\r\nContent-Length: " + strconv.Itoa(len(brBody)) + "\r\n\r\n" + brBody})
+	zst := e.seed(t, seedRow{code: 200, resp: "HTTP/1.1 200 OK\r\nContent-Encoding: zstd\r\nContent-Length: " + strconv.Itoa(len(zstdBody)) + "\r\n\r\n" + zstdBody})
+	badBr := e.seed(t, seedRow{code: 200, resp: "HTTP/1.1 200 OK\r\nContent-Encoding: br\r\nContent-Length: 3\r\n\r\nabc"})
 	post := e.seed(t, seedRow{method: "POST", req: "POST / HTTP/1.1\r\nHost: a.test\r\nContent-Length: 4\r\n\r\ndata"})
 
 	ctx := t.Context()
@@ -565,7 +598,9 @@ func TestHeadAndBody(t *testing.T) {
 		{"gzip decoded window", gzipped, history.PartResponse, 8, 4, true, "body"},
 		{"chunked decoded", chunk, history.PartResponse, 0, 100, true, "hello world"},
 		{"chunked stored", chunk, history.PartResponse, 0, 100, false, chunked},
-		{"br falls back to stored", brotli, history.PartResponse, 0, 100, true, "abc"},
+		{"br decoded", br, history.PartResponse, 0, 100, true, "brotli text"},
+		{"zstd decoded", zst, history.PartResponse, 0, 100, true, "zstd text"},
+		{"bad br falls back to stored", badBr, history.PartResponse, 0, 100, true, "abc"},
 		{"request decoded", post, history.PartRequest, 0, 100, true, "data"},
 	}
 

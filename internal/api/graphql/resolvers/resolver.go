@@ -26,6 +26,8 @@ type Deps struct {
 	PingInterval time.Duration
 	// Projects serves the project operations; nil reports NOT_IMPLEMENTED.
 	Projects ProjectService
+	// History serves the history operations; nil reports NOT_IMPLEMENTED.
+	History HistoryService
 }
 
 // Resolver is the root resolver.
