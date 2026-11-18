@@ -2,7 +2,7 @@
   import { autocompletion, completionKeymap, completionStatus } from '@codemirror/autocomplete';
   import { defaultKeymap, history as cmHistory, historyKeymap } from '@codemirror/commands';
   import { syntaxHighlighting } from '@codemirror/language';
-  import { EditorState, StateEffect, StateField } from '@codemirror/state';
+  import { EditorState, StateEffect, StateField, Transaction } from '@codemirror/state';
   import { Decoration, EditorView, keymap, placeholder as cmPlaceholder } from '@codemirror/view';
   import type { DecorationSet } from '@codemirror/view';
   import { untrack, type Snippet } from 'svelte';
@@ -70,6 +70,7 @@
     return {
       changes: { from: 0, to: tr.startState.doc.length, insert: text },
       selection: { anchor: Math.min(tr.newSelection.main.head, text.length) },
+      userEvent: tr.annotation(Transaction.userEvent),
     };
   });
 

@@ -74,7 +74,10 @@ export class HistoryState {
     this.stops = [];
   }
 
-  async reload(query = this.applied): Promise<void> {
+  /** Query last sent to the server; accepted once a load succeeds (then it equals `applied`). */
+  private sent = '';
+
+  async reload(query = this.sent): Promise<void> {
     const token = ++this.reloadToken;
     this.loading = true;
     const result = await this.client
@@ -98,6 +101,7 @@ export class HistoryState {
         from: lead + byteToDoc(query, badQuery.start),
         to: lead + byteToDoc(query, badQuery.end),
       };
+      this.sent = this.applied;
       return; // the table keeps its rows (T-017 AC)
     }
     if (result.error) {
@@ -129,7 +133,7 @@ export class HistoryState {
     if (next === this.applied) return;
     this.selection.clear();
     this.detail = null;
-    this.pending = [];
+    this.sent = next;
     void this.reload(next);
   }
 

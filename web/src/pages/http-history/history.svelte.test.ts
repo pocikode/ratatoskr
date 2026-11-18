@@ -3,6 +3,7 @@ import { GraphQLError } from 'graphql';
 import { filter, fromValue, mergeMap, pipe } from 'wonka';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockClient } from '$lib/api/mocks/exchange';
+import { historyCommands } from './commands';
 import { HistoryState } from './history.svelte';
 import { loadColumnConfig } from './ui-state';
 
@@ -74,6 +75,37 @@ describe('HistoryState', () => {
     );
 
     expect(state.applied).toBe(''); // rolled back: a later sort must not resend it
+    stop();
+  });
+
+  it('keeps the in-flight query when the sort changes before it resolves', async () => {
+    const state = new HistoryState(mock());
+    const stop = state.start();
+    await vi.waitFor(() => expect(state.rows).toHaveLength(40));
+
+    state.apply('req.host.cont:"api"');
+    state.setSort({ columnId: 'id', direction: 'asc' });
+
+    await vi.waitFor(() => expect(state.loading).toBe(false));
+    expect(state.applied).toBe('req.host.cont:"api"');
+    expect(state.rows.length).toBeLessThan(40);
+    stop();
+  });
+
+  it('"Filter by this host" drops a trailing // comment before wrapping', async () => {
+    const state = new HistoryState(mock());
+    const stop = state.start();
+    await vi.waitFor(() => expect(state.rows).toHaveLength(40));
+    state.apply('req.method.eq:"GET" // x');
+    await vi.waitFor(() => expect(state.applied).toBe('req.method.eq:"GET" // x'));
+    state.selection.click(state.rows[0]!.id, [state.rows[0]!.id]);
+
+    const command = historyCommands(state, { copy: () => {}, editNote: () => {} }).find(
+      (c) => c.id === 'history.filter.host',
+    );
+    command?.run({} as never);
+
+    expect(state.query).toMatch(/^\(req\.method\.eq:"GET"\) AND req\.host\.eq:"/);
     stop();
   });
 
