@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -319,7 +321,7 @@ func TestLoginLimiterBounded(t *testing.T) {
 		l.maxIPs = 2
 
 		for _, ip := range []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"} {
-			l.failed(ip)
+			l.attempt(ip)
 		}
 
 		if len(l.failures) != 2 {
@@ -327,12 +329,73 @@ func TestLoginLimiterBounded(t *testing.T) {
 		}
 
 		synctest.Sleep(time.Minute)
-		l.failed("192.0.2.4")
+		l.attempt("192.0.2.4")
 
 		if len(l.failures) != 1 {
 			t.Errorf("expired entries were not swept: %v", l.failures)
 		}
 	})
+}
+
+// TestLoginLimiterConcurrent: racing attempts never overspend the window.
+func TestLoginLimiterConcurrent(t *testing.T) {
+	t.Parallel()
+
+	l := newLoginLimiter(loginLimit, loginWindow)
+
+	var (
+		wg      sync.WaitGroup
+		allowed atomic.Int32
+	)
+
+	for range 2 * loginLimit {
+		wg.Go(func() {
+			if l.attempt("192.0.2.1") {
+				allowed.Add(1)
+			}
+		})
+	}
+
+	wg.Wait()
+
+	if got := allowed.Load(); got != loginLimit {
+		t.Errorf("allowed = %d, want %d", got, loginLimit)
+	}
+}
+
+// TestLoginTokenNotCookieSafe: a token a cookie cannot carry yields 500 on
+// login (Bearer still works); docs/03 §8 lists the allowed bytes.
+func TestLoginTokenNotCookieSafe(t *testing.T) {
+	t.Parallel()
+
+	a := loginAuth()
+	a.Token = `se"cret`
+
+	rec := serveAuth(a, sessionRequest(t, http.MethodPost, loginPath, `{"token":"se\"cret"}`))
+	if rec.Code != http.StatusInternalServerError || responseCookie(rec, TokenCookie) != nil {
+		t.Errorf("status = %d, want 500 without a cookie", rec.Code)
+	}
+}
+
+// TestLoginAuthDisabledQuiet: with no token configured, login neither logs nor
+// spends limiter slots.
+func TestLoginAuthDisabledQuiet(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	a := loginAuth()
+	a.Token = ""
+	a.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+
+	for range 2 * loginLimit {
+		if got := serveAuth(a, sessionRequest(t, http.MethodPost, loginPath, `{"token":""}`)).Code; got != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", got)
+		}
+	}
+
+	if buf.Len() != 0 || len(a.loginLimiter.failures) != 0 {
+		t.Errorf("log %q, limiter %v: want both empty", buf.String(), a.loginLimiter.failures)
+	}
 }
 
 // TestLoginLogsWithoutTheSubmittedValue: the warn line names the IP, never the

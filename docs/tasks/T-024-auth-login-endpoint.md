@@ -3,7 +3,7 @@ id: T-024
 title: Login/logout endpoints that set the auth cookie
 milestone: M0
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-007]
 owner: "DeepSeek V4.1 Flash 1017 (sinarcloud/deepseek-v4.1-flash-1017)"
 branch: task/T-024-auth-login-endpoint
@@ -83,13 +83,18 @@ that T-007's auth middleware already accepts, and `POST /api/rest/auth/logout` c
   live IP when all 1024 slots are busy.
 - Follow-ups (proposed): login page + "log out" UI (T-025); optional `Retry-After` on 429; a browser E2E once T-025 lands.
 
+## Rework (implementer)
+- Major: `loginLimiter.attempt(ip)` reserves under one lock, after the body is parsed; `blocked`/`failed` removed.
+  Concurrent test added. Minor 1: test pins the 500; docs/03 §8 lists cookie-safe bytes; config `Validate` follow-up
+  proposed (outside paths). Minor 2: auth off returns 401 before limiter/log. Nit docs: lead's call. IPv6 /64 nit skipped.
+
 ## Review (reviewer)
 Reviewed `ad1cfc2` against `main`. Files: `internal/api/middleware/auth*.go` (in `paths`), `docs/03-architecture.md`
 (outside `paths`, but the AC requires it; see the nit below). `make check`: green (exit 0). `make test-int` not needed:
 proxy, store and rawhttp are untouched. Hard rules 3–8 and 10–11 are met. AC 1, 2, 4 and 5 are met and tested. AC 3 is
 only partly met (finding 1).
 
-- [ ] [major] internal/api/middleware/auth_login.go:70-98 — the rate limit can be bypassed by a check-then-act race.
+- [x] [major] internal/api/middleware/auth_login.go:70-98 — the rate limit can be bypassed by a check-then-act race.
       `blocked(ip)` runs **before** the body is read, and `failed(ip)` runs only after the read and the compare, in a
       separate lock. An attacker opens N connections and sends only the headers on each one, so all N pass `blocked`
       while the count is still 0. Then the attacker sends the N bodies. Result: N guesses per window instead of 5, and
@@ -98,16 +103,16 @@ only partly met (finding 1).
       increments `count` (counting attempts, not failures). Keep `succeeded(ip)` to clear the entry on a match.
       `blocked` and `failed` then go away. Add a test: start `2*loginLimit` goroutines (`sync.WaitGroup.Go`) that call
       `attempt` concurrently, and assert exactly `loginLimit` of them return true.
-- [ ] [minor] internal/api/middleware/auth_login.go:105-112 — an `--auth-token` that holds `"`, `;`, `\`, a control
+- [x] [minor] internal/api/middleware/auth_login.go:105-112 — an `--auth-token` that holds `"`, `;`, `\`, a control
       byte or non-ASCII passes `CheckToken`. It then fails `c.Valid()` and returns 500 on every login, so a browser user
       can never log in, while Bearer still works. Nothing in `internal/config` rejects such tokens. → Write a follow-up
       for config `Validate` to reject tokens with bytes that a cookie cannot carry (it is outside `paths`), and say in
       docs/03 §8 which bytes are allowed. Here, a test with such a token pins the 500.
-- [ ] [minor] internal/api/middleware/auth_login.go:97-99 — when auth is off (`Token == ""`), every login call logs
+- [x] [minor] internal/api/middleware/auth_login.go:97-99 — when auth is off (`Token == ""`), every login call logs
       `WARN login failed` and fills the shared limiter, though there is no token to guess. A UI that probes login
       (T-025) would spam the log. → Return 401 before you touch the limiter or the logger when `!a.Required()`. The
       existing `TestLoginAuthDisabled` still holds.
-- [ ] [nit] docs/03-architecture.md — this file is outside `paths`. The AC asks for the change and the Handoff records
+- [x] [nit] docs/03-architecture.md — this file is outside `paths`. The AC asks for the change and the Handoff records
       it, so I accept it. → Lead: add `docs/03-architecture.md` to `paths` in tasks whose AC requires a doc change.
 - [ ] [nit] internal/api/middleware/auth_login.go:143-152 — the IPv6 key is the full /128 address, and one host often
       controls a whole /64. That gives 5 tries per address and lets the host evict its own blocked entries through

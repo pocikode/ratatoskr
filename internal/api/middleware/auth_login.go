@@ -23,7 +23,7 @@ const (
 const maxLoginBodyBytes = 4 << 10
 
 const (
-	loginLimit  = 5 // failed logins per IP and window
+	loginLimit  = 5 // login attempts per IP and window (a success resets it)
 	loginWindow = time.Minute
 	maxLoginIPs = 1024 // bound on the limiter's map
 )
@@ -65,10 +65,9 @@ func (a Auth) serveSession(w http.ResponseWriter, r *http.Request) bool {
 // cookie value is the token itself: there is one token per process and it is
 // compared in constant time, so a session table would only add state to leak.
 func (a Auth) login(w http.ResponseWriter, r *http.Request) {
-	ip := remoteIP(r)
-
-	if a.limiter().blocked(ip) {
-		writeError(w, http.StatusTooManyRequests, "too many failed logins, retry later")
+	// Nothing to guess without a token: skip the limiter and the log.
+	if !a.Required() {
+		unauthorized(w)
 
 		return
 	}
@@ -94,8 +93,16 @@ func (a Auth) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reserve the attempt atomically, after the body is in, so connections that
+	// stall before sending it cannot all pass a check made up front.
+	ip := remoteIP(r)
+	if !a.limiter().attempt(ip) {
+		writeError(w, http.StatusTooManyRequests, "too many login attempts, retry later")
+
+		return
+	}
+
 	if !a.CheckToken(body.Token) {
-		a.limiter().failed(ip)
 		a.logger().Warn("login failed", "component", "auth", "remote_ip", ip)
 		unauthorized(w)
 
@@ -167,7 +174,7 @@ func (a Auth) logger() *slog.Logger {
 	return slog.Default()
 }
 
-// loginLimiter counts failed logins per remote IP in a fixed window. It is safe
+// loginLimiter counts login attempts per remote IP in a fixed window. It is safe
 // for concurrent use.
 type loginLimiter struct {
 	limit  int
@@ -192,27 +199,10 @@ func newLoginLimiter(limit int, window time.Duration) *loginLimiter {
 	}
 }
 
-// blocked reports whether ip has spent its failures for the current window.
-func (l *loginLimiter) blocked(ip string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	f, ok := l.failures[ip]
-	if !ok {
-		return false
-	}
-
-	if !time.Now().Before(f.resetAt) {
-		delete(l.failures, ip)
-
-		return false
-	}
-
-	return f.count >= l.limit
-}
-
-// failed records one failed attempt for ip.
-func (l *loginLimiter) failed(ip string) {
+// attempt reserves one login attempt for ip and reports whether it is within
+// the limit. Check and increment share one lock, so concurrent callers cannot
+// overspend the window.
+func (l *loginLimiter) attempt(ip string) bool {
 	now := time.Now()
 
 	l.mu.Lock()
@@ -224,11 +214,17 @@ func (l *loginLimiter) failed(ip string) {
 		f = loginCount{resetAt: now.Add(l.window)}
 	}
 
+	if f.count >= l.limit {
+		return false
+	}
+
 	f.count++
 	l.failures[ip] = f
+
+	return true
 }
 
-// succeeded forgets ip's failures.
+// succeeded forgets ip's attempts.
 func (l *loginLimiter) succeeded(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
