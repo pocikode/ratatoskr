@@ -3,7 +3,7 @@ id: T-094
 title: Contract - sitemap
 milestone: M1
 role: lead
-status: in_review
+status: done
 depends_on: [T-013]
 owner: "claude-code (opus-5.5)"
 branch: task/T-094-contract-sitemap
