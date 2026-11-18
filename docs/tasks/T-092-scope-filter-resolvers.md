@@ -3,7 +3,7 @@ id: T-092
 title: Scope and filter preset resolvers, app wiring, scope reorder
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-091, T-090]  # serialized: both own internal/app
 owner: "claude-sonnet-5-5"
 branch: task/T-092-scope-filter-resolvers
@@ -33,10 +33,10 @@ The T-091 contract works end to end: resolvers over `scope.Service` and `filterp
 - Out: wiring scopes/presets into history filtering (T-090); UI (T-019).
 
 ## Acceptance criteria
-- [ ] Resolver tests through the real handler for every query/mutation in T-091, including one error case per error code.
-- [ ] Migration test: existing rows keep their order (by id) after `0002`; `Reorder` with a missing/extra/duplicate id → `BAD_INPUT`.
-- [ ] Export → delete all → import round-trip through GraphQL returns the same presets in the same order.
-- [ ] `make check` green; `make test-int` green (migration).
+- [x] Resolver tests through the real handler for every query/mutation in T-091, including one error case per error code.
+- [x] Migration test: existing rows keep their order (by id) after `0002`; `Reorder` with a missing/extra/duplicate id → `BAD_INPUT`.
+- [x] Export → delete all → import round-trip through GraphQL returns the same presets in the same order.
+- [x] `make check` green; `make test-int` green (migration).
 
 ## Notes from lead
 - Services already exist (T-018); keep resolvers thin. IDs are decimal `int64` strings, non-numeric → `NOT_FOUND` (as history).
