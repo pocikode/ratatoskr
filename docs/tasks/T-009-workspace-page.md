@@ -63,6 +63,17 @@ Applied minimally because the task is unfinishable without them: `TopBar.svelte`
 - Still lead-owned: widen `paths`; add `wonka` as direct dep (`bun add wonka@^6`, docs/06); AC1 Playwright amendment.
 
 ## Review (reviewer)
+**Round 4 — verdict: `approve`** (reviewed 97a50cb)
+
+`make check`: **green** (go vet/lint/test, svelte-check 0 errors, eslint, prettier, vitest 62/62 in 2.2 s). `bun run codegen` gives no diff, so the generated files match the schema. `make test-int` not run: no proxy/store/rawhttp changes. Scope: every changed file is inside the widened `paths`. The only exceptions are docs/06, docs/08 and T-021, which hold the lead's own decision edits (commit 97a50cb).
+
+Round-3 status: all fixed. wonka is a direct dependency (package.json and bun.lock). The rework is committed in 3 commits. The ACs are ticked and each names its test. The resubscribe test uses fake timers.
+
+- [ ] [minor] web/src/pages/workspace/ProjectDialog.svelte:13-23,56-58 — Nothing blocks a second submit while the first mutation is still running. Pressing Enter twice in the create dialog calls `createProject` twice and makes two "Gamma" projects, because names don't have to be unique. In the delete dialog the second call fails with `NOT_FOUND`, and the error stays on the page after the dialog closes. → Add `let busy = $state(false)`. In `submit`, return early when `busy`, set it to true and reset it in `finally`. Add `|| busy` to the button's `disabled`. One test: two quick submits send one mutation.
+- [ ] [nit] docs/tasks/T-009-workspace-page.md:Handoff — Limitations (1) and (2) and the follow-ups are out of date. The Playwright smoke now belongs to T-021, and the row actions are now registered commands (`projectRowCommands`). → Update the Handoff to match: (1) the E2E smoke is in T-021, (2) delete the row-actions limitation and the "context-aware commands" follow-up.
+
+Checked and fine: `onEnd` → 1 s retry → `relisten` does not loop on our own `unsubscribe()` (`stopped` is set first, and the timer is cleared in cleanup). The reconnect refetch skips the first connect. The `#seq` guard drops older responses. The dialog's writable `$derived` text resets only when `store.dialog` changes, not when the list refreshes, because the dialog holds a raw snapshot. The server trims names (schema), so sending untrimmed `text` is fine. Row commands are hidden without `ctx.project`. Names are rendered as text only (no XSS). No Caido names or assets.
+
 **Round 3 — verdict: `changes_requested`** (reviewed the uncommitted working tree on top of e9543f5)
 
 `make check`: **green** (svelte-check 0 errors, eslint, prettier, vitest 62/62). `make test-int` not run: no proxy/store/rawhttp changes.
