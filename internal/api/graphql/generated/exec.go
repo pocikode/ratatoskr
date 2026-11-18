@@ -48,6 +48,13 @@ type ComplexityRoot struct {
 		Label       func(childComplexity int) int
 	}
 
+	FilterPreset struct {
+		Alias func(childComplexity int) int
+		ID    func(childComplexity int) int
+		Name  func(childComplexity int) int
+		Query func(childComplexity int) int
+	}
+
 	HttpRequest struct {
 		Body        func(childComplexity int, offset int64, limit int, decode bool) int
 		BodyLength  func(childComplexity int) int
@@ -93,15 +100,25 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		CreateProject     func(childComplexity int, name string, selectArg bool) int
-		DeleteProject     func(childComplexity int, id string) int
-		DeleteRequests    func(childComplexity int, ids []string, query *string, scopeID *string) int
-		DuplicateProject  func(childComplexity int, id string, name *string) int
-		RenameProject     func(childComplexity int, id string, name string) int
-		SelectProject     func(childComplexity int, id string) int
-		SetDefaultProject func(childComplexity int, id *string) int
-		SetRequestColor   func(childComplexity int, ids []string, color *RequestColor) int
-		SetRequestNote    func(childComplexity int, id string, note *string) int
+		CreateFilterPreset   func(childComplexity int, name string, alias *string, query string) int
+		CreateProject        func(childComplexity int, name string, selectArg bool) int
+		CreateScopePreset    func(childComplexity int, name string, allow []string, deny []string) int
+		DeleteFilterPreset   func(childComplexity int, id string) int
+		DeleteProject        func(childComplexity int, id string) int
+		DeleteRequests       func(childComplexity int, ids []string, query *string, scopeID *string) int
+		DeleteScopePreset    func(childComplexity int, id string) int
+		DuplicateProject     func(childComplexity int, id string, name *string) int
+		DuplicateScopePreset func(childComplexity int, id string) int
+		ImportFilterPresets  func(childComplexity int, json string) int
+		RenameProject        func(childComplexity int, id string, name string) int
+		ReorderFilterPresets func(childComplexity int, ids []string) int
+		ReorderScopePresets  func(childComplexity int, ids []string) int
+		SelectProject        func(childComplexity int, id string) int
+		SetDefaultProject    func(childComplexity int, id *string) int
+		SetRequestColor      func(childComplexity int, ids []string, color *RequestColor) int
+		SetRequestNote       func(childComplexity int, id string, note *string) int
+		UpdateFilterPreset   func(childComplexity int, id string, name string, alias *string, query string) int
+		UpdateScopePreset    func(childComplexity int, id string, name string, allow []string, deny []string) int
 	}
 
 	PageInfo struct {
@@ -134,13 +151,18 @@ type ComplexityRoot struct {
 	}
 
 	Query struct {
-		CurrentProject   func(childComplexity int) int
-		Project          func(childComplexity int, id string) int
-		Projects         func(childComplexity int) int
-		QueryCompletions func(childComplexity int, language QueryLanguage, text string, cursor int) int
-		Request          func(childComplexity int, id string) int
-		Requests         func(childComplexity int, first *int, after *string, last *int, before *string, query *string, scopeID *string, sort *RequestSort) int
-		ServerInfo       func(childComplexity int) int
+		CurrentProject      func(childComplexity int) int
+		ExportFilterPresets func(childComplexity int) int
+		FilterPreset        func(childComplexity int, id string) int
+		FilterPresets       func(childComplexity int) int
+		Project             func(childComplexity int, id string) int
+		Projects            func(childComplexity int) int
+		QueryCompletions    func(childComplexity int, language QueryLanguage, text string, cursor int) int
+		Request             func(childComplexity int, id string) int
+		Requests            func(childComplexity int, first *int, after *string, last *int, before *string, query *string, scopeID *string, sort *RequestSort) int
+		ScopePreset         func(childComplexity int, id string) int
+		ScopePresets        func(childComplexity int) int
+		ServerInfo          func(childComplexity int) int
 	}
 
 	QueryCompletions struct {
@@ -156,6 +178,13 @@ type ComplexityRoot struct {
 
 	RequestsDeleted struct {
 		Ids func(childComplexity int) int
+	}
+
+	ScopePreset struct {
+		Allow func(childComplexity int) int
+		Deny  func(childComplexity int) int
+		ID    func(childComplexity int) int
+		Name  func(childComplexity int) int
 	}
 
 	ServerInfo struct {
@@ -198,18 +227,33 @@ type MutationResolver interface {
 	DeleteProject(ctx context.Context, id string) (string, error)
 	SetDefaultProject(ctx context.Context, id *string) (*Project, error)
 	SelectProject(ctx context.Context, id string) (*Project, error)
+	CreateFilterPreset(ctx context.Context, name string, alias *string, query string) (*FilterPreset, error)
+	UpdateFilterPreset(ctx context.Context, id string, name string, alias *string, query string) (*FilterPreset, error)
+	DeleteFilterPreset(ctx context.Context, id string) (string, error)
+	ReorderFilterPresets(ctx context.Context, ids []string) ([]FilterPreset, error)
+	ImportFilterPresets(ctx context.Context, json string) (int, error)
 	SetRequestColor(ctx context.Context, ids []string, color *RequestColor) ([]HTTPRequest, error)
 	SetRequestNote(ctx context.Context, id string, note *string) (*HTTPRequest, error)
 	DeleteRequests(ctx context.Context, ids []string, query *string, scopeID *string) (int64, error)
+	CreateScopePreset(ctx context.Context, name string, allow []string, deny []string) (*ScopePreset, error)
+	UpdateScopePreset(ctx context.Context, id string, name string, allow []string, deny []string) (*ScopePreset, error)
+	DuplicateScopePreset(ctx context.Context, id string) (*ScopePreset, error)
+	DeleteScopePreset(ctx context.Context, id string) (string, error)
+	ReorderScopePresets(ctx context.Context, ids []string) ([]ScopePreset, error)
 }
 type QueryResolver interface {
 	ServerInfo(ctx context.Context) (*ServerInfo, error)
+	FilterPresets(ctx context.Context) ([]FilterPreset, error)
+	FilterPreset(ctx context.Context, id string) (*FilterPreset, error)
+	ExportFilterPresets(ctx context.Context) (string, error)
 	Requests(ctx context.Context, first *int, after *string, last *int, before *string, query *string, scopeID *string, sort *RequestSort) (*HTTPRequestConnection, error)
 	Request(ctx context.Context, id string) (*HTTPRequest, error)
 	QueryCompletions(ctx context.Context, language QueryLanguage, text string, cursor int) (*QueryCompletions, error)
 	Projects(ctx context.Context) ([]Project, error)
 	Project(ctx context.Context, id string) (*Project, error)
 	CurrentProject(ctx context.Context) (*Project, error)
+	ScopePresets(ctx context.Context) ([]ScopePreset, error)
+	ScopePreset(ctx context.Context, id string) (*ScopePreset, error)
 }
 type SubscriptionResolver interface {
 	Ping(ctx context.Context) (<-chan *Ping, error)
@@ -267,6 +311,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Completion.Label(childComplexity), true
+
+	case "FilterPreset.alias":
+		if e.ComplexityRoot.FilterPreset.Alias == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FilterPreset.Alias(childComplexity), true
+	case "FilterPreset.id":
+		if e.ComplexityRoot.FilterPreset.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FilterPreset.ID(childComplexity), true
+	case "FilterPreset.name":
+		if e.ComplexityRoot.FilterPreset.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FilterPreset.Name(childComplexity), true
+	case "FilterPreset.query":
+		if e.ComplexityRoot.FilterPreset.Query == nil {
+			break
+		}
+
+		return e.ComplexityRoot.FilterPreset.Query(childComplexity), true
 
 	case "HttpRequest.body":
 		if e.ComplexityRoot.HttpRequest.Body == nil {
@@ -474,6 +543,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.HttpResponse.RoundtripMs(childComplexity), true
 
+	case "Mutation.createFilterPreset":
+		if e.ComplexityRoot.Mutation.CreateFilterPreset == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createFilterPreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateFilterPreset(childComplexity, args["name"].(string), args["alias"].(*string), args["query"].(string)), true
 	case "Mutation.createProject":
 		if e.ComplexityRoot.Mutation.CreateProject == nil {
 			break
@@ -485,6 +565,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.CreateProject(childComplexity, args["name"].(string), args["select"].(bool)), true
+	case "Mutation.createScopePreset":
+		if e.ComplexityRoot.Mutation.CreateScopePreset == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createScopePreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateScopePreset(childComplexity, args["name"].(string), args["allow"].([]string), args["deny"].([]string)), true
+	case "Mutation.deleteFilterPreset":
+		if e.ComplexityRoot.Mutation.DeleteFilterPreset == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteFilterPreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteFilterPreset(childComplexity, args["id"].(string)), true
 	case "Mutation.deleteProject":
 		if e.ComplexityRoot.Mutation.DeleteProject == nil {
 			break
@@ -507,6 +609,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DeleteRequests(childComplexity, args["ids"].([]string), args["query"].(*string), args["scopeId"].(*string)), true
+	case "Mutation.deleteScopePreset":
+		if e.ComplexityRoot.Mutation.DeleteScopePreset == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteScopePreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteScopePreset(childComplexity, args["id"].(string)), true
 	case "Mutation.duplicateProject":
 		if e.ComplexityRoot.Mutation.DuplicateProject == nil {
 			break
@@ -518,6 +631,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DuplicateProject(childComplexity, args["id"].(string), args["name"].(*string)), true
+	case "Mutation.duplicateScopePreset":
+		if e.ComplexityRoot.Mutation.DuplicateScopePreset == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_duplicateScopePreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DuplicateScopePreset(childComplexity, args["id"].(string)), true
+	case "Mutation.importFilterPresets":
+		if e.ComplexityRoot.Mutation.ImportFilterPresets == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_importFilterPresets_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ImportFilterPresets(childComplexity, args["json"].(string)), true
 	case "Mutation.renameProject":
 		if e.ComplexityRoot.Mutation.RenameProject == nil {
 			break
@@ -529,6 +664,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RenameProject(childComplexity, args["id"].(string), args["name"].(string)), true
+	case "Mutation.reorderFilterPresets":
+		if e.ComplexityRoot.Mutation.ReorderFilterPresets == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_reorderFilterPresets_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ReorderFilterPresets(childComplexity, args["ids"].([]string)), true
+	case "Mutation.reorderScopePresets":
+		if e.ComplexityRoot.Mutation.ReorderScopePresets == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_reorderScopePresets_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ReorderScopePresets(childComplexity, args["ids"].([]string)), true
 	case "Mutation.selectProject":
 		if e.ComplexityRoot.Mutation.SelectProject == nil {
 			break
@@ -573,6 +730,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SetRequestNote(childComplexity, args["id"].(string), args["note"].(*string)), true
+	case "Mutation.updateFilterPreset":
+		if e.ComplexityRoot.Mutation.UpdateFilterPreset == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateFilterPreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UpdateFilterPreset(childComplexity, args["id"].(string), args["name"].(string), args["alias"].(*string), args["query"].(string)), true
+	case "Mutation.updateScopePreset":
+		if e.ComplexityRoot.Mutation.UpdateScopePreset == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateScopePreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UpdateScopePreset(childComplexity, args["id"].(string), args["name"].(string), args["allow"].([]string), args["deny"].([]string)), true
 
 	case "PageInfo.endCursor":
 		if e.ComplexityRoot.PageInfo.EndCursor == nil {
@@ -686,6 +865,29 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.CurrentProject(childComplexity), true
+	case "Query.exportFilterPresets":
+		if e.ComplexityRoot.Query.ExportFilterPresets == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ExportFilterPresets(childComplexity), true
+	case "Query.filterPreset":
+		if e.ComplexityRoot.Query.FilterPreset == nil {
+			break
+		}
+
+		args, err := ec.field_Query_filterPreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.FilterPreset(childComplexity, args["id"].(string)), true
+	case "Query.filterPresets":
+		if e.ComplexityRoot.Query.FilterPresets == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.FilterPresets(childComplexity), true
 
 	case "Query.project":
 		if e.ComplexityRoot.Query.Project == nil {
@@ -737,6 +939,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Requests(childComplexity, args["first"].(*int), args["after"].(*string), args["last"].(*int), args["before"].(*string), args["query"].(*string), args["scopeId"].(*string), args["sort"].(*RequestSort)), true
+	case "Query.scopePreset":
+		if e.ComplexityRoot.Query.ScopePreset == nil {
+			break
+		}
+
+		args, err := ec.field_Query_scopePreset_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ScopePreset(childComplexity, args["id"].(string)), true
+	case "Query.scopePresets":
+		if e.ComplexityRoot.Query.ScopePresets == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ScopePresets(childComplexity), true
 	case "Query.serverInfo":
 		if e.ComplexityRoot.Query.ServerInfo == nil {
 			break
@@ -782,6 +1001,31 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.RequestsDeleted.Ids(childComplexity), true
+
+	case "ScopePreset.allow":
+		if e.ComplexityRoot.ScopePreset.Allow == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ScopePreset.Allow(childComplexity), true
+	case "ScopePreset.deny":
+		if e.ComplexityRoot.ScopePreset.Deny == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ScopePreset.Deny(childComplexity), true
+	case "ScopePreset.id":
+		if e.ComplexityRoot.ScopePreset.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ScopePreset.ID(childComplexity), true
+	case "ScopePreset.name":
+		if e.ComplexityRoot.ScopePreset.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ScopePreset.Name(childComplexity), true
 
 	case "ServerInfo.authRequired":
 		if e.ComplexityRoot.ServerInfo.AuthRequired == nil {
@@ -1045,6 +1289,95 @@ type Subscription {
   show whether the live connection is up.
   """
   ping: Ping!
+}
+`, BuiltIn: false},
+	{Name: "../schema/filter.graphqls", Input: `# Filter presets (docs/01-feature-spec.md F-FILTER-1, docs/04-query-language.md §1).
+# Owned by the lead; contract: T-091, resolvers: T-092. Presets live in the
+# selected project's database. There is no subscription: the list is small, so
+# pages refetch ` + "`" + `filterPresets` + "`" + ` after their own mutations. WebSocket filter
+# presets are a separate, later contract.
+
+"""
+A named HTTPQL query that other queries reference as ` + "`" + `preset:"Name"` + "`" + ` or
+` + "`" + `preset:alias` + "`" + `. A reference is resolved by exact name first, then by alias.
+References may nest (up to depth 8) but must not form a cycle.
+"""
+type FilterPreset implements Node {
+  id: ID!
+  "Display name: trimmed, 1-200 characters, unique among filter presets."
+  name: String!
+  """
+  Optional short reference name, unique among filter presets: lowercase
+  letters, digits, ` + "`" + `-` + "`" + ` and ` + "`" + `_` + "`" + `, starting with a letter or digit
+  (` + "`" + `[a-z0-9][a-z0-9_-]*` + "`" + `). Null when the preset has none.
+  """
+  alias: String
+  "The HTTPQL text, trimmed and non-empty. May itself reference other presets."
+  query: String!
+}
+
+extend type Query {
+  "All filter presets of the selected project, in preset order (see ` + "`" + `reorderFilterPresets` + "`" + `). Not paginated."
+  filterPresets: [FilterPreset!]!
+  "One filter preset, or null if no preset has this ID."
+  filterPreset(id: ID!): FilterPreset
+  """
+  All filter presets as a JSON document, in preset order, for download:
+  ` + "`" + `{"version":1,"presets":[{"name":"…","alias":"…","query":"…"}, …]}` + "`" + `
+  (` + "`" + `alias` + "`" + ` is omitted when null). ` + "`" + `importFilterPresets` + "`" + ` reads the same format.
+  """
+  exportFilterPresets: String!
+}
+
+extend type Mutation {
+  """
+  Creates a filter preset, placed last in preset order. ` + "`" + `name` + "`" + `, ` + "`" + `alias` + "`" + ` and
+  ` + "`" + `query` + "`" + ` are trimmed; an empty or null ` + "`" + `alias` + "`" + ` means none.
+
+  Errors:
+  - ` + "`" + `BAD_INPUT` + "`" + `: ` + "`" + `name` + "`" + ` empty or longer than 200 characters; ` + "`" + `alias` + "`" + ` not of the
+    form ` + "`" + `[a-z0-9][a-z0-9_-]*` + "`" + `; ` + "`" + `query` + "`" + ` empty; the project already has 1000
+    filter presets.
+  - ` + "`" + `CONFLICT` + "`" + `: another filter preset has this name, or this alias.
+  - ` + "`" + `BAD_QUERY` + "`" + ` (with ` + "`" + `extensions.span` + "`" + ` into ` + "`" + `query` + "`" + `): ` + "`" + `query` + "`" + ` does not parse,
+    references a preset that does not exist, would create a reference cycle,
+    or nests references deeper than 8 levels.
+  """
+  createFilterPreset(name: String!, alias: String, query: String!): FilterPreset!
+  """
+  Replaces a preset's name, alias and query; its position is kept. Same
+  validation and errors as ` + "`" + `createFilterPreset` + "`" + ` (a preset keeping its own name
+  or alias is not a conflict). Renaming or re-aliasing does not rewrite other
+  presets that reference the old name. ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  updateFilterPreset(id: ID!, name: String!, alias: String, query: String!): FilterPreset!
+  """
+  Deletes a preset and returns its ID. Presets that reference it are kept;
+  queries that reach the dangling reference then fail with ` + "`" + `BAD_QUERY` + "`" + `.
+  ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  deleteFilterPreset(id: ID!): ID!
+  """
+  Sets the preset order and returns all presets in the new order. ` + "`" + `ids` + "`" + ` must
+  list every current filter preset exactly once: a missing, extra, unknown or
+  repeated ID is ` + "`" + `BAD_INPUT` + "`" + ` and nothing changes.
+  """
+  reorderFilterPresets(ids: [ID!]!): [FilterPreset!]!
+  """
+  Adds the presets of an ` + "`" + `exportFilterPresets` + "`" + ` document, appended in file
+  order, and returns how many were added. A preset whose name already exists
+  is skipped (not counted, not changed). All or nothing: on any error nothing
+  is added. Imported presets may reference each other in any order.
+
+  Errors:
+  - ` + "`" + `BAD_INPUT` + "`" + `: not valid JSON of that shape; ` + "`" + `version` + "`" + ` other than 1; more than
+    1000 presets in the file or in the project afterwards; any preset failing
+    the ` + "`" + `createFilterPreset` + "`" + ` field rules.
+  - ` + "`" + `CONFLICT` + "`" + `: a new preset's alias is already used.
+  - ` + "`" + `BAD_QUERY` + "`" + ` (with ` + "`" + `extensions.span` + "`" + ` into that preset's query): a new
+    preset's query does not parse, references a missing preset, or forms a cycle.
+  """
+  importFilterPresets(json: String!): Int!
 }
 `, BuiltIn: false},
 	{Name: "../schema/history.graphqls", Input: `# HTTP History (docs/01-feature-spec.md F-HIST-1..4) and query autocomplete
@@ -1480,6 +1813,83 @@ extend type Subscription {
   projectChanged: ProjectChange!
 }
 `, BuiltIn: false},
+	{Name: "../schema/scope.graphqls", Input: `# Scope presets (docs/01-feature-spec.md F-SCOPE-1). Owned by the lead; contract: T-091, resolvers: T-092.
+# Presets live in the selected project's database. There is no subscription:
+# the list is small, so pages refetch ` + "`" + `scopePresets` + "`" + ` after their own mutations.
+
+"""
+A named scope: which targets count as "in scope". A target is in scope when no
+` + "`" + `deny` + "`" + ` rule matches it and either ` + "`" + `allow` + "`" + ` is empty or an ` + "`" + `allow` + "`" + ` rule matches
+it (deny wins over allow).
+
+Rule syntax (each entry of ` + "`" + `allow` + "`" + ` and ` + "`" + `deny` + "`" + `): ` + "`" + `host[:port][/path]` + "`" + `.
+- ` + "`" + `host` + "`" + ` is a glob, case-insensitive: ` + "`" + `*` + "`" + ` matches any run of characters
+  (including none and including dots), ` + "`" + `?` + "`" + ` exactly one. Examples:
+  ` + "`" + `example.com` + "`" + `, ` + "`" + `*.example.com` + "`" + `, ` + "`" + `api.*.example.org` + "`" + `. Non-ASCII labels are
+  matched in punycode. IPv6 literals are bracketed: ` + "`" + `[::1]` + "`" + `, ` + "`" + `[::1]:8443` + "`" + `.
+- ` + "`" + `:port` + "`" + ` (optional) is 1-65535; without it every port matches.
+- ` + "`" + `/path` + "`" + ` (optional) is a case-sensitive prefix of the request path; without it
+  every path matches. ` + "`" + `example.com/api` + "`" + ` matches ` + "`" + `/api` + "`" + ` and ` + "`" + `/api/v1` + "`" + `.
+Surrounding whitespace is trimmed. Entries are stored as given.
+
+The same preset filters stored traffic (` + "`" + `requests(scopeId)` + "`" + `, see
+history.graphqls) and live traffic, with identical results.
+"""
+type ScopePreset implements Node {
+  id: ID!
+  "Display name: trimmed, 1-200 characters, unique among scope presets."
+  name: String!
+  "Rules that bring targets into scope, in the order entered. Empty = everything allowed."
+  allow: [String!]!
+  "Rules that take targets out of scope, in the order entered. Deny wins over allow."
+  deny: [String!]!
+}
+
+extend type Query {
+  "All scope presets of the selected project, in preset order (see ` + "`" + `reorderScopePresets` + "`" + `). Not paginated."
+  scopePresets: [ScopePreset!]!
+  "One scope preset, or null if no preset has this ID."
+  scopePreset(id: ID!): ScopePreset
+}
+
+extend type Mutation {
+  """
+  Creates a scope preset, placed last in preset order.
+
+  Errors:
+  - ` + "`" + `BAD_INPUT` + "`" + `: ` + "`" + `name` + "`" + ` empty or longer than 200 characters after trimming;
+    more than 1000 entries in ` + "`" + `allow` + "`" + ` or in ` + "`" + `deny` + "`" + `; an entry that does not
+    follow the rule syntax (the message quotes the offending entry, e.g.
+    ` + "`" + `scope entry "example.com:99999": bad port "99999"` + "`" + `).
+  - ` + "`" + `CONFLICT` + "`" + `: another scope preset already has this name (exact match after trimming).
+  """
+  createScopePreset(name: String!, allow: [String!]! = [], deny: [String!]! = []): ScopePreset!
+  """
+  Replaces a preset's name and both rule lists; its position is kept. Same
+  validation and errors as ` + "`" + `createScopePreset` + "`" + ` (a preset keeping its own name
+  is not a conflict). ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  updateScopePreset(id: ID!, name: String!, allow: [String!]!, deny: [String!]!): ScopePreset!
+  """
+  Copies a preset's rules into a new preset named ` + "`" + `<name> (copy)` + "`" + `, or
+  ` + "`" + `<name> (copy 2)` + "`" + `, ` + "`" + `(copy 3)` + "`" + `, … when that name is taken (the source name is
+  cut to 150 characters first). The copy is placed last. ` + "`" + `NOT_FOUND` + "`" + ` for an
+  unknown ID.
+  """
+  duplicateScopePreset(id: ID!): ScopePreset!
+  """
+  Deletes a preset and returns its ID. Pages that had it selected fall back to
+  no scope. ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  deleteScopePreset(id: ID!): ID!
+  """
+  Sets the preset order and returns all presets in the new order. ` + "`" + `ids` + "`" + ` must
+  list every current scope preset exactly once: a missing, extra, unknown or
+  repeated ID is ` + "`" + `BAD_INPUT` + "`" + ` and nothing changes.
+  """
+  reorderScopePresets(ids: [ID!]!): [ScopePreset!]!
+}
+`, BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
 
@@ -1501,6 +1911,20 @@ func (ec *executionContext) childFields_Completion(ctx context.Context, field gr
 		return ec.fieldContext_Completion_isExtension(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Completion", field.Name)
+}
+
+func (ec *executionContext) childFields_FilterPreset(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_FilterPreset_id(ctx, field)
+	case "name":
+		return ec.fieldContext_FilterPreset_name(ctx, field)
+	case "alias":
+		return ec.fieldContext_FilterPreset_alias(ctx, field)
+	case "query":
+		return ec.fieldContext_FilterPreset_query(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type FilterPreset", field.Name)
 }
 
 func (ec *executionContext) childFields_HttpRequest(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -1677,6 +2101,20 @@ func (ec *executionContext) childFields_RequestsDeleted(ctx context.Context, fie
 		return ec.fieldContext_RequestsDeleted_ids(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type RequestsDeleted", field.Name)
+}
+
+func (ec *executionContext) childFields_ScopePreset(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ScopePreset_id(ctx, field)
+	case "name":
+		return ec.fieldContext_ScopePreset_name(ctx, field)
+	case "allow":
+		return ec.fieldContext_ScopePreset_allow(ctx, field)
+	case "deny":
+		return ec.fieldContext_ScopePreset_deny(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ScopePreset", field.Name)
 }
 
 func (ec *executionContext) childFields_ServerInfo(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -1871,6 +2309,36 @@ func (ec *executionContext) field_HttpResponse_body_args(ctx context.Context, ra
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_createFilterPreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "alias",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["alias"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "query",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["query"] = arg2
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1890,6 +2358,50 @@ func (ec *executionContext) field_Mutation_createProject_args(ctx context.Contex
 		return nil, err
 	}
 	args["select"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_createScopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "allow",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalNString2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["allow"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "deny",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalNString2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["deny"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_deleteFilterPreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -1937,6 +2449,20 @@ func (ec *executionContext) field_Mutation_deleteRequests_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_deleteScopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_duplicateProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1959,6 +2485,34 @@ func (ec *executionContext) field_Mutation_duplicateProject_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_duplicateScopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_importFilterPresets_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "json",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["json"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_renameProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -1978,6 +2532,34 @@ func (ec *executionContext) field_Mutation_renameProject_args(ctx context.Contex
 		return nil, err
 	}
 	args["name"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_reorderFilterPresets_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "ids",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalNID2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["ids"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_reorderScopePresets_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "ids",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalNID2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["ids"] = arg0
 	return args, nil
 }
 
@@ -2053,6 +2635,82 @@ func (ec *executionContext) field_Mutation_setRequestNote_args(ctx context.Conte
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_updateFilterPreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "alias",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["alias"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "query",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["query"] = arg3
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_updateScopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "allow",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalNString2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["allow"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "deny",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalNString2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["deny"] = arg3
+	return args, nil
+}
+
 func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -2064,6 +2722,20 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		return nil, err
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_filterPreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -2184,6 +2856,20 @@ func (ec *executionContext) field_Query_requests_args(ctx context.Context, rawAr
 		return nil, err
 	}
 	args["sort"] = arg6
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_scopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -2418,6 +3104,98 @@ func (ec *executionContext) _Completion_isExtension(ctx context.Context, field g
 }
 func (ec *executionContext) fieldContext_Completion_isExtension(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Completion", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _FilterPreset_id(ctx context.Context, field graphql.CollectedField, obj *FilterPreset) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FilterPreset_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FilterPreset_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FilterPreset", field, false, false, "ID")
+}
+
+func (ec *executionContext) _FilterPreset_name(ctx context.Context, field graphql.CollectedField, obj *FilterPreset) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FilterPreset_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FilterPreset_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FilterPreset", field, false, false, "String")
+}
+
+func (ec *executionContext) _FilterPreset_alias(ctx context.Context, field graphql.CollectedField, obj *FilterPreset) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FilterPreset_alias(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Alias, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_FilterPreset_alias(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FilterPreset", field, false, false, "String")
+}
+
+func (ec *executionContext) _FilterPreset_query(ctx context.Context, field graphql.CollectedField, obj *FilterPreset) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_FilterPreset_query(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Query, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_FilterPreset_query(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("FilterPreset", field, false, false, "String")
 }
 
 func (ec *executionContext) _HttpRequest_id(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
@@ -3507,6 +4285,226 @@ func (ec *executionContext) fieldContext_Mutation_selectProject(ctx context.Cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_createFilterPreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_createFilterPreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateFilterPreset(ctx, fc.Args["name"].(string), fc.Args["alias"].(*string), fc.Args["query"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *FilterPreset) graphql.Marshaler {
+			return ec.marshalNFilterPreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_createFilterPreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FilterPreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createFilterPreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateFilterPreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_updateFilterPreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UpdateFilterPreset(ctx, fc.Args["id"].(string), fc.Args["name"].(string), fc.Args["alias"].(*string), fc.Args["query"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *FilterPreset) graphql.Marshaler {
+			return ec.marshalNFilterPreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_updateFilterPreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FilterPreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateFilterPreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteFilterPreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_deleteFilterPreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteFilterPreset(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_deleteFilterPreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteFilterPreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_reorderFilterPresets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_reorderFilterPresets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ReorderFilterPresets(ctx, fc.Args["ids"].([]string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []FilterPreset) graphql.Marshaler {
+			return ec.marshalNFilterPreset2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPresetᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_reorderFilterPresets(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FilterPreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_reorderFilterPresets_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_importFilterPresets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_importFilterPresets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ImportFilterPresets(ctx, fc.Args["json"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_importFilterPresets(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_importFilterPresets_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_setRequestColor(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -3633,6 +4631,226 @@ func (ec *executionContext) fieldContext_Mutation_deleteRequests(ctx context.Con
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_deleteRequests_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createScopePreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_createScopePreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateScopePreset(ctx, fc.Args["name"].(string), fc.Args["allow"].([]string), fc.Args["deny"].([]string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ScopePreset) graphql.Marshaler {
+			return ec.marshalNScopePreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePreset(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_createScopePreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ScopePreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createScopePreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateScopePreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_updateScopePreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UpdateScopePreset(ctx, fc.Args["id"].(string), fc.Args["name"].(string), fc.Args["allow"].([]string), fc.Args["deny"].([]string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ScopePreset) graphql.Marshaler {
+			return ec.marshalNScopePreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePreset(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_updateScopePreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ScopePreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateScopePreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_duplicateScopePreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_duplicateScopePreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DuplicateScopePreset(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ScopePreset) graphql.Marshaler {
+			return ec.marshalNScopePreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePreset(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_duplicateScopePreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ScopePreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_duplicateScopePreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteScopePreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_deleteScopePreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteScopePreset(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_deleteScopePreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteScopePreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_reorderScopePresets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_reorderScopePresets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ReorderScopePresets(ctx, fc.Args["ids"].([]string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ScopePreset) graphql.Marshaler {
+			return ec.marshalNScopePreset2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePresetᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_reorderScopePresets(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ScopePreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_reorderScopePresets_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -4071,6 +5289,105 @@ func (ec *executionContext) fieldContext_Query_serverInfo(_ context.Context, fie
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_filterPresets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_filterPresets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().FilterPresets(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []FilterPreset) graphql.Marshaler {
+			return ec.marshalNFilterPreset2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPresetᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_filterPresets(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FilterPreset(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_filterPreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_filterPreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().FilterPreset(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *FilterPreset) graphql.Marshaler {
+			return ec.marshalOFilterPreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_filterPreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_FilterPreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_filterPreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_exportFilterPresets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_exportFilterPresets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ExportFilterPresets(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_exportFilterPresets(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Query", field, true, true, "String")
+}
+
 func (ec *executionContext) _Query_requests(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4311,6 +5628,82 @@ func (ec *executionContext) fieldContext_Query_currentProject(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_scopePresets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_scopePresets(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ScopePresets(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ScopePreset) graphql.Marshaler {
+			return ec.marshalNScopePreset2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePresetᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_scopePresets(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ScopePreset(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_scopePreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_scopePreset(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ScopePreset(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ScopePreset) graphql.Marshaler {
+			return ec.marshalOScopePreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePreset(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_scopePreset(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ScopePreset(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_scopePreset_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query___type(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4541,6 +5934,98 @@ func (ec *executionContext) _RequestsDeleted_ids(ctx context.Context, field grap
 }
 func (ec *executionContext) fieldContext_RequestsDeleted_ids(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("RequestsDeleted", field, false, false, "ID")
+}
+
+func (ec *executionContext) _ScopePreset_id(ctx context.Context, field graphql.CollectedField, obj *ScopePreset) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ScopePreset_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ScopePreset_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ScopePreset", field, false, false, "ID")
+}
+
+func (ec *executionContext) _ScopePreset_name(ctx context.Context, field graphql.CollectedField, obj *ScopePreset) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ScopePreset_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ScopePreset_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ScopePreset", field, false, false, "String")
+}
+
+func (ec *executionContext) _ScopePreset_allow(ctx context.Context, field graphql.CollectedField, obj *ScopePreset) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ScopePreset_allow(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Allow, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ScopePreset_allow(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ScopePreset", field, false, false, "String")
+}
+
+func (ec *executionContext) _ScopePreset_deny(ctx context.Context, field graphql.CollectedField, obj *ScopePreset) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ScopePreset_deny(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Deny, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ScopePreset_deny(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ScopePreset", field, false, false, "String")
 }
 
 func (ec *executionContext) _ServerInfo_version(ctx context.Context, field graphql.CollectedField, obj *ServerInfo) (ret graphql.Marshaler) {
@@ -5976,6 +7461,13 @@ func (ec *executionContext) _Node(ctx context.Context, sel ast.SelectionSet, obj
 	switch obj := (obj).(type) {
 	case nil:
 		return graphql.Null
+	case ScopePreset:
+		return ec._ScopePreset(ctx, sel, &obj)
+	case *ScopePreset:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._ScopePreset(ctx, sel, obj)
 	case Project:
 		return ec._Project(ctx, sel, &obj)
 	case *Project:
@@ -5990,6 +7482,13 @@ func (ec *executionContext) _Node(ctx context.Context, sel ast.SelectionSet, obj
 			return graphql.Null
 		}
 		return ec._HttpRequest(ctx, sel, obj)
+	case FilterPreset:
+		return ec._FilterPreset(ctx, sel, &obj)
+	case *FilterPreset:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._FilterPreset(ctx, sel, obj)
 	default:
 		if typedObj, ok := obj.(graphql.Marshaler); ok {
 			return typedObj
@@ -6036,6 +7535,54 @@ func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSe
 			}
 		case "isExtension":
 			out.Values[i] = ec._Completion_isExtension(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var filterPresetImplementors = []string{"FilterPreset", "Node"}
+
+func (ec *executionContext) _FilterPreset(ctx context.Context, sel ast.SelectionSet, obj *FilterPreset) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, filterPresetImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("FilterPreset")
+		case "id":
+			out.Values[i] = ec._FilterPreset_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._FilterPreset_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "alias":
+			out.Values[i] = ec._FilterPreset_alias(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "query":
+			out.Values[i] = ec._FilterPreset_query(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -6394,6 +7941,41 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "createFilterPreset":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createFilterPreset(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateFilterPreset":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateFilterPreset(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteFilterPreset":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteFilterPreset(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reorderFilterPresets":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_reorderFilterPresets(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "importFilterPresets":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_importFilterPresets(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "setRequestColor":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_setRequestColor(ctx, field)
@@ -6411,6 +7993,41 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "deleteRequests":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_deleteRequests(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createScopePreset":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createScopePreset(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateScopePreset":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateScopePreset(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "duplicateScopePreset":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_duplicateScopePreset(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteScopePreset":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteScopePreset(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reorderScopePresets":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_reorderScopePresets(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -6654,6 +8271,24 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_serverInfo(ctx, field)
 				})
+		case "filterPresets":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_filterPresets(ctx, field)
+				})
+		case "filterPreset":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_filterPreset(ctx, field)
+				})
+		case "exportFilterPresets":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_exportFilterPresets(ctx, field)
+				})
 		case "requests":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
@@ -6689,6 +8324,18 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_currentProject(ctx, field)
+				})
+		case "scopePresets":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_scopePresets(ctx, field)
+				})
+		case "scopePreset":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_scopePreset(ctx, field)
 				})
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
@@ -6815,6 +8462,54 @@ func (ec *executionContext) _RequestsDeleted(ctx context.Context, sel ast.Select
 			out.Values[i] = graphql.MarshalString("RequestsDeleted")
 		case "ids":
 			out.Values[i] = ec._RequestsDeleted_ids(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var scopePresetImplementors = []string{"ScopePreset", "Node"}
+
+func (ec *executionContext) _ScopePreset(ctx context.Context, sel ast.SelectionSet, obj *ScopePreset) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, scopePresetImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ScopePreset")
+		case "id":
+			out.Values[i] = ec._ScopePreset_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._ScopePreset_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "allow":
+			out.Values[i] = ec._ScopePreset_allow(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deny":
+			out.Values[i] = ec._ScopePreset_deny(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -7340,6 +9035,34 @@ func (ec *executionContext) marshalNCompletionKind2githubᚗcomᚋpocikodeᚋrat
 	return v
 }
 
+func (ec *executionContext) marshalNFilterPreset2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx context.Context, sel ast.SelectionSet, v FilterPreset) graphql.Marshaler {
+	return ec._FilterPreset(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNFilterPreset2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPresetᚄ(ctx context.Context, sel ast.SelectionSet, v []FilterPreset) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNFilterPreset2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNFilterPreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx context.Context, sel ast.SelectionSet, v *FilterPreset) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "FilterPreset!")
+		return graphql.Null
+	}
+	return ec._FilterPreset(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNHttpRequest2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx context.Context, sel ast.SelectionSet, v HTTPRequest) graphql.Marshaler {
 	return ec._HttpRequest(ctx, sel, &v)
 }
@@ -7583,6 +9306,34 @@ func (ec *executionContext) marshalNRequestsDeleted2ᚖgithubᚗcomᚋpocikode�
 	return ec._RequestsDeleted(ctx, sel, v)
 }
 
+func (ec *executionContext) marshalNScopePreset2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePreset(ctx context.Context, sel ast.SelectionSet, v ScopePreset) graphql.Marshaler {
+	return ec._ScopePreset(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNScopePreset2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePresetᚄ(ctx context.Context, sel ast.SelectionSet, v []ScopePreset) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNScopePreset2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePreset(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNScopePreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePreset(ctx context.Context, sel ast.SelectionSet, v *ScopePreset) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ScopePreset!")
+		return graphql.Null
+	}
+	return ec._ScopePreset(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNServerInfo2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐServerInfo(ctx context.Context, sel ast.SelectionSet, v *ServerInfo) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "ServerInfo!")
@@ -7613,6 +9364,35 @@ func (ec *executionContext) marshalNString2string(ctx context.Context, sel ast.S
 		graphql.AddInvalidNullFromMarshaler(ctx, "String!")
 	}
 	return res
+}
+
+func (ec *executionContext) unmarshalNString2ᚕstringᚄ(ctx context.Context, v any) ([]string, error) {
+	vSlice := graphql.CoerceList(v)
+	var err error
+	res := make([]string, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNString2string(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel ast.SelectionSet, v []string) graphql.Marshaler {
+	ret := make(graphql.Array, len(v))
+	for i := range v {
+		ret[i] = ec.marshalNString2string(ctx, sel, v[i])
+	}
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
 }
 
 func (ec *executionContext) unmarshalNTime2timeᚐTime(ctx context.Context, v any) (time.Time, error) {
@@ -7801,6 +9581,13 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
+func (ec *executionContext) marshalOFilterPreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx context.Context, sel ast.SelectionSet, v *FilterPreset) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._FilterPreset(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalOHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx context.Context, sel ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -7915,6 +9702,13 @@ func (ec *executionContext) unmarshalORequestSort2ᚖgithubᚗcomᚋpocikodeᚋr
 	}
 	res, err := ec.unmarshalInputRequestSort(ctx, v)
 	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOScopePreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐScopePreset(ctx context.Context, sel ast.SelectionSet, v *ScopePreset) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ScopePreset(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalOString2ᚖstring(ctx context.Context, v any) (*string, error) {

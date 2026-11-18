@@ -1,0 +1,76 @@
+# Scope presets (docs/01-feature-spec.md F-SCOPE-1). Owned by the lead; contract: T-091, resolvers: T-092.
+# Presets live in the selected project's database. There is no subscription:
+# the list is small, so pages refetch `scopePresets` after their own mutations.
+
+"""
+A named scope: which targets count as "in scope". A target is in scope when no
+`deny` rule matches it and either `allow` is empty or an `allow` rule matches
+it (deny wins over allow).
+
+Rule syntax (each entry of `allow` and `deny`): `host[:port][/path]`.
+- `host` is a glob, case-insensitive: `*` matches any run of characters
+  (including none and including dots), `?` exactly one. Examples:
+  `example.com`, `*.example.com`, `api.*.example.org`. Non-ASCII labels are
+  matched in punycode. IPv6 literals are bracketed: `[::1]`, `[::1]:8443`.
+- `:port` (optional) is 1-65535; without it every port matches.
+- `/path` (optional) is a case-sensitive prefix of the request path; without it
+  every path matches. `example.com/api` matches `/api` and `/api/v1`.
+Surrounding whitespace is trimmed. Entries are stored as given.
+
+The same preset filters stored traffic (`requests(scopeId)`, see
+history.graphqls) and live traffic, with identical results.
+"""
+type ScopePreset implements Node {
+  id: ID!
+  "Display name: trimmed, 1-200 characters, unique among scope presets."
+  name: String!
+  "Rules that bring targets into scope, in the order entered. Empty = everything allowed."
+  allow: [String!]!
+  "Rules that take targets out of scope, in the order entered. Deny wins over allow."
+  deny: [String!]!
+}
+
+extend type Query {
+  "All scope presets of the selected project, in preset order (see `reorderScopePresets`). Not paginated."
+  scopePresets: [ScopePreset!]!
+  "One scope preset, or null if no preset has this ID."
+  scopePreset(id: ID!): ScopePreset
+}
+
+extend type Mutation {
+  """
+  Creates a scope preset, placed last in preset order.
+
+  Errors:
+  - `BAD_INPUT`: `name` empty or longer than 200 characters after trimming;
+    more than 1000 entries in `allow` or in `deny`; an entry that does not
+    follow the rule syntax (the message quotes the offending entry, e.g.
+    `scope entry "example.com:99999": bad port "99999"`).
+  - `CONFLICT`: another scope preset already has this name (exact match after trimming).
+  """
+  createScopePreset(name: String!, allow: [String!]! = [], deny: [String!]! = []): ScopePreset!
+  """
+  Replaces a preset's name and both rule lists; its position is kept. Same
+  validation and errors as `createScopePreset` (a preset keeping its own name
+  is not a conflict). `NOT_FOUND` for an unknown ID.
+  """
+  updateScopePreset(id: ID!, name: String!, allow: [String!]!, deny: [String!]!): ScopePreset!
+  """
+  Copies a preset's rules into a new preset named `<name> (copy)`, or
+  `<name> (copy 2)`, `(copy 3)`, … when that name is taken (the source name is
+  cut to 150 characters first). The copy is placed last. `NOT_FOUND` for an
+  unknown ID.
+  """
+  duplicateScopePreset(id: ID!): ScopePreset!
+  """
+  Deletes a preset and returns its ID. Pages that had it selected fall back to
+  no scope. `NOT_FOUND` for an unknown ID.
+  """
+  deleteScopePreset(id: ID!): ID!
+  """
+  Sets the preset order and returns all presets in the new order. `ids` must
+  list every current scope preset exactly once: a missing, extra, unknown or
+  repeated ID is `BAD_INPUT` and nothing changes.
+  """
+  reorderScopePresets(ids: [ID!]!): [ScopePreset!]!
+}

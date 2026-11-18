@@ -30,6 +30,23 @@ type Completion struct {
 	IsExtension bool `json:"isExtension"`
 }
 
+// A named HTTPQL query that other queries reference as `preset:"Name"` or
+// `preset:alias`. A reference is resolved by exact name first, then by alias.
+// References may nest (up to depth 8) but must not form a cycle.
+type FilterPreset struct {
+	ID string `json:"id"`
+	// Display name: trimmed, 1-200 characters, unique among filter presets.
+	Name string `json:"name"`
+	// Optional short reference name, unique among filter presets: lowercase
+	// letters, digits, `-` and `_`, starting with a letter or digit
+	// (`[a-z0-9][a-z0-9_-]*`). Null when the preset has none.
+	Alias *string `json:"alias,omitempty"`
+	// The HTTPQL text, trimmed and non-empty. May itself reference other presets.
+	Query string `json:"query"`
+}
+
+func (FilterPreset) IsNode() {}
+
 // A captured or sent HTTP request with its response, if any. Edited records
 // (F-HIST-4): when Intercept or Match & Replace changes a request or its response,
 // the changed exchange is stored as a new record whose `editedFrom` is the
@@ -217,6 +234,35 @@ type RequestsDeleted struct {
 	// IDs of deleted requests; one deletion is reported in batches of at most 1000 IDs.
 	Ids []string `json:"ids"`
 }
+
+// A named scope: which targets count as "in scope". A target is in scope when no
+// `deny` rule matches it and either `allow` is empty or an `allow` rule matches
+// it (deny wins over allow).
+//
+// Rule syntax (each entry of `allow` and `deny`): `host[:port][/path]`.
+//   - `host` is a glob, case-insensitive: `*` matches any run of characters
+//     (including none and including dots), `?` exactly one. Examples:
+//     `example.com`, `*.example.com`, `api.*.example.org`. Non-ASCII labels are
+//     matched in punycode. IPv6 literals are bracketed: `[::1]`, `[::1]:8443`.
+//   - `:port` (optional) is 1-65535; without it every port matches.
+//   - `/path` (optional) is a case-sensitive prefix of the request path; without it
+//     every path matches. `example.com/api` matches `/api` and `/api/v1`.
+//
+// Surrounding whitespace is trimmed. Entries are stored as given.
+//
+// The same preset filters stored traffic (`requests(scopeId)`, see
+// history.graphqls) and live traffic, with identical results.
+type ScopePreset struct {
+	ID string `json:"id"`
+	// Display name: trimmed, 1-200 characters, unique among scope presets.
+	Name string `json:"name"`
+	// Rules that bring targets into scope, in the order entered. Empty = everything allowed.
+	Allow []string `json:"allow"`
+	// Rules that take targets out of scope, in the order entered. Deny wins over allow.
+	Deny []string `json:"deny"`
+}
+
+func (ScopePreset) IsNode() {}
 
 // Build and runtime facts about the running instance.
 type ServerInfo struct {

@@ -80,6 +80,29 @@ enum ErrorCode {
 }
 
 """
+A named HTTPQL query that other queries reference as `preset:"Name"` or
+`preset:alias`. A reference is resolved by exact name first, then by alias.
+References may nest (up to depth 8) but must not form a cycle.
+"""
+type FilterPreset implements Node {
+  """
+  Optional short reference name, unique among filter presets: lowercase
+  letters, digits, `-` and `_`, starting with a letter or digit
+  (`[a-z0-9][a-z0-9_-]*`). Null when the preset has none.
+  """
+  alias: String
+  id: ID!
+
+  """Display name: trimmed, 1-200 characters, unique among filter presets."""
+  name: String!
+
+  """
+  The HTTPQL text, trimmed and non-empty. May itself reference other presets.
+  """
+  query: String!
+}
+
+"""
 A captured or sent HTTP request with its response, if any. Edited records
 (F-HIST-4): when Intercept or Match & Replace changes a request or its response,
 the changed exchange is stored as a new record whose `editedFrom` is the
@@ -239,10 +262,44 @@ scalar Int64
 """Mutations. Other schema files extend this type."""
 type Mutation {
   """
+  Creates a filter preset, placed last in preset order. `name`, `alias` and
+  `query` are trimmed; an empty or null `alias` means none.
+  
+  Errors:
+  - `BAD_INPUT`: `name` empty or longer than 200 characters; `alias` not of the
+    form `[a-z0-9][a-z0-9_-]*`; `query` empty; the project already has 1000
+    filter presets.
+  - `CONFLICT`: another filter preset has this name, or this alias.
+  - `BAD_QUERY` (with `extensions.span` into `query`): `query` does not parse,
+    references a preset that does not exist, would create a reference cycle,
+    or nests references deeper than 8 levels.
+  """
+  createFilterPreset(alias: String, name: String!, query: String!): FilterPreset!
+
+  """
   Creates a project. `name` is trimmed and must not be empty (`BAD_INPUT`).
   When `select` is true the new project also becomes the selected one.
   """
   createProject(name: String!, select: Boolean! = false): Project!
+
+  """
+  Creates a scope preset, placed last in preset order.
+  
+  Errors:
+  - `BAD_INPUT`: `name` empty or longer than 200 characters after trimming;
+    more than 1000 entries in `allow` or in `deny`; an entry that does not
+    follow the rule syntax (the message quotes the offending entry, e.g.
+    `scope entry "example.com:99999": bad port "99999"`).
+  - `CONFLICT`: another scope preset already has this name (exact match after trimming).
+  """
+  createScopePreset(allow: [String!]! = [], deny: [String!]! = [], name: String!): ScopePreset!
+
+  """
+  Deletes a preset and returns its ID. Presets that reference it are kept;
+  queries that reach the dangling reference then fail with `BAD_QUERY`.
+  `NOT_FOUND` for an unknown ID.
+  """
+  deleteFilterPreset(id: ID!): ID!
 
   """
   Deletes a project and its directory, returning its ID. Deleting the selected
@@ -262,16 +319,60 @@ type Mutation {
   deleteRequests(ids: [ID!], query: String, scopeId: ID): Int64!
 
   """
+  Deletes a preset and returns its ID. Pages that had it selected fall back to
+  no scope. `NOT_FOUND` for an unknown ID.
+  """
+  deleteScopePreset(id: ID!): ID!
+
+  """
   Copies a project's data into a new, unselected project. `name` defaults to the
   source name with a " (copy)" suffix. `NOT_FOUND` for an unknown ID.
   """
   duplicateProject(id: ID!, name: String): Project!
 
   """
+  Copies a preset's rules into a new preset named `<name> (copy)`, or
+  `<name> (copy 2)`, `(copy 3)`, … when that name is taken (the source name is
+  cut to 150 characters first). The copy is placed last. `NOT_FOUND` for an
+  unknown ID.
+  """
+  duplicateScopePreset(id: ID!): ScopePreset!
+
+  """
+  Adds the presets of an `exportFilterPresets` document, appended in file
+  order, and returns how many were added. A preset whose name already exists
+  is skipped (not counted, not changed). All or nothing: on any error nothing
+  is added. Imported presets may reference each other in any order.
+  
+  Errors:
+  - `BAD_INPUT`: not valid JSON of that shape; `version` other than 1; more than
+    1000 presets in the file or in the project afterwards; any preset failing
+    the `createFilterPreset` field rules.
+  - `CONFLICT`: a new preset's alias is already used.
+  - `BAD_QUERY` (with `extensions.span` into that preset's query): a new
+    preset's query does not parse, references a missing preset, or forms a cycle.
+  """
+  importFilterPresets(json: String!): Int!
+
+  """
   Renames a project and, if it was temporary, saves it. `name` is trimmed and
   must not be empty (`BAD_INPUT`). `NOT_FOUND` for an unknown ID.
   """
   renameProject(id: ID!, name: String!): Project!
+
+  """
+  Sets the preset order and returns all presets in the new order. `ids` must
+  list every current filter preset exactly once: a missing, extra, unknown or
+  repeated ID is `BAD_INPUT` and nothing changes.
+  """
+  reorderFilterPresets(ids: [ID!]!): [FilterPreset!]!
+
+  """
+  Sets the preset order and returns all presets in the new order. `ids` must
+  list every current scope preset exactly once: a missing, extra, unknown or
+  repeated ID is `BAD_INPUT` and nothing changes.
+  """
+  reorderScopePresets(ids: [ID!]!): [ScopePreset!]!
 
   """
   Selects a project: the old project's database is closed, the new one opened,
@@ -299,6 +400,21 @@ type Mutation {
   `NOT_FOUND` for an unknown ID. Emits `requestUpdated`.
   """
   setRequestNote(id: ID!, note: String): HttpRequest!
+
+  """
+  Replaces a preset's name, alias and query; its position is kept. Same
+  validation and errors as `createFilterPreset` (a preset keeping its own name
+  or alias is not a conflict). Renaming or re-aliasing does not rewrite other
+  presets that reference the old name. `NOT_FOUND` for an unknown ID.
+  """
+  updateFilterPreset(alias: String, id: ID!, name: String!, query: String!): FilterPreset!
+
+  """
+  Replaces a preset's name and both rule lists; its position is kept. Same
+  validation and errors as `createScopePreset` (a preset keeping its own name
+  is not a conflict). `NOT_FOUND` for an unknown ID.
+  """
+  updateScopePreset(allow: [String!]!, deny: [String!]!, id: ID!, name: String!): ScopePreset!
 }
 
 """
@@ -400,6 +516,21 @@ type Query {
   """The selected project. There is always one."""
   currentProject: Project!
 
+  """
+  All filter presets as a JSON document, in preset order, for download:
+  `{"version":1,"presets":[{"name":"…","alias":"…","query":"…"}, …]}`
+  (`alias` is omitted when null). `importFilterPresets` reads the same format.
+  """
+  exportFilterPresets: String!
+
+  """One filter preset, or null if no preset has this ID."""
+  filterPreset(id: ID!): FilterPreset
+
+  """
+  All filter presets of the selected project, in preset order (see `reorderFilterPresets`). Not paginated.
+  """
+  filterPresets: [FilterPreset!]!
+
   """One project, or null if no project has this ID."""
   project(id: ID!): Project
 
@@ -427,6 +558,14 @@ type Query {
   neither, `first: 100` is used. Default sort: ID ascending.
   """
   requests(after: String, before: String, first: Int, last: Int, query: String, scopeId: ID, sort: RequestSort): HttpRequestConnection!
+
+  """One scope preset, or null if no preset has this ID."""
+  scopePreset(id: ID!): ScopePreset
+
+  """
+  All scope presets of the selected project, in preset order (see `reorderScopePresets`). Not paginated.
+  """
+  scopePresets: [ScopePreset!]!
 
   """
   Facts about the running instance; also used by the UI as a liveness probe.
@@ -554,6 +693,40 @@ type RequestsDeleted {
   IDs of deleted requests; one deletion is reported in batches of at most 1000 IDs.
   """
   ids: [ID!]!
+}
+
+"""
+A named scope: which targets count as "in scope". A target is in scope when no
+`deny` rule matches it and either `allow` is empty or an `allow` rule matches
+it (deny wins over allow).
+
+Rule syntax (each entry of `allow` and `deny`): `host[:port][/path]`.
+- `host` is a glob, case-insensitive: `*` matches any run of characters
+  (including none and including dots), `?` exactly one. Examples:
+  `example.com`, `*.example.com`, `api.*.example.org`. Non-ASCII labels are
+  matched in punycode. IPv6 literals are bracketed: `[::1]`, `[::1]:8443`.
+- `:port` (optional) is 1-65535; without it every port matches.
+- `/path` (optional) is a case-sensitive prefix of the request path; without it
+  every path matches. `example.com/api` matches `/api` and `/api/v1`.
+Surrounding whitespace is trimmed. Entries are stored as given.
+
+The same preset filters stored traffic (`requests(scopeId)`, see
+history.graphqls) and live traffic, with identical results.
+"""
+type ScopePreset implements Node {
+  """
+  Rules that bring targets into scope, in the order entered. Empty = everything allowed.
+  """
+  allow: [String!]!
+
+  """
+  Rules that take targets out of scope, in the order entered. Deny wins over allow.
+  """
+  deny: [String!]!
+  id: ID!
+
+  """Display name: trimmed, 1-200 characters, unique among scope presets."""
+  name: String!
 }
 
 """Build and runtime facts about the running instance."""
