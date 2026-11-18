@@ -3,7 +3,7 @@ id: T-010
 title: rawhttp - lenient byte-preserving HTTP/1.x reader and writer
 milestone: M1
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-001]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-010-rawhttp
@@ -76,3 +76,18 @@ spec:
 
 
 ## Review (reviewer)
+
+**Verdict: changes_requested.** `make check` green (Go + web). Diff is inside `paths` (`go.mod`/`go.sum` only gain `x/tools`, needed by the txtar goldens). AC covered by tests, but three real bugs below were reproduced with throwaway tests (since removed).
+
+- [ ] [blocker] internal/rawhttp/read.go:198 — obs-fold CPU DoS. Each fold line does `Value += ...` and re-copies `Raw` (`string(m.raw[curStart:next])`), so it is O(n²). Reproduced: one header + 300 000 lines of `" a
+"` (~0.9 MB, under the 1 MiB head limit) took **9.2 s** in `ReadRequest`. → Accumulate folds in a `[]byte`/`strings.Builder` per header and build `Value`/`Raw` once when the header ends (Raw can simply be `m.raw[curStart:next]` taken at the end). Add a test/benchmark with a large fold block.
+- [ ] [major] internal/rawhttp/message.go:214 — a short `Content-Length` body is not an error. `io.LimitReader` returns clean EOF when the peer closes early. Reproduced: `Content-Length: 10` with 3 bytes sent → `WriteTo` and `Body()` return `nil` error. The proxy would forward a truncated message as complete and reuse the connection. Chunked already returns `io.ErrUnexpectedEOF`. → Wrap the length reader so EOF before `length` bytes yields `io.ErrUnexpectedEOF`; add a test.
+- [ ] [major] internal/rawhttp/builder.go:156-173 — nil-pointer panic. `lineEdited()` is true after `SetMethod/SetTarget` on a *response* (or `SetStatus` on a request is silently ignored), and `startLine()` then does `*b.status` on nil. Reproduced: `resp.Builder().SetMethod("POST").Bytes()` panics. A proxy must not panic on a rewrite rule. → Make `lineEdited()` depend on `m.kind` (request: method/target; response: status/reason), or use `b.m.status` when `b.status == nil`; add tests for the wrong-kind setters.
+- [ ] [minor] internal/rawhttp/read.go:~140-215 — memory amplification: header count is unbounded inside the 1 MiB head. ~350k `a:` lines each allocate a `Header` plus two strings (Name/Value) plus `Raw` copy → tens of MB per message. → Cap header count (e.g. 1000, error `ErrHeadTooLarge`) or make `Header` hold offsets into `raw` instead of copied strings (this would also help the 0-alloc goal).
+- [ ] [minor] internal/rawhttp/read.go:251 — reason phrase is found with `bytes.Index(line, fields[1])`, which matches inside the version if it contains the code (e.g. `HTTP/200 200 OK`). → Compute the offset from the field position (skip the version field first).
+- [ ] [minor] internal/rawhttp/read.go:18 — doc says "Non-positive means capture nothing", but `0` means `DefaultLimits` (`normalized`). → Fix the comment: "negative disables capture; zero means default".
+- [ ] [minor] internal/rawhttp/read.go:~182 — a header name with trailing space (`Transfer-Encoding : chunked`) is kept as name `"Transfer-Encoding "`, so framing ignores it silently while a strict upstream may honour it (smuggling vector). No warning is recorded. → Add a `WarnSpaceBeforeColon`-style warning (and ideally treat the trimmed name as the framing name or error like net/http); add a golden case.
+- [ ] [minor] internal/rawhttp/read.go:107 — a leading empty line before the request line is rejected as `ErrMalformed`. RFC 9112 §2.2 says a server SHOULD ignore at least one leading CRLF, and keep-alive clients send a stray CRLF after a POST body. → Skip one leading blank line (record a warning) or document the decision.
+- [ ] [minor] builder.go:~97 — headers rebuilt without `Raw` always use `\r\n` even when the message used bare LF; the start-line path keeps the original terminator. → Reuse `m.terminator()` for synthesized header lines.
+- [ ] [nit] message.go (`ReadResponse`) — no-body rule omits `CONNECT` 2xx (a tunnel would be read as close-delimited). Fine for T-010 if T-011 handles it; note it in Handoff follow-ups.
+
