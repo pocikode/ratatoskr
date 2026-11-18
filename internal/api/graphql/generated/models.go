@@ -122,6 +122,8 @@ type HTTPResponse struct {
 	BodyLength int64 `json:"bodyLength"`
 	// A slice of the body; same rules as `HttpRequest.body`.
 	Body []byte `json:"body"`
+	// ID of the request this response belongs to; not exposed in the schema.
+	RequestID int64 `json:"-"`
 }
 
 // Mutations. Other schema files extend this type.

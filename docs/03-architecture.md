@@ -140,7 +140,7 @@ Indexes: `requests(host)`, `(created_at)`, `(source)`, `(method)`, `responses(co
 
 - **GraphQL** (gqlgen, schema-first in `internal/api/graphql/schema/*.graphqls`, one file per domain).
   - Pagination: cursor connections (`first/after`, `last/before`) + `totalCount` (cached per query).
-  - Subscriptions via `graphql-transport-ws` protocol on `/api/graphql/ws`: `requestAdded(query)`, `requestUpdated`,
+  - Subscriptions via `graphql-transport-ws` protocol on `/api/graphql/ws`: `requestAdded(query, scopeId)`, `requestUpdated(query, scopeId)`, `requestsDeleted`,
     `interceptQueueChanged`, `wsMessageAdded(streamId)`, `automateProgress(attackId)`, `taskProgress`, `findingAdded`, `logLine`.
   - Errors: GraphQL errors with `extensions.code` + `extensions.span` (`{start, end}` byte offsets, end exclusive) for query errors.
     Codes (enum `ErrorCode` in `base.graphqls`): `BAD_QUERY` (HTTPQL/StreamQL parse or type error, always with `span`),

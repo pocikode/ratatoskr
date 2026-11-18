@@ -74,6 +74,7 @@ type App struct {
 	project *project.Service
 	ca      *ca.Service
 	capture *history.Capture
+	history *history.Service
 	events  events.Bus[history.Event]
 	handler http.Handler
 
@@ -132,6 +133,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		return nil, err
 	}
 
+	a.history = history.NewService(history.ServiceDeps{DB: a.project.DB, Bus: &a.events})
 	a.capture = history.New(history.Deps{DB: a.project.DB, Bus: &a.events, Logger: a.log})
 	a.handler = a.buildHandler(buildInfo(opts.Version, opts.Commit))
 
@@ -292,7 +294,7 @@ func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
 	}
 
 	mux.Handle("/api/", api.NewHandler(api.Options{
-		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now(), Projects: a.project},
+		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now(), Projects: a.project, History: a.history},
 		Auth:      auth,
 		Logger:    a.log,
 		CA:        certs,

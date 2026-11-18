@@ -6,10 +6,12 @@ toolchain go1.27.4
 
 require (
 	github.com/99designs/gqlgen v0.17.98
+	github.com/andybalholm/brotli v1.3.0
 	github.com/chromedp/chromedp v0.7.8
 	github.com/coder/websocket v1.8.15
 	github.com/gorilla/mux v1.7.4
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/klauspost/compress v1.20.4
 	github.com/oklog/ulid v1.3.1
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/vektah/gqlparser/v2 v2.5.64

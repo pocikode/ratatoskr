@@ -96,6 +96,10 @@ unlimited projects/plugins) are **free and unlimited** here.
 - Create / edit / duplicate / delete / reorder presets. Each traffic page has a scope selector (none or one preset).
 - "Add to scope" / "Exclude from scope" context actions everywhere a request appears.
 - Intercept and workflows can be limited to the active scope.
+- Filtering stored traffic by a scope (history, sitemap, delete-by-query, live subscriptions) uses the same query path as
+  HTTPQL: the preset becomes `(allow₁ OR … ) AND NOT (deny₁ OR …)` (allow part omitted when the allowlist is empty).
+  One rule = `req.host` glob (`*` any run, `?` one char; case-insensitive) AND `req.port` (if set) AND `req.path` prefix
+  (if set; case-sensitive, like the in-memory matcher). SQL result and in-memory `Matcher.InScope` must agree.
 
 ### F-FILTER-1 Filter presets
 - Preset = `{name, alias (lowercase-kebab), query}`. CRUD + import/export JSON.
