@@ -74,10 +74,9 @@ func sitemapChild(children map[string]*sitemapEntry, id sitemapID, parent *strin
 	key := id.encode()
 	n := children[key]
 	if n == nil {
-		n = &sitemapEntry{SitemapNode: SitemapNode{
+		n = &sitemapEntry{
 			ID: key, ParentID: parent, Kind: kind, Label: label, URL: url,
-			Host: id.Host, Port: id.Port, TLS: id.TLS,
-		}, identity: id, children: make(map[string]*sitemapEntry)}
+			Host: id.Host, Port: id.Port, TLS: id.TLS, identity: id, children: make(map[string]*sitemapEntry)}
 		children[key] = n
 	}
 	return n
@@ -251,6 +250,8 @@ func (id sitemapID) query() string {
 	}
 	q += " and req.path.regex:" + sitemapLiteral(path+"/*$")
 	names := make([]string, len(id.Names))
+	var out strings.Builder
+	out.WriteString(q)
 	for i, name := range id.Names {
 		escaped := regexp.QuoteMeta(name)
 		names[i] = escaped + "(?:=[^&]*)?"
@@ -259,7 +260,8 @@ func (id sitemapID) query() string {
 			names[i] = "=[^&]*"
 			required = "(^|&)="
 		}
-		q += " and req.query.regex:" + sitemapLiteral(required)
+		out.WriteString(" and req.query.regex:")
+		out.WriteString(sitemapLiteral(required))
 	}
-	return q + " and req.query.regex:" + sitemapLiteral("^&*(?:(?:"+strings.Join(names, "|")+")(?:&+|$))+$")
+	return out.String() + " and req.query.regex:" + sitemapLiteral("^&*(?:(?:"+strings.Join(names, "|")+")(?:&+|$))+$")
 }
