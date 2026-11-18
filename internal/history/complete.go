@@ -308,7 +308,7 @@ func (s *Service) presets(ctx context.Context, prefix string) []Completion {
 		return nil
 	}
 
-	rows, err := db.Reader().QueryContext(ctx, `SELECT name, coalesce(alias, '') FROM filter_presets ORDER BY sort_order, name LIMIT ?`, MaxCompletions)
+	rows, err := db.Reader().QueryContext(ctx, `SELECT name, coalesce(alias, '') FROM filter_presets ORDER BY sort_order, name`)
 	if err != nil {
 		return nil
 	}

@@ -1,6 +1,7 @@
 package history
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -153,12 +154,12 @@ func (s *Service) List(ctx context.Context, a PageArgs) (Page, error) {
 		return Page{}, err
 	}
 
-	key, ok := sortKeys[cmpOr(a.Sort.Field, SortID)]
+	field := cmp.Or(a.Sort.Field, SortID)
+
+	key, ok := sortKeys[field]
 	if !ok {
 		return Page{}, apperr.New(apperr.BadInput, "unknown sort field %q", a.Sort.Field)
 	}
-
-	field := cmpOr(a.Sort.Field, SortID)
 
 	f, err := s.filter(ctx, a.Query, a.ScopeID)
 	if err != nil {
@@ -290,13 +291,4 @@ func pageSize(a PageArgs) (n int, backward bool, err error) {
 	}
 
 	return n, backward, nil
-}
-
-func cmpOr[T comparable](v, def T) T {
-	var zero T
-	if v == zero {
-		return def
-	}
-
-	return v
 }

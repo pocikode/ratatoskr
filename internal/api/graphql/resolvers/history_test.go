@@ -2,6 +2,7 @@ package resolvers_test
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"os"
 	"strings"
 	"testing"
@@ -39,6 +40,7 @@ func TestHistoryResolvers(t *testing.T) {
 
 	t.Cleanup(func() { proj.Close() })
 
+	resp := "HTTP/1.1 200 OK\r\n\r\nok"
 	raw := "GET /a HTTP/1.1\r\nHost: a.test\r\n\r\n"
 
 	err = proj.DB().Write(t.Context(), func(tx *sql.Tx) error {
@@ -46,6 +48,13 @@ func TestHistoryResolvers(t *testing.T) {
 			Source: "proxy", Host: "a.test", Port: 80, Method: "GET", Path: "/a",
 			Raw: []byte(raw), BodyOffset: len(raw), CreatedAt: 1000,
 		})
+
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.Exec(`INSERT INTO responses (request_id, code, raw, body_offset, len, roundtrip_ms, created_at)
+			VALUES (1, 200, ?, ?, ?, 5, 2000)`, []byte(resp), len(resp)-2, len(resp))
 
 		return err
 	})
@@ -74,6 +83,14 @@ func TestHistoryResolvers(t *testing.T) {
 	}
 
 	id := list.Requests.Edges[0].Node.ID
+
+	var rsp struct {
+		Request struct{ Response struct{ Head, Body string } }
+	}
+	if err := c.Post(`query($id: ID!) { request(id: $id) { response { head body(offset: 0, limit: 10, decode: true) } } }`, &rsp, client.Var("id", id)); err != nil ||
+		rsp.Request.Response.Head != base64.StdEncoding.EncodeToString([]byte("HTTP/1.1 200 OK\r\n\r\n")) || rsp.Request.Response.Body != base64.StdEncoding.EncodeToString([]byte("ok")) {
+		t.Fatalf("response = %+v, %v", rsp, err)
+	}
 
 	var note struct{ SetRequestNote struct{ Note string } }
 	if err := c.Post(`mutation($id: ID!) { setRequestNote(id: $id, note: " hi ") { note } }`, &note, client.Var("id", id)); err != nil || note.SetRequestNote.Note != "hi" {

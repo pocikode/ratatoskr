@@ -22,7 +22,7 @@ type HistoryService interface {
 	Complete(ctx context.Context, lang history.Language, text string, cursor int) (history.Completions, error)
 	SubscribeAdded(ctx context.Context, query, scopeID *string) (<-chan history.Request, error)
 	SubscribeUpdated(ctx context.Context, query, scopeID *string) (<-chan history.Update, error)
-	SubscribeDeleted(ctx context.Context) <-chan []int64
+	SubscribeDeleted(ctx context.Context) (<-chan []int64, error)
 }
 
 var _ HistoryService = (*history.Service)(nil)
@@ -239,7 +239,7 @@ func (r *mutationResolver) SetRequestNote(ctx context.Context, id string, note *
 		return nil, err
 	}
 
-	req, err := svc.SetNote(ctx, n, cmpDeref(note))
+	req, err := svc.SetNote(ctx, n, deref(note))
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (r *mutationResolver) SetRequestNote(ctx context.Context, id string, note *
 	return toHTTPRequest(req), nil
 }
 
-func cmpDeref(s *string) string {
+func deref(s *string) string {
 	if s == nil {
 		return ""
 	}
@@ -333,7 +333,12 @@ func (r *subscriptionResolver) RequestsDeleted(ctx context.Context) (<-chan *gen
 		return nil, err
 	}
 
-	return forward(ctx, svc.SubscribeDeleted(ctx), func(ids []int64) *generated.RequestsDeleted {
+	ch, err := svc.SubscribeDeleted(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return forward(ctx, ch, func(ids []int64) *generated.RequestsDeleted {
 		return &generated.RequestsDeleted{Ids: formatIDs(ids)}
 	}), nil
 }
@@ -379,7 +384,12 @@ func (r *httpRequestResolver) EditedFrom(ctx context.Context, obj *generated.HTT
 }
 
 func (r *httpRequestResolver) Head(ctx context.Context, obj *generated.HTTPRequest) ([]byte, error) {
-	return r.head(ctx, obj.ID, history.PartRequest)
+	n, err := parseRowID(obj.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return r.head(ctx, n, history.PartRequest)
 }
 
 func (r *httpRequestResolver) Body(ctx context.Context, obj *generated.HTTPRequest, offset int64, limit int, decode bool) ([]byte, error) {
@@ -392,25 +402,20 @@ func (r *httpRequestResolver) Body(ctx context.Context, obj *generated.HTTPReque
 }
 
 func (r *httpResponseResolver) Head(ctx context.Context, obj *generated.HTTPResponse) ([]byte, error) {
-	return r.head(ctx, strconv.FormatInt(obj.RequestID, 10), history.PartResponse)
+	return r.head(ctx, obj.RequestID, history.PartResponse)
 }
 
 func (r *httpResponseResolver) Body(ctx context.Context, obj *generated.HTTPResponse, offset int64, limit int, decode bool) ([]byte, error) {
 	return r.body(ctx, obj.RequestID, history.PartResponse, offset, limit, decode)
 }
 
-func (r *Resolver) head(ctx context.Context, id string, side history.Part) ([]byte, error) {
+func (r *Resolver) head(ctx context.Context, id int64, side history.Part) ([]byte, error) {
 	svc, err := r.history()
 	if err != nil {
 		return nil, err
 	}
 
-	n, err := parseRowID(id)
-	if err != nil {
-		return nil, err
-	}
-
-	return svc.Head(ctx, n, side)
+	return svc.Head(ctx, id, side)
 }
 
 func (r *Resolver) body(ctx context.Context, id int64, side history.Part, offset int64, limit int, decode bool) ([]byte, error) {

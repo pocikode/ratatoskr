@@ -157,6 +157,10 @@ func (s *Service) Delete(ctx context.Context, a DeleteArgs) (int64, error) {
 					deleted = append(deleted, id)
 				}
 
+				if err := rows.Err(); err != nil {
+					return errors.Join(fmt.Errorf("history: select deletions: %w", err), rows.Close())
+				}
+
 				if err := rows.Close(); err != nil {
 					return fmt.Errorf("history: select deletions: %w", err)
 				}

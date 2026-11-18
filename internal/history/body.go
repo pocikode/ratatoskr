@@ -33,8 +33,8 @@ const (
 const (
 	// MaxBodyChunk is the largest limit of [Service.Body] (4 MiB).
 	MaxBodyChunk = 4 << 20
-	// maxDecoded bounds the decoded bytes read to serve one call, so a
-	// decompression bomb cannot stall the server.
+	// maxDecoded bounds the decoded bytes skipped to reach the offset of one
+	// call, so a decompression bomb cannot stall the server.
 	maxDecoded = 256 << 20
 )
 
@@ -88,14 +88,17 @@ func (s *Service) Body(ctx context.Context, id int64, side Part, offset int64, l
 		return nonNil(body), notFound(err, id)
 	}
 
-	var raw []byte
+	var (
+		raw        []byte
+		bodyOffset int
+	)
 
-	err = db.Reader().QueryRowContext(ctx, `SELECT raw FROM `+t+` WHERE `+k+` = ?`, id).Scan(&raw)
+	err = db.Reader().QueryRowContext(ctx, `SELECT raw, body_offset FROM `+t+` WHERE `+k+` = ?`, id).Scan(&raw, &bodyOffset)
 	if err := notFound(err, id); err != nil {
 		return nil, err
 	}
 
-	return decodeWindow(raw, side, offset, limit), nil
+	return decodeWindow(raw, bodyOffset, side, offset, limit), nil
 }
 
 func nonNil(b []byte) []byte {
@@ -118,13 +121,11 @@ func notFound(err error, id int64) error {
 }
 
 // decodeWindow decodes the body of the stored message raw and returns the
-// window [offset, offset+limit) of it. Anything it cannot decode falls back
-// to the stored bytes.
-func decodeWindow(raw []byte, side Part, offset int64, limit int) []byte {
+// window [offset, offset+limit) of it, streaming so memory is O(limit).
+// Anything it cannot decode falls back to the stored bytes.
+func decodeWindow(raw []byte, bodyOffset int, side Part, offset int64, limit int) []byte {
 	stored := func() []byte {
-		_, body, _ := bytes.Cut(raw, []byte("\r\n\r\n")) // fallback only; offsets are exact in the SQL path
-
-		return window(body, offset, limit)
+		return window(raw[min(max(bodyOffset, 0), len(raw)):], offset, limit)
 	}
 
 	br := bufio.NewReader(bytes.NewReader(raw))
@@ -154,9 +155,6 @@ func decodeWindow(raw []byte, side Part, offset int64, limit int) []byte {
 		return stored()
 	}
 
-	// A truncated capture yields what was stored, so the read error is dropped.
-	payload, _ := io.ReadAll(io.LimitReader(m.DecodedBody(), maxDecoded))
-
 	var codings []string
 
 	for _, v := range m.HeaderValues("Content-Encoding") {
@@ -167,20 +165,32 @@ func decodeWindow(raw []byte, side Part, offset int64, limit int) []byte {
 		}
 	}
 
+	r := m.DecodedBody()
+
 	// Codings were applied in order, so they are removed in reverse.
 	for _, coding := range slices.Backward(codings) {
-		next, ok := uncompress(coding, payload)
+		next, closeFn, ok := uncompress(coding, r)
 		if !ok {
-			// shortcut: br and zstd need github.com/andybalholm/brotli and
-			// github.com/klauspost/compress (approved in docs/05, not in
-			// go.mod yet); such bodies are shown as stored.
+			// shortcut: unknown coding or unreadable header: shown as stored.
 			return stored()
 		}
 
-		payload = next
+		defer closeFn()
+
+		r = next
 	}
 
-	return window(payload, offset, limit)
+	// A truncated capture or stream yields what was read, so errors are dropped.
+	if _, err := io.CopyN(io.Discard, r, min(offset, maxDecoded)); err != nil || offset > maxDecoded {
+		return []byte{}
+	}
+
+	out, _ := io.ReadAll(io.LimitReader(r, int64(limit)))
+	if len(out) == 0 && offset == 0 && len(codings) > 0 {
+		return stored() // nothing decodable
+	}
+
+	return out
 }
 
 func window(b []byte, offset int64, limit int) []byte {
@@ -196,43 +206,38 @@ func window(b []byte, offset int64, limit int) []byte {
 	return bytes.Clone(b)
 }
 
-// uncompress decodes one content coding, reading at most maxDecoded bytes. A
-// truncated stream yields what decoded before the cut.
-func uncompress(coding string, data []byte) ([]byte, bool) {
-	var r io.Reader
+// uncompress wraps r with the decoder of one content coding.
+func uncompress(coding string, r io.Reader) (io.Reader, func(), bool) {
+	nop := func() {}
 
 	switch coding {
 	case "gzip", "x-gzip":
-		zr, err := gzip.NewReader(bytes.NewReader(data))
+		zr, err := gzip.NewReader(r)
 		if err != nil {
-			return nil, false
+			return nil, nop, false
 		}
 
-		r = zr
+		return zr, nop, true
 	case "deflate":
 		// HTTP deflate is zlib-wrapped, but some servers send a raw stream.
-		if zr, err := zlib.NewReader(bytes.NewReader(data)); err == nil {
-			r = zr
-		} else {
-			r = flate.NewReader(bytes.NewReader(data))
+		br := bufio.NewReader(r)
+		if h, _ := br.Peek(2); len(h) == 2 && h[0]&0x0f == 8 && (int(h[0])<<8|int(h[1]))%31 == 0 {
+			if zr, err := zlib.NewReader(br); err == nil {
+				return zr, nop, true
+			}
 		}
+
+		return flate.NewReader(br), nop, true
 	case "br":
-		r = brotli.NewReader(bytes.NewReader(data))
+		return brotli.NewReader(r), nop, true
 	case "zstd":
-		zr, err := zstd.NewReader(bytes.NewReader(data), zstd.WithDecoderMaxMemory(maxDecoded))
+		zr, err := zstd.NewReader(r, zstd.WithDecoderMaxMemory(maxDecoded))
 		if err != nil {
-			return nil, false
+			return nil, nop, false
 		}
 
-		defer zr.Close()
-
-		r = zr
-	default:
-		return nil, false
+		return zr, zr.Close, true
 	}
 
-	// Keep the partial output of a truncated stream.
-	out, _ := io.ReadAll(io.LimitReader(r, maxDecoded))
-
-	return out, len(out) > 0 || len(data) == 0
+	return nil, nop, false
 }

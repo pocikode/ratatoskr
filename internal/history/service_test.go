@@ -379,7 +379,10 @@ func TestDeleteByQueryCascades(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	del := e.svc.SubscribeDeleted(ctx)
+	del, err := e.svc.SubscribeDeleted(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Row 8 is an edited copy of row 2 (a.test, 404): it survives with editedFrom null.
 	e.seed(t, seedRow{host: "keep.test", code: 200, editedFrom: 2})
@@ -453,7 +456,10 @@ func TestDeleteBatchesEvents(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	del := e.svc.SubscribeDeleted(ctx)
+	del, err := e.svc.SubscribeDeleted(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if n, err := e.svc.Delete(t.Context(), history.DeleteArgs{Query: new("")}); err != nil || n != total {
 		t.Fatalf("deleted %d, %v", n, err)
@@ -553,6 +559,37 @@ func encode(t *testing.T, coding, s string) string {
 	_ = w.Close()
 
 	return b.String()
+}
+
+func TestBodyDecodeIsStreamed(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+
+	var zipped bytes.Buffer
+
+	zw := gzip.NewWriter(&zipped)
+	chunk := make([]byte, 1<<20)
+
+	for range 64 { // 64 MiB of zeros
+		if _, err := zw.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	zw.Close()
+
+	resp := "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(zipped.Len()) + "\r\n\r\n" + zipped.String()
+	id := e.seed(t, seedRow{code: 200, resp: resp})
+
+	for _, off := range []int64{0, 60 << 20, 64<<20 - 4, 64 << 20} {
+		got, err := e.svc.Body(t.Context(), id, history.PartResponse, off, 16, true)
+		want := min(16, max(0, 64<<20-int(off)))
+
+		if err != nil || len(got) != want || len(bytes.TrimLeft(got, "\x00")) != 0 {
+			t.Errorf("offset %d: len %d (want %d), %v", off, len(got), want, err)
+		}
+	}
 }
 
 func TestHeadAndBody(t *testing.T) {

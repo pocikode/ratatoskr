@@ -67,16 +67,14 @@ func (s *Service) SubscribeUpdated(ctx context.Context, query, scopeID *string) 
 
 // SubscribeDeleted streams the IDs of deleted requests in batches. Closing
 // rules are those of [Service.SubscribeAdded].
-func (s *Service) SubscribeDeleted(ctx context.Context) <-chan []int64 {
-	out, _ := subscribe(ctx, s, nil, nil, func(ctx context.Context, ev Event, _ func(Request) (bool, error), out chan<- []int64) bool {
+func (s *Service) SubscribeDeleted(ctx context.Context) (<-chan []int64, error) {
+	return subscribe(ctx, s, nil, nil, func(ctx context.Context, ev Event, _ func(Request) (bool, error), out chan<- []int64) bool {
 		if ev.Kind != Deleted {
 			return true
 		}
 
 		return send(ctx, out, ev.IDs)
 	})
-
-	return out
 }
 
 func send[T any](ctx context.Context, out chan<- T, v T) bool {
