@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/subtle"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -19,6 +20,10 @@ type Auth struct {
 	Token string
 	// AllowGuests lets clients connecting from a loopback address in without a token.
 	AllowGuests bool
+	// Logger receives failed-login warnings. Nil uses [slog.Default].
+	Logger *slog.Logger
+	// loginLimiter rates the session endpoints; nil uses [defaultLoginLimiter].
+	loginLimiter *loginLimiter
 }
 
 // Required reports whether a token is configured.
@@ -41,9 +46,14 @@ func Authenticated(ctx context.Context) bool {
 	return ok
 }
 
-// Handler rejects every unauthenticated request with 401.
+// Handler rejects every unauthenticated request with 401. The session
+// endpoints are served here instead, without credentials (T-024).
 func (a Auth) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a.serveSession(w, r) {
+			return
+		}
+
 		if !a.allows(r) {
 			unauthorized(w)
 

@@ -181,12 +181,19 @@ Indexes: `requests(host)`, `(created_at)`, `(source)`, `(method)`, `responses(co
   endpoint `/api/graphql/ws` cannot carry custom headers, so it relies on the WebSocket origin check (Origin host must equal
   Host) and, when auth is on, the token.
 - Auth (`--auth-token`, F-WSP-4): HTTP requests present `Authorization: Bearer <token>` or the `ratatoskr_token` cookie
-  (set by the login page, T-024); WS clients send `{"token": "<token>"}` in the `connection_init` payload. Tokens are
-  compared in constant time; the `Bearer` scheme is matched case-insensitively. With `--allow-guests`, clients
-  connecting from a loopback address need no token. Failures are 401 (HTTP) or a WS close with 4401. Only
-  `GET /api/graphql/ws` accepts a WebSocket upgrade without HTTP credentials (the token then must arrive in
+  (obtained from `POST /api/rest/auth/login`, T-024); WS clients send `{"token": "<token>"}` in the `connection_init`
+  payload. Tokens are compared in constant time; the `Bearer` scheme is matched case-insensitively. With
+  `--allow-guests`, clients connecting from a loopback address need no token. Failures are 401 (HTTP) or a WS close with
+  4401. Only `GET /api/graphql/ws` accepts a WebSocket upgrade without HTTP credentials (the token then must arrive in
   `connection_init`); every other `/api/**` route and `/debug/pprof/**` (with `--debug`) need credentials on the request.
   The SPA's static files are always served (they hold no data).
+- Session endpoints (T-024): `POST /api/rest/auth/login` takes JSON `{"token": "…"}` plus the `X-Ratatoskr: 1` header and
+  answers 204 with `ratatoskr_token` on a match, 401 otherwise; `POST /api/rest/auth/logout` expires the cookie (204).
+  Both follow the CSRF rules above and are the only routes besides `/api/graphql/ws` that need no credentials. The cookie
+  value is the token itself (one token per process, compared in constant time — an opaque session id would add state to
+  store, expire and leak without separating anything); attributes are `HttpOnly`, `SameSite=Strict`, `Path=/` and
+  `Secure` when the request arrived over TLS. Failed logins are limited to 5/min per TCP peer IP (429 afterwards; no
+  `X-Forwarded-For` trust) and logged at warn with the IP, never the submitted value.
 - Guests are decided by the TCP peer address. A reverse proxy on the same host makes every client it forwards a loopback
   peer, so `--allow-guests` must not be combined with one (documented in `--help`; no `X-Forwarded-For` trust).
 - DNS rebinding: when the UI listener is bound to a loopback address, requests whose `Host` (port stripped) is not
