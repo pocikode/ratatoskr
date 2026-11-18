@@ -3,7 +3,7 @@ id: T-090
 title: Wire scope presets and preset expansion into history filtering
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-016, T-018]
 owner: "sinarcloud/deepseek-v4.1-flash-1017"
 branch: task/T-090-history-scope-presets
