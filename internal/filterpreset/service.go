@@ -96,8 +96,16 @@ func get(ctx context.Context, tx *sql.Tx, id int64) (Preset, error) {
 
 // validAlias reports whether s is lowercase-kebab: [a-z0-9][a-z0-9_-]*.
 func validAlias(s string) bool {
-	_, err := httpql.Language.Parse("preset:" + s)
-	return err == nil && !strings.ContainsAny(s, "\"\\ ()") && s == strings.ToLower(s)
+	for i := range len(s) {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || i > 0 && (c == '-' || c == '_') {
+			continue
+		}
+
+		return false
+	}
+
+	return s != ""
 }
 
 func clean(p Preset) (Preset, error) {
@@ -121,9 +129,11 @@ func clean(p Preset) (Preset, error) {
 // is the id, so name and alias of one preset count as one in cycle checks.
 func lookup(all []Preset) query.PresetLookup {
 	return func(ref string) (string, string, bool) {
-		for _, p := range all {
-			if p.Name == ref || p.Alias != "" && p.Alias == ref {
-				return strconv.FormatInt(p.ID, 10), p.Query, true
+		for _, byName := range []bool{true, false} {
+			for _, p := range all {
+				if byName && p.Name == ref || !byName && p.Alias != "" && p.Alias == ref {
+					return strconv.FormatInt(p.ID, 10), p.Query, true
+				}
 			}
 		}
 
@@ -345,6 +355,8 @@ func (s *Service) Import(ctx context.Context, data []byte) (added int, err error
 			return err
 		}
 
+		n := len(all)
+
 		// Insert first, then validate the whole set: imported presets may
 		// reference each other in any order.
 		for _, p := range f.Presets {
@@ -354,6 +366,10 @@ func (s *Service) Import(ctx context.Context, data []byte) (added int, err error
 
 			if slices.ContainsFunc(all, func(o Preset) bool { return o.Name == p.Name }) {
 				continue
+			}
+
+			if len(all) >= maxPresets {
+				return apperr.New(apperr.BadInput, "at most %d presets per project", maxPresets)
 			}
 
 			if p.Alias != "" && slices.ContainsFunc(all, func(o Preset) bool { return o.Alias == p.Alias }) {
@@ -373,7 +389,8 @@ func (s *Service) Import(ctx context.Context, data []byte) (added int, err error
 			added++
 		}
 
-		for _, p := range all {
+		// Only new rows: an old preset left dangling by Delete must not block imports.
+		for _, p := range all[n:] {
 			if _, err := Expand(p.Query, all); err != nil {
 				return err
 			}

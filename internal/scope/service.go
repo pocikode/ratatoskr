@@ -213,9 +213,19 @@ func (s *Service) Duplicate(ctx context.Context, id int64) (out Preset, err erro
 			return err
 		}
 
-		out = Preset{Name: src.Name + " (copy)", Allow: src.Allow, Deny: src.Deny}
-		for i := 2; nameTaken(ctx, tx, out.Name, 0) != nil; i++ {
-			out.Name = src.Name + " (copy " + strconv.Itoa(i) + ")"
+		base := string([]rune(src.Name)[:min(utf8.RuneCountInString(src.Name), 150)])
+		out = Preset{Name: base + " (copy)", Allow: src.Allow, Deny: src.Deny}
+		for i := 2; ; i++ {
+			err := nameTaken(ctx, tx, out.Name, 0)
+			if err == nil {
+				break
+			}
+
+			if apperr.CodeOf(err) != apperr.Conflict {
+				return err
+			}
+
+			out.Name = base + " (copy " + strconv.Itoa(i) + ")"
 		}
 
 		a, d, err := encode(out)

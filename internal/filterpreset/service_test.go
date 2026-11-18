@@ -45,6 +45,7 @@ func TestValidation(t *testing.T) {
 		{"upper alias", filterpreset.Preset{Name: "x", Alias: "Ab", Query: "row.id.gt:1"}, apperr.BadInput},
 		{"space alias", filterpreset.Preset{Name: "x", Alias: "a b", Query: "row.id.gt:1"}, apperr.BadInput},
 		{"quote alias", filterpreset.Preset{Name: "x", Alias: `a"b`, Query: "row.id.gt:1"}, apperr.BadInput},
+		{"comment alias", filterpreset.Preset{Name: "x", Alias: "a//b", Query: "row.id.gt:1"}, apperr.BadInput},
 		{"bad query", filterpreset.Preset{Name: "x", Query: "req.nope.eq:1"}, apperr.BadQuery},
 		{"unknown ref", filterpreset.Preset{Name: "x", Query: "preset:ghost"}, apperr.BadQuery},
 		{"self ref", filterpreset.Preset{Name: "x", Alias: "xx", Query: "preset:xx"}, apperr.BadQuery},
@@ -174,5 +175,29 @@ func TestImportExportRoundTrip(t *testing.T) {
 	fwd := `{"version":1,"presets":[{"name":"Dep","query":"preset:first"},{"name":"First","alias":"first","query":"row.id.gt:1"}]}`
 	if n, err := dst.Import(ctx, []byte(fwd)); err != nil || n != 2 {
 		t.Errorf("forward ref import = %d, %v", n, err)
+	}
+}
+
+func TestImportIgnoresDanglingExisting(t *testing.T) {
+	t.Parallel()
+
+	s, ctx := newService(t), t.Context()
+
+	a, err := s.Create(ctx, filterpreset.Preset{Name: "A", Alias: "a", Query: "row.id.gt:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Create(ctx, filterpreset.Preset{Name: "B", Query: "preset:a"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Delete(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.Import(ctx, []byte(`{"version":1,"presets":[{"name":"C","query":"row.id.gt:2"}]}`))
+	if err != nil || n != 1 {
+		t.Fatalf("Import = %d, %v; want 1, nil", n, err)
 	}
 }

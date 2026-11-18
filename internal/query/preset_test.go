@@ -26,6 +26,11 @@ func TestExpandPresets(t *testing.T) {
 	}
 	chain["p8"] = `req.method.eq:"GET"`
 
+	bomb := map[string]string{"p7": `row.id.gt:1`}
+	for i := range 7 {
+		bomb["p"+string(rune('0'+i))] = strings.Repeat("preset:p"+string(rune('1'+i))+" OR ", 9) + "row.id.gt:1"
+	}
+
 	tests := []struct {
 		name    string
 		query   string
@@ -44,6 +49,7 @@ func TestExpandPresets(t *testing.T) {
 		{"depth 8 ok", `preset:p1`, chain, `req.method.eq:"GET"`, ""},
 		{"depth 9 rejected", `preset:p0`, chain, "", "deeper than 8"},
 		{"bad preset query", `preset:a`, map[string]string{"a": `req.nope.eq:1`}, "", `preset "a"`},
+		{"fan-out bomb rejected", `preset:p0`, bomb, "", "expand more than"},
 		{"empty preset", `preset:a`, map[string]string{"a": ` `}, "", "is empty"},
 	}
 

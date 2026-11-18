@@ -10,6 +10,10 @@ import (
 // MaxPresetDepth is how deeply preset: references may nest (docs/04 §4).
 const MaxPresetDepth = 8
 
+// maxPresetExpansions caps total preset: substitutions per call, so fan-out
+// cannot grow exponentially within the depth limit.
+const maxPresetExpansions = 1000
+
 // PresetLookup resolves a preset name or alias. key identifies the preset
 // (for example its id) so a name and its alias are recognised as one preset
 // when detecting cycles; src is its query text.
@@ -20,10 +24,10 @@ type PresetLookup func(ref string) (key, src string, ok bool)
 // spanning the top-level preset: node that caused them, because spans of
 // nested presets point into other texts.
 func ExpandPresets(lang *core.Language, n core.Node, lookup PresetLookup) (core.Node, error) {
-	return expand(lang, n, lookup, nil, nil)
+	return expand(lang, n, lookup, nil, nil, new(int))
 }
 
-func expand(lang *core.Language, n core.Node, lookup PresetLookup, stack []string, top *core.Span) (core.Node, error) {
+func expand(lang *core.Language, n core.Node, lookup PresetLookup, stack []string, top *core.Span, budget *int) (core.Node, error) {
 	switch n := n.(type) {
 	case *core.Preset:
 		sp := n.Loc
@@ -44,6 +48,10 @@ func expand(lang *core.Language, n core.Node, lookup PresetLookup, stack []strin
 			return nil, &core.Error{Span: sp, Msg: fmt.Sprintf("presets nested deeper than %d levels", MaxPresetDepth)}
 		}
 
+		if *budget++; *budget > maxPresetExpansions {
+			return nil, &core.Error{Span: sp, Msg: fmt.Sprintf("presets expand more than %d times", maxPresetExpansions)}
+		}
+
 		sub, err := lang.Parse(src)
 		if err != nil {
 			return nil, &core.Error{Span: sp, Msg: fmt.Sprintf("preset %q: %v", n.Name, err)}
@@ -53,13 +61,13 @@ func expand(lang *core.Language, n core.Node, lookup PresetLookup, stack []strin
 			return nil, &core.Error{Span: sp, Msg: fmt.Sprintf("preset %q is empty", n.Name)}
 		}
 
-		return expand(lang, sub, lookup, append(stack, key), &sp)
+		return expand(lang, sub, lookup, append(stack, key), &sp, budget)
 	case *core.And:
-		return binary(lang, n.L, n.R, lookup, stack, top, func(l, r core.Node) core.Node { return &core.And{L: l, R: r, Loc: n.Loc} })
+		return binary(lang, n.L, n.R, lookup, stack, top, budget, func(l, r core.Node) core.Node { return &core.And{L: l, R: r, Loc: n.Loc} })
 	case *core.Or:
-		return binary(lang, n.L, n.R, lookup, stack, top, func(l, r core.Node) core.Node { return &core.Or{L: l, R: r, Loc: n.Loc} })
+		return binary(lang, n.L, n.R, lookup, stack, top, budget, func(l, r core.Node) core.Node { return &core.Or{L: l, R: r, Loc: n.Loc} })
 	case *core.Not:
-		x, err := expand(lang, n.X, lookup, stack, top)
+		x, err := expand(lang, n.X, lookup, stack, top, budget)
 		if err != nil {
 			return nil, err
 		}
@@ -70,13 +78,13 @@ func expand(lang *core.Language, n core.Node, lookup PresetLookup, stack []strin
 	return n, nil
 }
 
-func binary(lang *core.Language, l, r core.Node, lookup PresetLookup, stack []string, top *core.Span, mk func(l, r core.Node) core.Node) (core.Node, error) {
-	el, err := expand(lang, l, lookup, stack, top)
+func binary(lang *core.Language, l, r core.Node, lookup PresetLookup, stack []string, top *core.Span, budget *int, mk func(l, r core.Node) core.Node) (core.Node, error) {
+	el, err := expand(lang, l, lookup, stack, top, budget)
 	if err != nil {
 		return nil, err
 	}
 
-	er, err := expand(lang, r, lookup, stack, top)
+	er, err := expand(lang, r, lookup, stack, top, budget)
 	if err != nil {
 		return nil, err
 	}
