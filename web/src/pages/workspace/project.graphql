@@ -1,0 +1,59 @@
+# Operations behind the Workspace page and the project switcher (T-009).
+
+fragment ProjectFields on Project {
+  id
+  name
+  isTemporary
+  isDefault
+  isSelected
+  createdAt
+  lastOpenedAt
+  dbSizeBytes
+}
+
+query Projects {
+  projects {
+    ...ProjectFields
+  }
+}
+
+mutation CreateProject($name: String!, $select: Boolean! = false) {
+  createProject(name: $name, select: $select) {
+    ...ProjectFields
+  }
+}
+
+mutation RenameProject($id: ID!, $name: String!) {
+  renameProject(id: $id, name: $name) {
+    ...ProjectFields
+  }
+}
+
+mutation DuplicateProject($id: ID!, $name: String) {
+  duplicateProject(id: $id, name: $name) {
+    ...ProjectFields
+  }
+}
+
+mutation DeleteProject($id: ID!) {
+  deleteProject(id: $id)
+}
+
+mutation SetDefaultProject($id: ID) {
+  setDefaultProject(id: $id) {
+    ...ProjectFields
+  }
+}
+
+mutation SelectProject($id: ID!) {
+  selectProject(id: $id) {
+    ...ProjectFields
+  }
+}
+
+subscription ProjectChanged {
+  projectChanged {
+    kind
+    projectId
+  }
+}

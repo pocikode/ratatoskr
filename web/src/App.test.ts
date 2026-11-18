@@ -88,7 +88,9 @@ describe('app shell', () => {
     await user.keyboard('{Enter}');
     expect(window.location.hash).toBe('#/replay');
     expect(await screen.findByRole('heading', { level: 1, name: 'Replay' })).toBeVisible();
-    await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('combobox', { name: 'Search commands' })).not.toBeInTheDocument(),
+    );
   });
 
   it('switches theme from the user menu', async () => {
