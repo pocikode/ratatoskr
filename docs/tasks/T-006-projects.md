@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -157,3 +157,21 @@ No unchecked finding is fixable inside this task's `paths`. Nothing changed in c
 - **Lead** (minor): record `settings["project.temporary"]` in docs/03 §5.1, or schedule a migration adding `projects.is_temporary`.
 - **Lead** (nit): `project.graphqls` `projectChanged` doc should say the server may end the subscription and clients must resubscribe and refetch `projects`.
 Set `status: changes_requested` (or `in_review`) once the lead amends `paths`.
+
+### Round 5 — reviewer (claude-code, opus 5.5), 2026-11-18
+**Scope check**: The lead commit `0c75bf6` (docs/03 §5.1, `project.graphqls` doc, generated `exec.go` via `make gen`, T-011/T-027 notes, `paths` amendment) is lead-owned and fine. Implementer commit `5dacb5a` touches `internal/project/**`, `internal/app/app.go`, `internal/app/app_test.go`, `internal/store/migrations/instance/0002_projects.sql` and this file, which are all inside the amended `paths`. It also touches **`cmd/ratatoskr/main.go`** (1 line, `app.New(ctx, …)`), which is **not** in `paths`.
+**`make check`**: green (exit 0; vet, golangci-lint, `go test -race`, svelte-check, eslint, prettier, vitest 50/50). **`make test-int`**: green (exit 0; a store migration changed). I also ran `go test -race -count=3 ./internal/{project,app,store} ./internal/api/graphql/resolvers ./cmd/...` uncached, and it passed.
+
+**Lead decisions verified**
+- Migration `0002_projects.sql` rebuilds `projects` as STRICT with `AUTOINCREMENT` + `is_temporary`, copies rows, drops and renames. No FK or index referenced the old table (`0001_init.sql:6-13`), so nothing is lost. Inserting explicit ids into an AUTOINCREMENT table seeds `sqlite_sequence` with the max id, so ids from before the upgrade can't be reused either. It runs inside the migration's `BEGIN IMMEDIATE` transaction.
+- `project.temporary` settings handling is gone (`loadTemp`/`saveTemp` removed; no references remain). `Rename` clears `is_temporary`, `SetDefault` reads `r.temp`, and `tempIDs` queries `WHERE is_temporary = 1`. `TestIDsAreNeverReused` actually tells the two behaviours apart: without AUTOINCREMENT, the new id would equal the deleted one.
+- App wiring: `openStores` runs `store.OpenInstance` and then `project.Open`, and `Deps.Projects` is passed (`app.go:272`). `Close` closes the project service, then instance.db, then the data dir, joining the errors. A partial failure in `New` runs `Close`. `TestProjectsAreWired` (no NOT_IMPLEMENTED, a temp project is listed) and `TestCloseRemovesTemporaryProject` cover the lead's request.
+- The schema doc for subscription end and the §5.1 docs are done by the lead. The round 1 minor and nit for the lead are now resolved.
+
+**Findings**
+- [ ] [major] cmd/ratatoskr/main.go:82 — this file is outside `paths` (hard rule 1). The Handoff says "approved by operator", but neither the front-matter `paths` nor the lead decisions record that approval, and an in-lane alternative exists. → Do one of these: (a) lead/operator adds `cmd/ratatoskr/main.go` to `paths` with a dated note, the same way `resolver.go` was handled, and then this can be approved with no code change; or (b) implementer reverts `main.go`, keeps `New(opts)` and opens the stores with `context.Background()` plus `//nolint:contextcheck // T-006: opening the DBs must not be cancelled by the caller`.
+- [ ] [nit] internal/app/app.go:74-76 — the doc comment puts a long parenthetical into the first sentence (one line of about 190 chars), and it's hard to read. → `// New prepares an instance: it rejects options that are not implemented yet, creates the data dir (0700), opens instance.db and the project service, and builds the UI/API handler.` and then a second paragraph: `// ctx only carries values; a cancelled ctx does not abort opening the databases.`
+- [ ] [nit] internal/store/migrations/instance/0002_projects.sql — no test upgrades a v1 instance.db that has rows (rows kept, `is_temporary = 0`, next id > max old id). No release has shipped, so the risk is low. → Add the test in a store-owned follow-up (`internal/store` is outside this task's `paths`), or note it as a follow-up in the Handoff.
+- [ ] [nit] docs/tasks/T-006-projects.md:43,57,65-66 — Plan/Handoff still say the temporary flag is in `settings["project.temporary"]`, that `app.go` is not wired, and that IDs are reused. All three are now false, and only Round 5 says otherwise. → Edit the Handoff "What changed" and "Limitations" bullets so they match the current state (strike through or remove the resolved items).
+
+**Verdict: changes_requested.** The code is correct and every AC is covered and green, including the integration tests. The only blocker is the out-of-`paths` edit to `cmd/ratatoskr/main.go`. It needs a recorded `paths` amendment (then approve without another code round) or a switch to the in-lane alternative.
