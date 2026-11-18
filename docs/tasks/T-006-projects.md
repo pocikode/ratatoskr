@@ -3,7 +3,7 @@ id: T-006
 title: Projects service and GraphQL contract
 milestone: M0
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-005, T-007]
 owner: "claude-code (sonnet 5.5)"
 branch: task/T-006-projects
@@ -71,14 +71,23 @@ The schema part (`project.graphqls`) is added by the lead in T-007's follow-up c
 
 **Findings**
 - [ ] [major] internal/api/graphql/resolvers/resolver.go:28 — this file is outside `paths`, so editing it breaks hard rule 1 (the rule calls for an automatic changes_requested). The implementer flagged it openly, and the one-field change is the smallest one possible. → Lead: either add `internal/api/graphql/resolvers/resolver.go` to this task's `paths` after the fact, or ask for the change to be reverted and moved to a lead commit. In the same pass, add `internal/app/app.go` to `paths` or open a follow-up task to wire `project.Open` / `Deps.Projects` / `Close()`. Until then F-WSP-1 is not usable end to end.
-- [ ] [minor] internal/api/graphql/resolvers/project.go:87 — `//nolint:nilerr` has a reason but no task id (hard rule 7 needs both). → `//nolint:nilerr // T-006: a non-numeric ID names no project: null, not an error`.
-- [ ] [minor] internal/project/project.go:384-385 — `Deleted` is emitted even when `removeProject` fails inside the registry transaction, so the row still exists but clients drop it. → Emit only once the row is deleted. For example, split `removeProject` into a DB step and a directory step, emit after the DB step succeeds, and still return any `RemoveAll` error.
-- [ ] [minor] internal/project/project.go:333 — Duplicate calls `createLocked`, which emits `CREATED` (with `DBSize` 0) before the data is copied. If the copy fails, the rollback emits no `DELETED`, so subscribers keep a phantom project. → Emit `Deleted` in the rollback path, or skip the event in `createLocked` here and emit `Created` after `copyData` succeeds (preferred: it also reports the right `DBSize`).
-- [ ] [minor] internal/project/project.go:545 — `openDB` uses `OpenRoot(dirOf(id))` without making sure the directory exists. If someone removes the default project's directory by hand, `Open` fails and the app won't start. → `s.root.MkdirAll(dirOf(id), 0o700)` before `OpenRoot` (an empty project.db is then created), and add a test.
+- [x] [minor] internal/api/graphql/resolvers/project.go:87 — `//nolint:nilerr` has a reason but no task id (hard rule 7 needs both). → `//nolint:nilerr // T-006: a non-numeric ID names no project: null, not an error`.
+  - **Reply (round 2)**: Fixed: nolint now carries T-006.
+- [x] [minor] internal/project/project.go:384-385 — `Deleted` is emitted even when `removeProject` fails inside the registry transaction, so the row still exists but clients drop it. → Emit only once the row is deleted. For example, split `removeProject` into a DB step and a directory step, emit after the DB step succeeds, and still return any `RemoveAll` error.
+  - **Reply (round 2)**: Fixed: `removeRow` split out; `Deleted` emitted only after the row is gone, RemoveAll error still returned.
+- [x] [minor] internal/project/project.go:333 — Duplicate calls `createLocked`, which emits `CREATED` (with `DBSize` 0) before the data is copied. If the copy fails, the rollback emits no `DELETED`, so subscribers keep a phantom project. → Emit `Deleted` in the rollback path, or skip the event in `createLocked` here and emit `Created` after `copyData` succeeds (preferred: it also reports the right `DBSize`).
+  - **Reply (round 2)**: Fixed: Duplicate uses `createQuiet`, emits `Created` after copy with real DBSize.
+- [x] [minor] internal/project/project.go:545 — `openDB` uses `OpenRoot(dirOf(id))` without making sure the directory exists. If someone removes the default project's directory by hand, `Open` fails and the app won't start. → `s.root.MkdirAll(dirOf(id), 0o700)` before `OpenRoot` (an empty project.db is then created), and add a test.
+  - **Reply (round 2)**: Fixed: `openDB` MkdirAll first; test `TestOpenRecreatesMissingDefaultDir`.
 - [ ] [minor] internal/project/project.go:37 — the temporary flag is kept in `settings["project.temporary"]` because §5.1 `projects` has no such column. That's a storage design choice the spec doesn't cover. It's documented in Plan/Handoff, but the spec still disagrees. → Lead: either accept it and note the key in docs/03 §5.1, or schedule a migration adding `projects.is_temporary` and switch over.
 - [ ] [nit] internal/api/graphql/schema/project.graphqls:104 — the service ends a subscription when its client falls 64 events behind (events.go:34), but the schema doesn't say so. A client that isn't expecting this will silently stop getting updates. → Lead: add "the server may end this subscription; clients must resubscribe and refetch `projects`" to the field doc.
-- [ ] [nit] internal/project/events.go:62 — when a subscriber is dropped for falling behind, its `context.AfterFunc` registration stays alive until ctx ends. It's harmless (`remove` is idempotent) but leaks for long-lived contexts. → Keep the `stop` func returned by `AfterFunc` next to the channel in `subs` and call it from `emit`/`closeAll`.
+- [x] [nit] internal/project/events.go:62 — when a subscriber is dropped for falling behind, its `context.AfterFunc` registration stays alive until ctx ends. It's harmless (`remove` is idempotent) but leaks for long-lived contexts. → Keep the `stop` func returned by `AfterFunc` next to the channel in `subs` and call it from `emit`/`closeAll`.
+  - **Reply (round 2)**: Fixed: AfterFunc `stop` kept in `subs`, called on overflow/closeAll.
 
 **Notes (no action)**: The `os.Root` use is sound: project dirs are numeric IDs, and the only absolute paths go to the SQLite driver, the same as in `store.open`. SQL is fully parameterized. `VACUUM INTO` over a separate read-only connection is correct with WAL, and it's tested with uncommitted-to-file WAL data. Context propagation is fine, and the rollback/Close paths correctly use `WithoutCancel`/`Background`. Fan-out holds the hub mutex only for non-blocking sends. The code is clean and idiomatic (`errors.AsType`, `encoding/json/v2`, `context.AfterFunc`).
 
 **Verdict: changes_requested.** The one major finding is a process issue that the lead can clear by amending `paths` and handling the app wiring. The implementer has one required fix (the nolint task id). Fixing the minors is recommended in the same round, especially the Delete and Duplicate event consistency.
+
+
+### Round 2 — implementer
+Fixed 5 code findings; major (paths/app wiring), spec note (§5.1) and schema doc nit remain lead decisions. `make check` green.

@@ -669,3 +669,34 @@ func TestProjectDirsAreIsolated(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestOpenRecreatesMissingDefaultDir(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	s := e.open(t)
+
+	p, err := s.Create(t.Context(), "Work", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.SetDefault(t.Context(), &p.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.root.RemoveAll("projects/" + strconv.FormatInt(p.ID, 10)); err != nil {
+		t.Fatal(err)
+	}
+
+	s2 := e.open(t)
+
+	cur, err := s2.Current(t.Context())
+	if err != nil || cur.ID != p.ID {
+		t.Fatalf("current = %+v, err = %v; want project %d", cur, err, p.ID)
+	}
+}

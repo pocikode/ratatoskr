@@ -330,7 +330,7 @@ func (s *Service) Duplicate(ctx context.Context, id int64, name string) (Project
 		return Project{}, err
 	}
 
-	dst, err := s.createLocked(ctx, name, false)
+	dst, err := s.createQuiet(ctx, name, false)
 	if err != nil {
 		return Project{}, err
 	}
@@ -342,6 +342,14 @@ func (s *Service) Duplicate(ctx context.Context, id int64, name string) (Project
 
 		return Project{}, fmt.Errorf("project: duplicate %d: %w", id, err)
 	}
+
+	// Re-read so the event carries the copied database size.
+	dst, err = s.Get(ctx, dst.ID)
+	if err != nil {
+		return Project{}, err
+	}
+
+	s.hub.emit(Change{Kind: Created, ProjectID: dst.ID, Project: &dst})
 
 	return dst, nil
 }
@@ -381,10 +389,13 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 		}
 	}
 
-	rmErr := s.removeProject(ctx, id)
+	if err := s.removeRow(ctx, id); err != nil {
+		return fmt.Errorf("project: delete %d: %w", id, err)
+	}
+
 	s.hub.emit(Change{Kind: Deleted, ProjectID: id})
 
-	if rmErr != nil {
+	if rmErr := s.root.RemoveAll(dirOf(id)); rmErr != nil {
 		return fmt.Errorf("project: delete %d: %w", id, rmErr)
 	}
 
@@ -542,6 +553,10 @@ func (s *Service) selectLocked(ctx context.Context, id int64) (Project, error) {
 
 // openDB opens (creating) a project's project.db.
 func (s *Service) openDB(ctx context.Context, id int64) (*store.DB, error) {
+	if err := s.root.MkdirAll(dirOf(id), 0o700); err != nil {
+		return nil, err
+	}
+
 	sub, err := s.root.OpenRoot(dirOf(id))
 	if err != nil {
 		return nil, err
@@ -552,6 +567,18 @@ func (s *Service) openDB(ctx context.Context, id int64) (*store.DB, error) {
 }
 
 func (s *Service) createLocked(ctx context.Context, name string, temp bool) (Project, error) {
+	p, err := s.createQuiet(ctx, name, temp)
+	if err != nil {
+		return Project{}, err
+	}
+
+	s.hub.emit(Change{Kind: Created, ProjectID: p.ID, Project: &p})
+
+	return p, nil
+}
+
+// createQuiet creates the row and directory without emitting [Created].
+func (s *Service) createQuiet(ctx context.Context, name string, temp bool) (Project, error) {
 	var id int64
 
 	err := s.inst.Write(ctx, func(tx *sql.Tx) error {
@@ -594,14 +621,7 @@ func (s *Service) createLocked(ctx context.Context, name string, temp bool) (Pro
 		return Project{}, fmt.Errorf("project: create directory: %w", err)
 	}
 
-	p, err := s.Get(ctx, id)
-	if err != nil {
-		return Project{}, err
-	}
-
-	s.hub.emit(Change{Kind: Created, ProjectID: id, Project: &p})
-
-	return p, nil
+	return s.Get(ctx, id)
 }
 
 func (s *Service) emitUpdated(ctx context.Context, id int64) (Project, error) {
@@ -618,7 +638,16 @@ func (s *Service) emitUpdated(ctx context.Context, id int64) (Project, error) {
 // removeProject deletes the registry row and the directory of id. It does not
 // emit events and tolerates missing pieces.
 func (s *Service) removeProject(ctx context.Context, id int64) error {
-	err := s.inst.Write(ctx, func(tx *sql.Tx) error {
+	if err := s.removeRow(ctx, id); err != nil {
+		return err
+	}
+
+	return s.root.RemoveAll(dirOf(id))
+}
+
+// removeRow deletes the registry row (and temporary mark) of id.
+func (s *Service) removeRow(ctx context.Context, id int64) error {
+	return s.inst.Write(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id); err != nil {
 			return err
 		}
@@ -636,11 +665,6 @@ func (s *Service) removeProject(ctx context.Context, id int64) error {
 
 		return saveTemp(ctx, tx, temp)
 	})
-	if err != nil {
-		return err
-	}
-
-	return s.root.RemoveAll(dirOf(id))
 }
 
 // purgeLeftovers deletes temporary projects a crashed run left behind and

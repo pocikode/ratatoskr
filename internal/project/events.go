@@ -37,7 +37,7 @@ func (s *Service) Subscribe(ctx context.Context) <-chan Change {
 
 type hub struct {
 	mu   sync.Mutex
-	subs map[chan Change]struct{}
+	subs map[chan Change]func() bool
 	done bool
 }
 
@@ -53,13 +53,21 @@ func (h *hub) subscribe(ctx context.Context) <-chan Change {
 	}
 
 	if h.subs == nil {
-		h.subs = map[chan Change]struct{}{}
+		h.subs = map[chan Change]func() bool{}
 	}
 
-	h.subs[ch] = struct{}{}
+	h.subs[ch] = func() bool { return false }
 	h.mu.Unlock()
 
-	context.AfterFunc(ctx, func() { h.remove(ch) })
+	stop := context.AfterFunc(ctx, func() { h.remove(ch) })
+
+	h.mu.Lock()
+	if _, ok := h.subs[ch]; ok {
+		h.subs[ch] = stop
+	} else {
+		stop()
+	}
+	h.mu.Unlock()
 
 	return ch
 }
@@ -78,10 +86,11 @@ func (h *hub) emit(c Change) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for ch := range h.subs {
+	for ch, stop := range h.subs {
 		select {
 		case ch <- c:
 		default:
+			stop()
 			delete(h.subs, ch)
 			close(ch)
 		}
@@ -94,7 +103,8 @@ func (h *hub) closeAll() {
 
 	h.done = true
 
-	for ch := range h.subs {
+	for ch, stop := range h.subs {
+		stop()
 		delete(h.subs, ch)
 		close(ch)
 	}

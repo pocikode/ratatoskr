@@ -84,7 +84,7 @@ func (r *queryResolver) Project(ctx context.Context, id string) (*generated.Proj
 
 	n, err := parseProjectID(id)
 	if err != nil {
-		return nil, nil //nolint:nilerr // an ID that is no number names no project: null, not an error
+		return nil, nil //nolint:nilerr // T-006: an ID that is no number names no project: null, not an error
 	}
 
 	p, err := svc.Get(ctx, n)
