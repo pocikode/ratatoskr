@@ -3,9 +3,9 @@ id: T-092
 title: Scope and filter preset resolvers, app wiring, scope reorder
 milestone: M1
 role: backend
-status: todo
+status: in_review
 depends_on: [T-091, T-090]  # serialized: both own internal/app
-owner: ""
+owner: "claude-sonnet-5-5"
 branch: task/T-092-scope-filter-resolvers
 paths:
   - internal/api/graphql/resolvers/scope*.go
@@ -43,11 +43,15 @@ The T-091 contract works end to end: resolvers over `scope.Service` and `filterp
 - Carry T-018's open review items here if cheap: name-before-alias test, preset name in import BAD_QUERY message.
 
 ## Plan (implementer, ≤15 lines)
+1. Migration 0002 adds `scope_presets.sort_order` (= id for existing rows); List orders by it, Create/Duplicate append last.
+2. `scope.Service.Reorder` (BAD_INPUT on missing/extra/duplicate/unknown, transactional).
+3. Thin resolvers `scope.go`/`filter.go` over `ScopeService`/`FilterService` interfaces; nil dep → NOT_IMPLEMENTED; stubs deleted.
+4. Wire both services in `internal/app`. Tests through the real handler + migration test.
 
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
+- What changed: migration 0002, `scope.Service.Reorder`, scope/filter resolvers (stubs removed), `Deps.Scopes/Filters`, app wiring, tests (`presets_test.go`, scope service tests incl. migration order).
+- How to verify: `make check`, `make test-int`.
+- Known limitations: `app_test.go` unchanged (wiring covered by the resolver tests, not an app-level test). Unparsable IDs in reorder are BAD_INPUT, in get/update/delete NOT_FOUND. T-018 carry-overs (name-before-alias test, preset name in import BAD_QUERY message) not done; filterpreset is outside this task's paths.
 - Follow-ups (proposed tasks):

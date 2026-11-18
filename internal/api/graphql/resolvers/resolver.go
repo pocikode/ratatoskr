@@ -28,6 +28,10 @@ type Deps struct {
 	Projects ProjectService
 	// History serves the history operations; nil reports NOT_IMPLEMENTED.
 	History HistoryService
+	// Scopes serves the scope preset operations; nil reports NOT_IMPLEMENTED.
+	Scopes ScopeService
+	// Filters serves the filter preset operations; nil reports NOT_IMPLEMENTED.
+	Filters FilterService
 }
 
 // Resolver is the root resolver.
