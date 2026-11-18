@@ -3,7 +3,7 @@ id: T-016
 title: History service and resolvers with live filtered subscriptions
 milestone: M1
 role: backend
-status: in_progress
+status: blocked
 depends_on: [T-011, T-013, T-015]
 owner: "claude-code/sonnet-5.5"
 branch: task/T-016-history-service
@@ -20,9 +20,9 @@ Implement the T-013 contract: cursor pagination with sort, query+scope filtering
 and `requestAdded` subscriptions filtered server-side with the evaluator.
 
 ## Acceptance criteria
-- [ ] Pagination stable under concurrent inserts (cursor = sort key + id).
-- [ ] Subscription filter uses evaluator; slow subscriber gets `stale` resync instead of blocking capture (test).
-- [ ] Delete-by-query deletes responses/headers too (FK cascade) and returns count.
+- [x] Pagination stable under concurrent inserts (cursor = sort key + id). `TestListCursorSurvivesConcurrentInserts`, `TestListPagesAreConsistentForEverySort` (service level).
+- [x] Subscription filter uses evaluator; slow subscriber gets `stale` resync instead of blocking capture (test). `TestSubscribeAddedFiltersWithEvaluator`, `TestSlowSubscriberIsResyncedNotBlocking` (service level).
+- [x] Delete-by-query deletes responses/headers too (FK cascade) and returns count. `TestDeleteByQueryCascades` (service level).
 
 ## Plan (implementer, ≤15 lines)
 Scope decision (operator): stay in `paths`; whatever needs edits outside them is recorded below and the task ends `blocked`.
@@ -43,5 +43,17 @@ Scope decision (operator): stay in `paths`; whatever needs edits outside them is
 - `docs/03-architecture.md §6`: list `requestUpdated(query, scopeId)`/`requestsDeleted` (already noted by T-013).
 
 ## Handoff (implementer)
+- Status: **blocked** on the out-of-scope items above. The operator chose "stay in lane": everything inside `paths` is done, the GraphQL resolvers (`resolvers/history*.go`) are not, because they cannot reach the service without the `Deps.History` field and the `HttpResponse` request ID. `stubs_history.go` is untouched and still returns `NOT_IMPLEMENTED`.
+- What changed (`internal/history`, `make check` green):
+  - `service.go` `Service`/`NewService(ServiceDeps{DB, Bus, Scope})`, domain `Request`/`ResponseInfo`, `Get`; query+scope → `httpql.Compile` (`core.Error` → `BAD_QUERY` with span).
+  - `list.go` `List(PageArgs)`: keyset cursor (base64url JSON of sort field, key, id), all 16 sort fields via never-NULL key expressions, `first/after` and `last/before`, `hasNext/hasPrevious`, `Total`.
+  - `body.go` `Head`, `Body(offset, limit ≤ 4 MiB, decode)`: raw window in SQL; decode re-parses with `rawhttp` (chunked) + stdlib gzip/deflate, capped at 256 MiB decoded.
+  - `mutate.go` `SetColor`, `SetNote`, `Delete(ids | query)` (one tx, FK cascade, `Deleted` events in batches ≤ 1000 IDs).
+  - `subscribe.go` `SubscribeAdded/Updated/Deleted`: filter with `httpql.Eval`; a stale marker from `events.Bus` closes the stream (resolver ends the subscription, client refetches).
+  - `complete.go` `Complete(lang, text, cursor)`: namespaces, fields, operators, closed value sets, distinct project values (top 50), presets; never errors on text.
+  - `capture.go`: `Event` gained `Deleted` kind and `IDs` (backward compatible).
+- How to verify: `go test -race ./internal/history`, `go test ./internal/history -fuzz FuzzComplete -fuzztime 15s`, `make check`.
+- Limitations: `totalCount` is an uncached `count(*)` per page (`shortcut:` in list.go). `br`/`zstd` decode needs the approved compression deps in go.mod (shown as stored until then). `scopeId` always yields `NOT_FOUND` until T-018 provides `ServiceDeps.Scope`. `preset:` in queries is not expanded (BAD_QUERY) until the preset backend lands. Subscriptions do not follow a project switch. Colour is stored as the enum name (`RED`), so `req.color.eq:"RED"`.
+- Follow-ups: lead applies the out-of-scope items; then `resolvers/history.go` maps `history.Service` onto the generated types (ID parse, `Colors`↔`RequestColor`, cursor passthrough, `NotFound` → null for `request(id)`), deletes `stubs_history.go`, and `internal/app` builds `history.NewService`.
 
 ## Review (reviewer)

@@ -62,16 +62,20 @@ type Entry struct {
 type Kind uint8
 
 // Event kinds. A stored exchange publishes Added, then Updated when it already
-// carries a response.
+// carries a response. Updated also announces a new colour or note; Deleted
+// announces removed requests.
 const (
 	Added Kind = iota + 1
 	Updated
+	Deleted
 )
 
-// Event announces a stored request.
+// Event announces a stored, changed or deleted request.
 type Event struct {
 	Kind      Kind
 	RequestID int64
+	// IDs are the removed requests of a Deleted event (at most MaxPage).
+	IDs []int64
 }
 
 // Deps are the inputs to [New].
