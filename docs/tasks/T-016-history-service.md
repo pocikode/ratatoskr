@@ -3,7 +3,7 @@ id: T-016
 title: History service and resolvers with live filtered subscriptions
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-011, T-013, T-015]
 owner: "claude-code/sonnet-5.5"
 branch: task/T-016-history-service
