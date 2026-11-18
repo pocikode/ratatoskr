@@ -1,0 +1,70 @@
+# Conformance corpus for the HTTPQL back-ends (docs/04 §§4-5). One sample
+# message per archive; T-014 checks every query parses, T-015 runs both the
+# SQL compiler and the evaluator and requires the expected result.
+#
+# request, response: exact wire bytes as one Go-quoted string.
+# meta: "key: value" lines for what the wire does not carry: host (no port),
+#   port, tls, created_at (RFC3339), roundtrip (ms), id, source, color, note,
+#   edited. Empty value means empty string.
+# cases: "true|false<TAB>query"; blank lines and lines starting with # skip.
+#
+# Semantics pinned here: req.len/resp.len are the raw message length;
+# header["X"] matches header names ASCII case-insensitively; req.query has no
+# leading "?"; req.ext includes the dot and is empty when the path has none; a
+# message without a body has an empty body, so negated operators match it.
+-- meta --
+host: api.example.com
+port: 8080
+tls: false
+created_at: 2024-06-01T23:59:59Z
+roundtrip: 250
+id: 2
+source: replay
+color: red
+note: check auth flow
+edited: true
+-- request --
+"POST /api/v1/login HTTP/1.1\r\nHost: api.example.com:8080\r\nContent-Type: application/json\r\nX-Request-ID: 7f3a\r\nContent-Length: 38\r\n\r\n{\"user\":\"admin\",\"password\":\"Secret!1\"}"
+-- response --
+"HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nWWW-Authenticate: Bearer realm=\"api\"\r\nContent-Length: 31\r\n\r\n{\"error\":\"invalid credentials\"}"
+-- cases --
+true	req.method.eq:"POST"
+true	req.host.eq:"api.example.com"
+false	req.host.cont:":8080"
+true	req.port.eq:8080
+false	req.tls.eq:true
+true	req.path.eq:"/api/v1/login"
+true	req.query.eq:""
+true	req.ext.eq:""
+true	req.body.cont:"\"user\":\"admin\""
+true	req.body.like:"{%}"
+true	req.body.regex:"\"password\":\"[^\"]+\""
+true	req.raw.cont:"\x7b\x22user"
+true	req.header["Content-Type"].eq:"application/json"
+true	req.header["x-request-id"].eq:"7f3a"
+true	req.header.name.regex:"^X-"
+false	req.header.name.eq:"Authorization"
+true	req.len.eq:169
+false	req.len.lt:169
+true	req.created_at.gte:"2024-06-01 23:59:59"
+true	req.created_at.lt:"2024-06-02T01:00:00+01:00"
+false	req.created_at.gt:"Sat, 01 Jun 2024 23:59:59 GMT"
+true	resp.code.eq:401
+true	resp.code.gte:400 AND resp.code.lt:500
+false	resp.code.eq:"200"
+true	resp.len.eq:150
+true	resp.roundtrip.gte:250
+false	resp.roundtrip.gt:250
+true	resp.header["WWW-Authenticate"].cont:"bearer"
+true	resp.body.cont:"invalid credentials"
+true	resp.body.nlike:"%success%"
+true	resp.raw.cont:"401 Unauthorized"
+true	"admin"
+true	"INVALID"
+true	row.id.eq:2
+true	source:replay
+true	req.color.eq:"red"
+false	req.color.eq:"Red"
+true	req.note.cont:"AUTH"
+true	req.edited.eq:true
+true	NOT (req.tls.eq:true OR resp.code.lt:400)

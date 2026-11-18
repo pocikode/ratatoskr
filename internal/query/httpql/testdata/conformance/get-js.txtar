@@ -1,0 +1,113 @@
+# Conformance corpus for the HTTPQL back-ends (docs/04 §§4-5). One sample
+# message per archive; T-014 checks every query parses, T-015 runs both the
+# SQL compiler and the evaluator and requires the expected result.
+#
+# request, response: exact wire bytes as one Go-quoted string.
+# meta: "key: value" lines for what the wire does not carry: host (no port),
+#   port, tls, created_at (RFC3339), roundtrip (ms), id, source, color, note,
+#   edited. Empty value means empty string.
+# cases: "true|false<TAB>query"; blank lines and lines starting with # skip.
+#
+# Semantics pinned here: req.len/resp.len are the raw message length;
+# header["X"] matches header names ASCII case-insensitively; req.query has no
+# leading "?"; req.ext includes the dot and is empty when the path has none; a
+# message without a body has an empty body, so negated operators match it.
+-- meta --
+host: shop.example.com
+port: 443
+tls: true
+created_at: 2024-03-15T10:30:00Z
+roundtrip: 42
+id: 1
+source: proxy
+color:
+note:
+edited: false
+-- request --
+"GET /static/app.js?v=3&debug=1 HTTP/1.1\r\nHost: shop.example.com\r\nUser-Agent: Mozilla/5.0 Test\r\nAccept: */*\r\nCookie: session=abc123\r\n\r\n"
+-- response --
+"HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\nContent-Length: 20\r\nCache-Control: no-cache\r\n\r\nconsole.log('hello')"
+-- cases --
+# strings: eq/ne case-sensitive, cont/like case-insensitive, regex as written
+true	req.method.eq:"GET"
+false	req.method.eq:"get"
+true	req.method.cont:"get"
+true	req.method.ne:"POST"
+false	req.method.ncont:"GE"
+true	req.host.eq:"shop.example.com"
+true	req.host.like:"%.example.com"
+false	req.host.like:"example.com"
+true	req.host.regex:"^shop\\."
+false	req.host.regex:"^SHOP"
+true	req.host.nregex:"evil"
+true	req.path.eq:"/static/app.js"
+false	req.path.cont:"debug"
+true	req.path.like:"/STATIC/%"
+true	req.path.like:"/static/app._s"
+false	req.path.like:"/static/app.__s"
+true	req.path.nlike:"%.css"
+true	req.query.eq:"v=3&debug=1"
+true	req.query.cont:"DEBUG=1"
+true	req.ext.eq:".js"
+false	req.ext.eq:"js"
+true	req.note.eq:""
+false	req.color.ne:""
+
+# integers, quoted or not
+true	req.port.eq:443
+true	req.port.eq:"443"
+true	req.port.gt:80
+false	req.port.lt:443
+true	req.port.lte:443
+true	req.len.eq:134
+true	resp.len.eq:122
+true	resp.code.eq:200
+false	resp.code.ne:200
+true	resp.code.gte:200 AND resp.code.lt:300
+true	resp.roundtrip.lt:100
+true	row.id.eq:1
+
+# booleans
+true	req.tls.eq:true
+false	req.tls.eq:false
+true	req.tls.ne:false
+true	req.edited.eq:false
+
+# datetimes in every accepted format
+true	req.created_at.gt:"2024-03-15T10:29:59Z"
+false	req.created_at.gt:"2024-03-15T10:30:00Z"
+true	req.created_at.gte:2024-03-15T10:30:00Z
+true	req.created_at.lt:"2024-03-16"
+true	req.created_at.lt:"Fri, 15 Mar 2024 12:00:00 +0100"
+false	req.created_at.lte:"2024-03-15 10:29:59"
+
+# bytes
+true	req.raw.cont:"session=ABC123"
+true	req.body.ncont:"x"
+true	resp.body.cont:"HELLO"
+true	resp.body.regex:"console\\.log\\('[a-z]+'\\)"
+false	resp.body.nregex:"console"
+true	resp.raw.like:"HTTP/1.1 200%"
+
+# headers
+true	req.header["user-agent"].cont:"mozilla"
+true	req.header["Accept"].eq:"*/*"
+false	req.header["X-Missing"].eq:"x"
+true	req.header.name.eq:"Cookie"
+false	req.header.name.eq:"cookie"
+true	req.header.value.like:"session=%"
+true	req.header.cont:"abc123"
+true	resp.header["content-type"].eq:"application/javascript"
+true	resp.header.value.eq:"no-cache"
+
+# source, shorthand, logic
+true	source:proxy
+false	source:replay
+true	"app.js"
+false	"nothing-here"
+true	NOT req.ext.eq:".css"
+true	req.ext.eq:".css" OR req.ext.eq:".js"
+false	req.ext.eq:".css" AND req.ext.eq:".js"
+true	req.method.eq:"POST" AND req.tls.eq:false OR resp.code.eq:200
+false	req.method.eq:"POST" AND (req.tls.eq:false OR resp.code.eq:200)
+true	req.port.eq:443 // comments are ignored

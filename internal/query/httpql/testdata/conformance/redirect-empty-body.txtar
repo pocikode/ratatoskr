@@ -1,0 +1,57 @@
+# Conformance corpus for the HTTPQL back-ends (docs/04 §§4-5). One sample
+# message per archive; T-014 checks every query parses, T-015 runs both the
+# SQL compiler and the evaluator and requires the expected result.
+#
+# request, response: exact wire bytes as one Go-quoted string.
+# meta: "key: value" lines for what the wire does not carry: host (no port),
+#   port, tls, created_at (RFC3339), roundtrip (ms), id, source, color, note,
+#   edited. Empty value means empty string.
+# cases: "true|false<TAB>query"; blank lines and lines starting with # skip.
+#
+# Semantics pinned here: req.len/resp.len are the raw message length;
+# header["X"] matches header names ASCII case-insensitively; req.query has no
+# leading "?"; req.ext includes the dot and is empty when the path has none; a
+# message without a body has an empty body, so negated operators match it.
+-- meta --
+host: legacy.example.org
+port: 80
+tls: false
+created_at: 2023-12-31T23:00:00Z
+roundtrip: 5
+id: 100
+source: automate
+color:
+note:
+edited: false
+-- request --
+"GET /admin HTTP/1.1\r\nHost: legacy.example.org\r\nAuthorization: Basic YWRtaW46YWRtaW4=\r\n\r\n"
+-- response --
+"HTTP/1.1 302 Found\r\nLocation: /login?next=%2Fadmin\r\nContent-Length: 0\r\n\r\n"
+-- cases --
+true	req.method.eq:"GET"
+true	req.path.eq:"/admin"
+true	req.ext.eq:""
+true	req.query.eq:""
+true	req.port.eq:80
+true	req.header["Authorization"].like:"basic %"
+true	req.header.value.cont:"YWRtaW46"
+true	resp.code.eq:302
+true	resp.header["Location"].eq:"/login?next=%2Fadmin"
+# LIKE escape is backslash: \\% in the literal is \% in the pattern
+true	resp.header["location"].like:"/login?next=\\%2Fadmin"
+false	resp.header["location"].like:"/login?next=\\%3Fadmin"
+true	resp.body.nregex:"."
+false	resp.body.cont:"a"
+true	resp.len.eq:73
+true	req.created_at.lt:"2024-01-01T00:00:00Z"
+true	req.created_at.gt:"2023-12-31 22:59:59"
+true	row.id.gte:100
+false	row.id.gt:100
+true	source:automate
+true	"legacy"
+false	req.host.cont:"example.com:"
+true	NOT resp.code.ne:302
+true	resp.code.eq:301 OR resp.code.eq:302 OR resp.code.eq:307
+true	req.tls.eq:false AND NOT req.edited.eq:true
+true	req.raw.regex:"(?i)authorization: basic"
+true	req.raw.cont:"\r\n\r\n"
