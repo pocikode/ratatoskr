@@ -110,7 +110,7 @@ response header 60 s (configurable).
 `settings(key, value_json)`, `projects(id AUTOINCREMENT, name, path, created_at, last_opened_at, is_default, is_temporary)` (IDs are never reused: they are GraphQL node IDs and directory names), `ca(cert_pem, key_pem_enc)`,
 `workflows(id, kind, name, description, enabled, graph_json, shortcut, updated_at)`, `plugins(id, manifest_json, enabled, installed_at)`,
 `plugin_storage(plugin_id, key, value)`, `hosted_files(id, name, size, sha256, path, created_at)`, `env_global(name, value, secret)`,
-`ai_providers(id, kind, base_url, api_key_enc, models_json)`, `shortcuts(command_id, binding)`, `secrets_key` (file, not table).
+`ai_providers(id, kind, base_url, api_key_enc, models_json)`, `shortcuts(command_id, binding)`, `secret.key` (file, not table).
 
 ### 5.2 project.db (main tables)
 ```

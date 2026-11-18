@@ -1,8 +1,9 @@
 // Package app wires a Ratatoskr instance together: configuration, logging, the
 // data dir and the HTTP servers, and runs them until the context is cancelled.
 //
-// The store, the CA and the proxy join in later tasks; they receive their
-// dependencies from App instead of package-level state (docs/03-architecture.md §2).
+// The proxy joins in a later task; the store, the project registry and the CA
+// receive their dependencies from App instead of package-level state
+// (docs/03-architecture.md §2).
 package app
 
 import (
@@ -20,7 +21,9 @@ import (
 	"github.com/pocikode/ratatoskr/internal/api"
 	"github.com/pocikode/ratatoskr/internal/api/graphql/resolvers"
 	"github.com/pocikode/ratatoskr/internal/api/middleware"
+	"github.com/pocikode/ratatoskr/internal/api/rest"
 	"github.com/pocikode/ratatoskr/internal/api/static"
+	"github.com/pocikode/ratatoskr/internal/ca"
 	"github.com/pocikode/ratatoskr/internal/config"
 	"github.com/pocikode/ratatoskr/internal/logging"
 	"github.com/pocikode/ratatoskr/internal/project"
@@ -65,6 +68,7 @@ type App struct {
 	data    *os.Root
 	inst    *store.DB
 	project *project.Service
+	ca      *ca.Service
 	handler http.Handler
 
 	// grace is the shutdown deadline; tests shorten it.
@@ -143,6 +147,13 @@ func (a *App) openStores(ctx context.Context) error {
 	}
 
 	a.project = svc
+
+	caSvc, err := ca.Open(ctx, ca.Deps{Instance: inst, Root: a.data, Logger: a.log})
+	if err != nil {
+		return fmt.Errorf("app: open CA: %w", err)
+	}
+
+	a.ca = caSvc
 
 	return nil
 }
@@ -270,11 +281,28 @@ func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
 		mountDebug(mux, auth)
 	}
 
+	// A nil *ca.Service in the rest.Certificates parameter would be a non-nil
+	// interface, so both mounts are guarded by this one value.
+	var certs rest.Certificates
+	if a.ca != nil {
+		certs = a.ca
+	}
+
 	mux.Handle("/api/", api.NewHandler(api.Options{
 		Resolvers: resolvers.Deps{Build: build, StartedAt: time.Now(), Projects: a.project},
 		Auth:      auth,
 		Logger:    a.log,
+		CA:        certs,
 	}))
+
+	if certs != nil {
+		// F-NET-2 also offers the certificate on the bare origin, where a browser
+		// installs it: http://ratatoskr.localhost/ca.crt.
+		caFiles := rest.CAHandler(certs)
+		mux.Handle("GET /ca.crt", caFiles)
+		mux.Handle("GET /ca.der", caFiles)
+	}
+
 	mux.Handle("/", static.Handler())
 
 	return mux
