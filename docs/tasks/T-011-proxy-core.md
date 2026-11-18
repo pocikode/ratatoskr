@@ -255,3 +255,23 @@ probes outside the lock, and the handoff wording is fixed. Two new problems were
 **Implementer reply (round 4):** both majors addressed; nit 3 (lead's uncommitted spec edits) is the lead's to commit.
 - Upstream writes go through `netx.IdleConn` (per-write idle deadline), then the write deadline is cleared, so 101 tunnels, long uploads and pooled reuse are unaffected. Tests `TestUpgradeClientWriteAfterHeaderTimeout`, `TestSlowUploadOutlastsHeaderTimeout`.
 - `isUIHost` compares the Host IP with the connection's `LocalAddr` (works for `0.0.0.0`/`[::]`); `listenerInfo.ip` removed. Test `TestWildcardListenerServesUIOnLocalIP` (skips without a non-loopback IPv4).
+
+### Re-review (round 5)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: approve**
+
+Scope: all changed files are inside `paths`. The lead's spec edits are now committed on this branch (638ae4e: docs/01, docs/03, docs/08),
+so the carried-over nit is closed. `make check` green (exit 0). `make test-int` green (exit 0). The new tests also pass uncached with
+`-race -count=1`: `TestUpgradeClientWriteAfterHeaderTimeout`, `TestSlowUploadOutlastsHeaderTimeout`, `TestUpgradeSurvivesIdleTimeout`,
+`TestWildcardListenerServesUIOnLocalIP`. The wildcard test really ran on this machine; it did not skip. `TestLoadNoLeakAndLatency` and
+`TestCorpusByteExact` pass too.
+Both round-4 majors are fixed:
+- forward.go:124-125: each upstream write gets an idle deadline, and the deadline is cleared afterwards. So a 101 tunnel or a reused
+  pooled connection does not inherit it. `Pool.Put` still calls `SetIdle(0)`, so the liveness probe is not slowed by an idle read deadline.
+- server.go:400-409: `isUIHost` compares the Host IP with `LocalAddr`, so `0.0.0.0` and `[::]` listeners serve the UI on the address the
+  client used. `listenerInfo.ip` is removed.
+
+Remaining items (none block merge):
+- [ ] [nit] internal/netx/pool.go:193-195 — `var ne net.Error; errors.As(err, &ne)` goes against docs/05 §"Errors"
+  (`errors.AsType`). → `ne, ok := errors.AsType[net.Error](err); return ok && ne.Timeout()`.
+- [ ] [nit] process — This took 5 review rounds. docs/07 allows at most 3 before the lead is involved. The lead did step in after round 2,
+  so no action is needed. This note is only for the record.
