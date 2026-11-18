@@ -3,7 +3,7 @@ id: T-014
 title: HTTPQL-compatible lexer, parser, AST and conformance corpus
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-001]
 owner: "claude-code (opus-5.5)"
 branch: task/T-014-httpql-parser
