@@ -507,6 +507,9 @@ func TestUsage(t *testing.T) {
 		"ratatoskr", "--listen", "--ui-listen", "--data-dir", "--no-open", "--auth-token", "--debug", "--allow-guests",
 		// The repeatable flag still advertises its default.
 		DefaultListen,
+		// T-027: guests are decided by the TCP peer; a same-host reverse proxy
+		// makes every forwarded client a loopback peer.
+		"TCP peer", "reverse proxy",
 	} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("Usage() does not mention %q:\n%s", want, usage)

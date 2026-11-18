@@ -308,7 +308,24 @@ func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
 
 	mux.Handle("/", static.Handler())
 
-	return mux
+	// The Host check wraps the whole mux: /debug/pprof is mounted here rather
+	// than under /api, and the static files hold no data, so one guard covers
+	// every route before CSRF and auth (docs/03-architecture.md §8).
+	return middleware.Hosts(a.hostAllowlist(), mux)
+}
+
+// hostAllowlist is the Host allowlist of the UI/API handler (docs/03-architecture.md
+// §8). It is nil when the listener is not bound to loopback: --auth-token protects
+// that instance instead.
+func (a *App) hostAllowlist() []string {
+	addr := a.cfg.Listen[0]
+	if !isLoopback(addr) {
+		return nil
+	}
+
+	// The configured listen address, plus the name the proxy answers as: a
+	// browser installs the CA at http://ratatoskr.localhost/ca.crt (F-NET-2).
+	return []string{addr, proxy.UIHost}
 }
 
 // buildInfo fills in the defaults for an unstamped binary.
@@ -352,7 +369,7 @@ func isLoopback(addr string) bool {
 
 	ip, err := netip.ParseAddr(host)
 
-	return err == nil && ip.IsLoopback()
+	return err == nil && ip.Unmap().IsLoopback()
 }
 
 // warnIfExposed warns when addr is reachable from the network without
