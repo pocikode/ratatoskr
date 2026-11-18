@@ -369,7 +369,7 @@ func isLoopback(addr string) bool {
 
 	ip, err := netip.ParseAddr(host)
 
-	return err == nil && ip.IsLoopback()
+	return err == nil && ip.Unmap().IsLoopback()
 }
 
 // warnIfExposed warns when addr is reachable from the network without
