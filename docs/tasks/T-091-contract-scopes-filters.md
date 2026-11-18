@@ -3,9 +3,9 @@ id: T-091
 title: Contract - scope presets and filter presets
 milestone: M1
 role: lead
-status: todo
+status: in_progress
 depends_on: [T-018]
-owner: ""
+owner: "claude-code (opus-5.5)"
 branch: task/T-091-contract-scopes-filters
 paths:
   - internal/api/graphql/schema/scope.graphqls
@@ -55,6 +55,15 @@ Follow-up of T-018, whose resolvers could not be written because these schema fi
   names resolved before aliases, ≤ 1000 presets, ≤ 1000 entries per scope list.
 
 ## Plan (implementer, ≤15 lines)
+1. `scope.graphqls`: `ScopePreset` + queries/mutations; docs state rule syntax `host[:port][/path]`, limits and error codes
+   exactly as `internal/scope` (name 1-200 chars trimmed, ≤ 1000 entries per list, `CONFLICT` on duplicate name,
+   duplicate naming "<name> (copy N)"). Reorder documented; its service side lands in T-092.
+2. `filter.graphqls`: `FilterPreset` + CRUD, reorder, export/import as `internal/filterpreset` (alias rule, name-before-alias
+   resolution, cycles → `BAD_QUERY` with span, import all-or-nothing, existing names skipped, ≤ 1000 presets).
+3. `stubs_scope.go` / `stubs_filter.go` return `apperr.ErrNotImplemented`; `make gen`.
+4. `web/src/lib/api/mocks/presets.ts`: in-memory scope + filter preset backend with the same validation/error codes;
+   merge its root into the existing mock exchange; vitest covering list, create, conflict, reorder, export/import.
+5. `make check`, Handoff.
 
 ## Out-of-scope change needed (if any)
 
