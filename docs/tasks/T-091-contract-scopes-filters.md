@@ -3,7 +3,7 @@ id: T-091
 title: Contract - scope presets and filter presets
 milestone: M1
 role: lead
-status: in_progress
+status: in_review
 depends_on: [T-018]
 owner: "claude-code (opus-5.5)"
 branch: task/T-091-contract-scopes-filters
@@ -42,12 +42,12 @@ Follow-up of T-018, whose resolvers could not be written because these schema fi
   WebSocket filter presets (`ws_filter_presets`, later milestone); an "append rule" mutation (UI uses `updateScopePreset`).
 
 ## Acceptance criteria
-- [ ] Every type/field/argument documented, including error codes: `BAD_INPUT` (empty/over-long name, bad rule with the
+- [x] Every type/field/argument documented, including error codes: `BAD_INPUT` (empty/over-long name, bad rule with the
       offending entry, bad alias), `CONFLICT` (duplicate scope name, duplicate filter name/alias), `BAD_QUERY` with span for
       invalid query / preset cycle, `NOT_FOUND` for unknown IDs. Rule syntax and limits stated as in `internal/scope`/`internal/filterpreset`.
-- [ ] `reorder*` documents that `ids` must be exactly the current set (`BAD_INPUT` otherwise).
-- [ ] `make gen` clean; stubs compile; `make check` green.
-- [ ] Mock exchange serves both lists and mutations so T-019 can render with no backend (vitest for the mock).
+- [x] `reorder*` documents that `ids` must be exactly the current set (`BAD_INPUT` otherwise).
+- [x] `make gen` clean; stubs compile; `make check` green.
+- [x] Mock exchange serves both lists and mutations so T-019 can render with no backend (vitest for the mock).
 
 ## Notes from lead
 - Same pattern as `project.graphqls` / `history.graphqls`: extend `Query`/`Mutation`, no new root files.
@@ -68,7 +68,14 @@ Follow-up of T-018, whose resolvers could not be written because these schema fi
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `scope.graphqls` (`ScopePreset`, `scopePresets`/`scopePreset`, create/update/duplicate/delete/reorder) and
+  `filter.graphqls` (`FilterPreset`, `filterPresets`/`filterPreset`/`exportFilterPresets`, create/update/delete/reorder/import),
+  every field documented with rule syntax, limits and error codes taken from `internal/scope` / `internal/filterpreset`.
+  `stubs_scope.go` / `stubs_filter.go` return `ErrNotImplemented`; `make gen` output committed. `mocks/presets.ts` is an
+  in-memory backend for both (seeded with reserved hosts) merged into `mockHistoryExchange`; `presets.test.ts` covers it.
+- How to verify: `make gen && git diff --exit-code` (clean), `make check`, `cd web && bunx --bun vitest run src/lib/api/mocks`.
+- Known limitations: mock rule validation only checks host presence + port range (`shortcut:` comment); mock BAD_QUERY
+  only covers `preset:` references (no HTTPQL parse). History mock still ignores `scopeId`, so T-019's per-preset
+  `requests(scopeId){totalCount}` shows the unscoped total against mocks.
+- Follow-ups (proposed tasks): T-092 must add `scope_presets.sort_order` + `scope.Service.Reorder` (already in its scope);
+  `createScopePreset` defaults `allow`/`deny` to `[]`, which T-092's resolver gets as empty slices.
