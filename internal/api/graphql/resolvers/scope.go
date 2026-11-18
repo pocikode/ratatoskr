@@ -163,7 +163,7 @@ func (r *mutationResolver) DeleteScopePreset(ctx context.Context, id string) (st
 		return "", err
 	}
 
-	return id, s.Delete(ctx, n)
+	return strconv.FormatInt(n, 10), s.Delete(ctx, n)
 }
 
 func (r *mutationResolver) ReorderScopePresets(ctx context.Context, ids []string) ([]generated.ScopePreset, error) {

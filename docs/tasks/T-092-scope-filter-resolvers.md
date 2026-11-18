@@ -3,7 +3,7 @@ id: T-092
 title: Scope and filter preset resolvers, app wiring, scope reorder
 milestone: M1
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-091, T-090]  # serialized: both own internal/app
 owner: "claude-sonnet-5-5"
 branch: task/T-092-scope-filter-resolvers
@@ -54,6 +54,7 @@ The T-091 contract works end to end: resolvers over `scope.Service` and `filterp
 - What changed: migration 0002, `scope.Service.Reorder`, scope/filter resolvers (stubs removed), `Deps.Scopes/Filters`, app wiring, tests (`presets_test.go`, scope service tests incl. migration order).
 - How to verify: `make check`, `make test-int`.
 - Known limitations: `app_test.go` unchanged (wiring covered by the resolver tests, not an app-level test). Unparsable IDs in reorder are BAD_INPUT, in get/update/delete NOT_FOUND. T-018 carry-overs (name-before-alias test, preset name in import BAD_QUERY message) not done; filterpreset is outside this task's paths.
+- Review round 2: test file renamed to scope_filter_test.go, round-trip compares name/alias/query, delete returns normalized ID.
 - Follow-ups (proposed tasks):
 
 ## Review (reviewer)
@@ -74,14 +75,14 @@ Reviewer: claude-opus-5-5 · 2026-11-18 · branch `task/T-092-scope-filter-resol
 
 - Verdict: changes_requested
 - Findings:
-  - [ ] [blocker] internal/api/graphql/resolvers/presets_test.go:1 — this file matches none of the task's `paths`
+  - [x] [blocker] internal/api/graphql/resolvers/presets_test.go:1 — this file matches none of the task's `paths`
     (`scope*.go`, `filter*.go`, …). That breaks hard rule 1. → Rename it to `scope_filter_test.go`, which matches `scope*.go`,
     or split it into `scope_test.go` and `filter_test.go`. No code change is needed.
-  - [ ] [minor] internal/api/graphql/resolvers/presets_test.go:210 — the round-trip check only compares `Name`. The AC says
+  - [x] [minor] internal/api/graphql/resolvers/presets_test.go:210 — the round-trip check only compares `Name`. The AC says
     "the same presets", so an import that dropped `alias` or changed `query` would still pass. → Compare all fields, e.g.
     `slices.EqualFunc(before.FilterPresets, after.FilterPresets, func(x, y fp) bool { return x.Name == y.Name && x.Query == y.Query && deref(x.Alias) == deref(y.Alias) })`.
     You could also just compare the two `exportFilterPresets` strings.
-  - [ ] [nit] internal/api/graphql/resolvers/scope.go:166, internal/api/graphql/resolvers/filter.go:138 — the delete mutations
+  - [x] [nit] internal/api/graphql/resolvers/scope.go:166, internal/api/graphql/resolvers/filter.go:138 — the delete mutations
     return the raw input ID. For `deleteScopePreset(id: "007")`, the response is `"007"` but the deleted preset's ID is `"7"`, so
     a client cache keyed on ID would not evict it. → Return `strconv.FormatInt(n, 10)`.
   - [ ] [nit] internal/scope/service.go:266 — `scope.Reorder` and `filterpreset.Reorder` check input in different ways and return

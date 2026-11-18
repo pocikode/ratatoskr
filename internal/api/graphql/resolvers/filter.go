@@ -135,7 +135,7 @@ func (r *mutationResolver) DeleteFilterPreset(ctx context.Context, id string) (s
 		return "", err
 	}
 
-	return id, s.Delete(ctx, n)
+	return strconv.FormatInt(n, 10), s.Delete(ctx, n)
 }
 
 func (r *mutationResolver) ReorderFilterPresets(ctx context.Context, ids []string) ([]generated.FilterPreset, error) {

@@ -2,6 +2,7 @@ package resolvers_test
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -207,7 +208,10 @@ func TestFilterResolvers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(after.FilterPresets) != 2 || after.FilterPresets[0].Name != before.FilterPresets[0].Name || after.FilterPresets[1].Name != before.FilterPresets[1].Name {
+	same := func(x, y fp) bool {
+		return x.Name == y.Name && x.Query == y.Query && (x.Alias == nil) == (y.Alias == nil) && (x.Alias == nil || *x.Alias == *y.Alias)
+	}
+	if len(after.FilterPresets) != 2 || !slices.EqualFunc(before.FilterPresets, after.FilterPresets, same) {
 		t.Fatalf("round trip: before %+v after %+v", before, after)
 	}
 }
