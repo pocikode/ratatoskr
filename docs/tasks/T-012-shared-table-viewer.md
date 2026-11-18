@@ -3,7 +3,7 @@ id: T-012
 title: Shared TrafficTable (virtualized) and MessageViewer components
 milestone: M1
 role: frontend
-status: in_review
+status: done
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-012-shared-table-viewer
@@ -153,6 +153,7 @@ shows frame drops, swapping in tanstack is a change confined to `TableView.svelt
 - Editable MessageViewer variant + CodeMirror for Replay/Intercept (T-0xx); original/modified switch (F-HIST-4).
 - Hex view over `Uint8Array` once the History data contract carries raw bytes.
 - E2E spec for the gallery and table/viewer keyboard paths with T-021 tooling.
+- TrafficTable: track the cursor by row key (`activeKey`) instead of position, so prepended rows do not move it (review round 3 minor; do it in T-017 / F-HIST-1). Test: prepend a row with `rerender`.
 
 ## Review (reviewer)
 Reviewer: claude-code (reviewer agent) · 2026-11-18 · branch `task/T-012-shared-table-viewer` @ 57efcde
