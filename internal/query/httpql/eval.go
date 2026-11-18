@@ -36,7 +36,10 @@ func Eval(n core.Node, m query.Message) (bool, error) {
 		return Eval(n.R, m)
 	case *core.Not:
 		ok, err := Eval(n.X, m)
-		return !ok, err
+		if err != nil {
+			return false, err
+		}
+		return !ok, nil
 	case *core.Clause:
 		f, ok := fields[n.Namespace+"."+n.Field]
 		if !ok {
@@ -44,6 +47,9 @@ func Eval(n core.Node, m query.Message) (bool, error) {
 		}
 		if f.headers == "" && n.Sub != core.SubNone {
 			return false, &core.Error{Span: n.Loc, Msg: n.Namespace + "." + n.Field + " has no header subfields"}
+		}
+		if err := checkLike(n); err != nil {
+			return false, err
 		}
 		return f.eval(n, m), nil
 	case *core.Source:
@@ -138,9 +144,8 @@ func matchHeaders(c *core.Clause, hs []query.Header) bool {
 	case core.SubValue:
 		match = func(h query.Header) bool { return matchText(op, want, h.Value) }
 	case core.SubKey:
-		key := asciiLower(c.Key)
 		match = func(h query.Header) bool {
-			return asciiLower(h.Name) == key && matchText(op, want, h.Value)
+			return equalFoldASCII(h.Name, c.Key) && matchText(op, want, h.Value)
 		}
 	default:
 		return false

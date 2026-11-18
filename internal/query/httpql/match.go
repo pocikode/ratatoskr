@@ -1,6 +1,24 @@
 package httpql
 
-import "unicode/utf8"
+import (
+	"bytes"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/pocikode/ratatoskr/internal/query/core"
+)
+
+// maxLikePattern is SQLite's SQLITE_MAX_LIKE_PATTERN_LENGTH: a longer pattern
+// fails the SQL query, so both back-ends reject it up front.
+const maxLikePattern = 50000
+
+// checkLike rejects like/nlike clauses SQLite cannot run.
+func checkLike(n *core.Clause) error {
+	if (n.Op == core.Like || n.Op == core.Nlike) && len(n.Value.Str) > maxLikePattern {
+		return &core.Error{Span: n.Loc, Msg: "like pattern is longer than 50000 bytes"}
+	}
+	return nil
+}
 
 // textish is a byte-indexable string or byte slice.
 type textish interface{ ~string | ~[]byte }
@@ -36,7 +54,15 @@ func containsFold[T textish](hay, needle T) bool {
 // likeMatch reports whether s matches pattern with the SQLite LIKE semantics
 // of docs/04 §3: '%' matches any run, '_' exactly one character, '\' escapes
 // the next character, and ASCII letters compare case-insensitively.
+// Like SQLite, which reads both operands as C strings, it ignores everything
+// from the first NUL byte on.
 func likeMatch(pattern string, s []byte) bool {
+	if i := strings.IndexByte(pattern, 0); i >= 0 {
+		pattern = pattern[:i]
+	}
+	if i := bytes.IndexByte(s, 0); i >= 0 {
+		s = s[:i]
+	}
 	var (
 		pat, str         int
 		starPat, starStr = -1, 0
@@ -99,6 +125,20 @@ func lowerASCII(b byte) byte {
 		return b + ('a' - 'A')
 	}
 	return b
+}
+
+// equalFoldASCII reports whether a and b are equal ASCII case-insensitively,
+// without allocating.
+func equalFoldASCII(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range len(a) {
+		if !eqFold(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // asciiLower lowercases the ASCII letters of s, leaving every other byte as it

@@ -207,6 +207,7 @@ func TestMissingResponse(t *testing.T) {
 		{`resp.header["content-type"].eq:"x"`, false},
 		{`resp.header["content-type"].ne:"x"`, true},
 		{`NOT resp.code.eq:0`, false},
+		{`req.header["host"].eq:"example.com"`, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {

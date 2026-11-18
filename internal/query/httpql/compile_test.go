@@ -131,6 +131,11 @@ func TestSQLValuesAreBound(t *testing.T) {
 	}
 }
 
+var longLike = &core.Clause{
+	Namespace: "req", Field: "body", Op: core.Like, Loc: core.Span{End: 9},
+	Value: core.Value{Type: core.Bytes, Str: strings.Repeat("a", maxLikePattern+1)},
+}
+
 func TestCompileErrors(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -143,6 +148,7 @@ func TestCompileErrors(t *testing.T) {
 			Value: core.Value{Type: core.String, Str: "x"},
 		}},
 		{"field", &core.Clause{Namespace: "finding", Field: "title", Loc: core.Span{End: 7}}},
+		{"like-too-long", longLike},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -150,6 +156,10 @@ func TestCompileErrors(t *testing.T) {
 				t.Fatal("compiled an invalid node")
 			}
 		})
+	}
+	// SQLite fails a LIKE pattern over 50,000 bytes; the evaluator must agree.
+	if _, err := Eval(longLike, nil); err == nil {
+		t.Error("Eval accepted a like pattern over 50000 bytes")
 	}
 	if got, err := Compile(nil); err != nil || got.Where != "" || len(got.Args) != 0 {
 		t.Errorf("Compile(nil) = %+v, %v; want an empty fragment", got, err)

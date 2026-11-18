@@ -79,6 +79,9 @@ func (c *compiler) clause(n *core.Clause) error {
 	if !ok {
 		return &core.Error{Span: n.Loc, Msg: fmt.Sprintf("unknown field %s.%s", n.Namespace, n.Field)}
 	}
+	if err := checkLike(n); err != nil {
+		return err
+	}
 	if f.headers != "" {
 		return c.header(n, f)
 	}

@@ -3,7 +3,7 @@ id: T-015
 title: HTTPQL SQL compiler, in-memory evaluator and benchmarks
 milestone: M1
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-014, T-005]
 owner: "opencode (deepseek-v4.1-flash-1017)"
 branch: task/T-015-httpql-sql-eval
@@ -103,8 +103,14 @@ diff empty, vet, golangci-lint 0 issues, `go test -race ./...`, web check + 123 
 - `req.query`/`req.ext`/`req.path` come from the stored columns in SQL and from `Message.Path/Query/Ext` in memory;
   T-016's adapter must derive them from `history.Entry.Target` exactly as storage does (`path.Ext` semantics, no
   leading `?`).
-- Regexes are compiled by the parser (validation) and again in the evaluator cache; an AST built by hand with an
-  invalid pattern simply never matches (both back-ends report the same `false`).
+- Regexes are compiled by the parser (validation) and again in the evaluator cache. A parser-built AST cannot carry
+  an invalid pattern; a hand-built one never matches in the evaluator, while the SQL query fails
+  (`store.compileCached` returns an error).
+- `like`/`nlike` follow SQLite on binary data: both operands are read up to the first NUL byte (`likeMatch` cuts
+  there; corpus `binary-nul.txtar` pins it). `cont`/`regex` see every byte. Seeing the whole binary body with LIKE
+  would need a `blike` SQL function in `internal/store` (spec question, not done).
+- `like`/`nlike` patterns over 50,000 bytes (`SQLITE_MAX_LIKE_PATTERN_LENGTH`) are rejected by both `Compile` and
+  `Eval` with a `*core.Error` on the clause span.
 - Nothing here emits SQL for the WebSocket tables (`ws_messages`): docs/04 §6 SQL is not part of §4/§5.
 
 **Follow-ups**
@@ -113,6 +119,8 @@ diff empty, vet, golangci-lint 0 issues, `go test -race ./...`, web check + 123 
 - T-018: preset expansion before `Compile`/`Eval` (depth 8, cycle-checked).
 - StreamQL SQL compiler over `ws_messages`/`ws_streams` (docs/04 §6) — a separate task.
 - The `funcs.go` LRU nit under "Out-of-scope change needed" above.
+- `containsFold`/`lowerASCII`/`upperASCII`/`boolInt` in `httpql/match.go` duplicate `internal/store/funcs.go`;
+  move them to one shared package used by both (needs `funcs.go` in someone's paths).
 
 ## Review (reviewer)
 Reviewer: Claude Code (reviewer agent), 2026-11-18. Branch `task/T-015-httpql-sql-eval` @ `fed40e6`.
@@ -130,12 +138,22 @@ Reviewer: Claude Code (reviewer agent), 2026-11-18. Branch `task/T-015-httpql-sq
 - Regex LRU 256: `TestRegexpCacheBounded`. OK. (The store-side cache eviction was correctly raised as out of scope.)
 
 **Findings**
-- [ ] [major] internal/query/httpql/compile.go:137-139 + match.go:39 — `req.body`/`req.raw`/`resp.*` `like`/`nlike` give different results on the two back-ends for any body with a NUL byte. SQLite's LIKE reads the value as a C string and stops at the first `\x00`. Probe: `cast(x'62696e00206e6565646c65' AS TEXT) LIKE '%needle%'` → 0 (same bytes without the NUL → 1). `likeMatch` scans all bytes and returns true. Gzip, images and protobuf bodies have NUL bytes all the time. So a live subscription (Eval) shows a row that a reload of the Search page (SQL) hides, and the other way round for `nlike`. → Simplest in-lane fix: make `likeMatch` follow SQLite. At the top, cut `s` and `pattern` at their first NUL (`if i := bytes.IndexByte(s, 0); i >= 0 { s = s[:i] }`, and `strings.IndexByte` for the pattern). Add a corpus case with a NUL in the body (`like` + `nlike`, a needle after the NUL) so both back-ends are pinned. If the product wants LIKE to see the whole binary body, that is a spec question (a `blike` SQL function in `internal/store`): set `blocked` and ask the lead instead of guessing.
-- [ ] [minor] internal/query/httpql/compile.go:111-114,137-139 — a `like` pattern longer than 50,000 bytes (SQLite's `SQLITE_MAX_LIKE_PATTERN_LENGTH`) makes the SQL query fail: `LIKE or GLOB pattern too complex`. The evaluator accepts it, and the parser allows 64 KiB. → In `Compile` (and `Eval`, so both agree), reject `like`/`nlike` values over 50,000 bytes with a `*core.Error` on the clause span. Add one test.
-- [ ] [minor] internal/query/httpql/conformance_backends_test.go:148 — `insertSample` returns before the header loop when there is no response. So an unanswered sample never gets its `request_headers` rows. `TestMissingResponse` gives its sample a `Host` header but never queries `req.header`, so this does not show today. The first such query will fail on the SQL side only. → Insert request headers before the `respRaw == nil` early return. Add `req.header["host"].eq:"example.com"` → true to `TestMissingResponse`.
-- [ ] [minor] internal/query/httpql/match.go:11-122 — `containsFold`, `lowerASCII`, `upperASCII` and `boolInt` copy `internal/store/funcs.go`. Conformance needs both copies to stay the same, and nothing enforces that. → Not fixable inside this task's paths (`functions*.go` does not match `funcs.go`). Record it as a follow-up: one shared package used by both `store` and `httpql`.
-- [ ] [nit] internal/query/httpql/eval.go:37-39 — `Not` returns `(true, err)` when the child fails. A caller that logs the error and still uses the bool lets the message through. → `if err != nil { return false, err }`.
-- [ ] [nit] internal/query/httpql/eval.go:143 — `asciiLower(h.Name)` allocates for every header with a capital letter (almost all of them), per message, per clause. The evaluator runs on the intercept/subscription hot path. → Compare with a small non-allocating ASCII equal-fold (`len(a)==len(b)` + byte loop with `lowerASCII`).
-- [ ] [nit] docs/tasks/T-015-httpql-sql-eval.md:106-107 (Handoff) — "an invalid pattern simply never matches (both back-ends report the same `false`)" is wrong for SQL: `store.compileCached` returns an error, so the query fails. → Fix the sentence (parser-built ASTs cannot hit this).
+- [x] [major] internal/query/httpql/compile.go:137-139 + match.go:39 — `req.body`/`req.raw`/`resp.*` `like`/`nlike` give different results on the two back-ends for any body with a NUL byte. SQLite's LIKE reads the value as a C string and stops at the first `\x00`. Probe: `cast(x'62696e00206e6565646c65' AS TEXT) LIKE '%needle%'` → 0 (same bytes without the NUL → 1). `likeMatch` scans all bytes and returns true. Gzip, images and protobuf bodies have NUL bytes all the time. So a live subscription (Eval) shows a row that a reload of the Search page (SQL) hides, and the other way round for `nlike`. → Simplest in-lane fix: make `likeMatch` follow SQLite. At the top, cut `s` and `pattern` at their first NUL (`if i := bytes.IndexByte(s, 0); i >= 0 { s = s[:i] }`, and `strings.IndexByte` for the pattern). Add a corpus case with a NUL in the body (`like` + `nlike`, a needle after the NUL) so both back-ends are pinned. If the product wants LIKE to see the whole binary body, that is a spec question (a `blike` SQL function in `internal/store`): set `blocked` and ask the lead instead of guessing.
+- [x] [minor] internal/query/httpql/compile.go:111-114,137-139 — a `like` pattern longer than 50,000 bytes (SQLite's `SQLITE_MAX_LIKE_PATTERN_LENGTH`) makes the SQL query fail: `LIKE or GLOB pattern too complex`. The evaluator accepts it, and the parser allows 64 KiB. → In `Compile` (and `Eval`, so both agree), reject `like`/`nlike` values over 50,000 bytes with a `*core.Error` on the clause span. Add one test.
+- [x] [minor] internal/query/httpql/conformance_backends_test.go:148 — `insertSample` returns before the header loop when there is no response. So an unanswered sample never gets its `request_headers` rows. `TestMissingResponse` gives its sample a `Host` header but never queries `req.header`, so this does not show today. The first such query will fail on the SQL side only. → Insert request headers before the `respRaw == nil` early return. Add `req.header["host"].eq:"example.com"` → true to `TestMissingResponse`.
+- [x] [minor] internal/query/httpql/match.go:11-122 — `containsFold`, `lowerASCII`, `upperASCII` and `boolInt` copy `internal/store/funcs.go`. Conformance needs both copies to stay the same, and nothing enforces that. → Not fixable inside this task's paths (`functions*.go` does not match `funcs.go`). Record it as a follow-up: one shared package used by both `store` and `httpql`.
+- [x] [nit] internal/query/httpql/eval.go:37-39 — `Not` returns `(true, err)` when the child fails. A caller that logs the error and still uses the bool lets the message through. → `if err != nil { return false, err }`.
+- [x] [nit] internal/query/httpql/eval.go:143 — `asciiLower(h.Name)` allocates for every header with a capital letter (almost all of them), per message, per clause. The evaluator runs on the intercept/subscription hot path. → Compare with a small non-allocating ASCII equal-fold (`len(a)==len(b)` + byte loop with `lowerASCII`).
+- [x] [nit] docs/tasks/T-015-httpql-sql-eval.md:106-107 (Handoff) — "an invalid pattern simply never matches (both back-ends report the same `false`)" is wrong for SQL: `store.compileCached` returns an error, so the query fails. → Fix the sentence (parser-built ASTs cannot hit this).
 
 **Verdict: changes_requested.** Fix finding 1 (major). Findings 2 and 3 are small and should go in the same pass.
+
+**Implementer response (round 2)**
+1. Fixed in-lane: `likeMatch` cuts pattern and subject at the first NUL, as SQLite does. New corpus
+   `binary-nul.txtar` (15 cases: `like`/`nlike` with a needle after the NUL, plus `cont`/`regex` that see it).
+2. `checkLike` (match.go) rejects `like`/`nlike` > 50,000 bytes in both `Compile` and `Eval`; `TestCompileErrors` covers both.
+3. `insertSample` writes header rows even without a response; `TestMissingResponse` queries `req.header["host"]`.
+4. Recorded as a follow-up in Handoff (needs `internal/store/funcs.go`).
+5. `Not` returns `false` on error.
+6. `SubKey` matching uses non-allocating `equalFoldASCII`.
+7. Handoff sentence corrected.

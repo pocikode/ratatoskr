@@ -1,0 +1,39 @@
+# Conformance corpus for the HTTPQL back-ends (docs/04 §§4-5); format as in
+# get-js.txtar.
+#
+# This archive pins binary bodies: like/nlike follow SQLite, which reads the
+# operand as a C string and stops at the first NUL, while cont and regex see
+# every byte.
+-- meta --
+host: bin.example
+port: 80
+tls: false
+created_at: 2024-06-06T06:06:06Z
+roundtrip: 3
+id: 4
+source: proxy
+color:
+note:
+edited: false
+-- request --
+"POST /upload HTTP/1.1\r\nHost: bin.example\r\nContent-Length: 11\r\n\r\nbin\x00 needle"
+-- response --
+"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: 11\r\n\r\nout\x00 needle"
+-- cases --
+# LIKE stops at the NUL
+false	req.body.like:"%needle%"
+true	req.body.nlike:"%needle%"
+true	req.body.like:"bin"
+true	req.body.like:"bin%"
+false	resp.body.like:"%needle"
+true	resp.body.nlike:"%needle"
+false	req.raw.like:"%needle%"
+true	req.raw.like:"POST /upload%"
+false	resp.raw.like:"%needle%"
+
+# cont and regex see the whole body
+true	req.body.cont:"needle"
+false	req.body.ncont:"needle"
+true	resp.body.cont:"NEEDLE"
+true	req.body.regex:"needle$"
+true	resp.raw.regex:"out.*needle"

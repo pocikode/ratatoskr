@@ -145,15 +145,14 @@ func insertSample(tb testing.TB, db *store.DB, s *sample) {
 			nullIfEmpty(s.color), nullIfEmpty(s.note)); err != nil {
 			return err
 		}
-		if s.respRaw == nil {
-			return nil
-		}
-		if _, err := tx.ExecContext(tb.Context(), `INSERT INTO responses
-			(request_id, code, raw, body_offset, len, roundtrip_ms, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			s.id, s.code, s.respRaw, s.respBodyAt, len(s.respRaw), s.roundtripMS,
-			s.createdAt.UnixMilli()); err != nil {
-			return err
+		if s.respRaw != nil {
+			if _, err := tx.ExecContext(tb.Context(), `INSERT INTO responses
+				(request_id, code, raw, body_offset, len, roundtrip_ms, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				s.id, s.code, s.respRaw, s.respBodyAt, len(s.respRaw), s.roundtripMS,
+				s.createdAt.UnixMilli()); err != nil {
+				return err
+			}
 		}
 		for _, h := range []struct {
 			table   string
