@@ -163,13 +163,3 @@ export const routes: PageRoute[] = [
 export function findRoute(id: string): PageRoute | undefined {
   return routes.find((r) => r.id === id);
 }
-
-// Dev-only component gallery (`#/dev/components`). Not in the production bundle or sidebar.
-if (import.meta.env.DEV) {
-  routes.push({
-    id: 'dev',
-    title: 'Dev components',
-    icon: 'layout-dashboard',
-    load: () => import('../components/TrafficTable/demo/DevComponentsPage.svelte'),
-  });
-}
