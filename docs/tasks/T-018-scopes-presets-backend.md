@@ -34,6 +34,7 @@ Schema for scopes/filters will be added by the lead to `scope.graphqls`/`filter.
 - `scope_presets` has no sort_order column -> reorder of scopes needs a migration (store paths not mine).
 
 ## Out-of-scope change needed (if any)
+<!-- Lead 2026-11-18: schema → T-091, resolvers + scope sort_order migration → T-092. -->
 - Lead: add `internal/api/graphql/schema/scope.graphqls` + `filter.graphqls` (absent on main) so resolvers `scope*.go`/`filter*.go` can be written.
 - Lead: migration `scope_presets.sort_order` for F-SCOPE-1 reorder (internal/store/migrations).
 
