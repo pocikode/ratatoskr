@@ -1,9 +1,15 @@
 name: CI
 
+# Cost policy (T-028): docs-only changes skip CI, draft PRs skip CI,
+# PRs run Linux only, main and manual runs add macOS.
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '*.md']
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore: ['docs/**', '*.md']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,10 +21,11 @@ concurrency:
 jobs:
   check:
     name: make check (${{ matrix.os }})
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     env:
       GOLANGCI_LINT_VERSION: v2.15.0

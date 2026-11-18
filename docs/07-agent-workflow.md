@@ -62,7 +62,9 @@ cd ../ratatoskr-T-014 && claude        # or: opencode
 ## 8. Pull request & merge (operator / lead)
 - When a task reaches `in_review`, the implementer pushes the branch and opens a PR **on our fork only**:
   `gh pr create --repo OWNER/ratatoskr --base main --title "T-014: <title>" --body-file <(sed -n '/## Handoff/,$p' docs/tasks/T-014-*.md)`.
-- CI must be green. The reviewer agent writes findings in the task file (source of truth) and may mirror the summary as a PR comment
+- CI must be green. CI skips docs-only changes (`docs/**`, root `*.md`) and draft PRs, and runs macOS only on `main` or a
+  manual run (`gh workflow run CI --repo OWNER/ratatoskr --ref <branch>`); trigger it manually when a PR is macOS-sensitive.
+  The reviewer agent writes findings in the task file (source of truth) and may mirror the summary as a PR comment
   (`gh pr comment --repo OWNER/ratatoskr`).
 - Operator squash-merges in dependency order (`gh pr merge --repo OWNER/ratatoskr --squash --delete-branch`), sets task `status: done`
   on `main`, removes the worktree: `git worktree remove ../ratatoskr-T-014`. Update roadmap table.

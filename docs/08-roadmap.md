@@ -23,6 +23,7 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 | T-024 | Login/logout REST endpoints setting the auth cookie (follow-up of T-007) | B | T-007 |
 | T-026 | Spec: project rules of `project.graphqls` into docs/01 F-WSP-1 (before T-006) | L | T-007 |
 | T-027 | DNS rebinding Host allowlist on loopback + `--allow-guests` reverse-proxy warning | B | T-007 |
+| T-028 | CI cost trim: skip docs-only and draft PRs, macOS only on `main`/manual | L | T-023 |
 
 ## M1 — Proxy core, History, Query language, Scopes, Sitemap
 
