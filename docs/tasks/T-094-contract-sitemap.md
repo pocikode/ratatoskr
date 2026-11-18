@@ -3,7 +3,7 @@ id: T-094
 title: Contract - sitemap
 milestone: M1
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-013]
 owner: "claude-code (opus-5.5)"
 branch: task/T-094-contract-sitemap
@@ -58,3 +58,37 @@ blocked on the missing `sitemap.graphqls`.
 - Follow-ups: T-020 (backend part, then UI part).
 
 ## Review (reviewer)
+Reviewed `main...HEAD` at `4a09453` by Codex (2026-11-19).
+
+- Scope: all 13 changed files match the task's `paths`. Read the full diff, F-SITE-1, architecture §6,
+  and the connected history schema, mock matcher/deletion flow and HTTPQL parser. The resolver correctly returns
+  `apperr.ErrNotImplemented`; the real derivation and performance benchmark belong to T-020.
+- Verification: `make check` passed (Go fix/vet/lint, race tests, Svelte/TypeScript, ESLint, formatting,
+  34 web test files / 209 tests). The initial sandbox attempt failed with
+  `open /home/agus/.cache/go-build/…: read-only file system`; the authorized rerun passed.
+- `make gen` passed in a temporary copy of HEAD; byte comparison found no changes to tracked files.
+  `git diff --check main...HEAD` passed. A direct mock probe confirmed deleting a host's node query removes
+  exactly its badge count and the host disappears. No proxy/store/rawhttp changes, so `make test-int` was not run.
+
+Findings:
+- [ ] [major] internal/api/graphql/schema/sitemap.graphqls:59 — The prescribed composition
+  `(<node query>) and (<query bar>)` fails for the default empty query bar: the real HTTPQL parser rejects
+  `(req.host.eq:"example.test") and ()` with `query: empty parentheses (at 33-35)`. The mock strips the empty
+  group and accepts it (probe: badge 11, mock count 11), so the current invariant tests conceal the failure.
+  T-020 following this contract would fail to load a selected node's table or delete it with an empty bar.
+  → Document using the node expression alone when the bar is empty/whitespace, and appending the grouped
+  conjunction only for a non-empty bar; update F-SITE-1 and the T-020 invariant guidance consistently and
+  regenerate. Cover empty and non-empty composition against the real parser rather than only the mock matcher.
+- [ ] [minor] web/src/lib/api/mocks/sitemap.ts:72 — Query nodes are appended even when `segs` is empty,
+  although F-SITE-1 and the QUERY enum describe children of path nodes. With two same-host rows
+  `path: "/", query: "x=1"` and `path: "*", query: "x=2"`, the mock returns a HOST → QUERY `?x` with
+  badge 2. Its emitted `req.path.regex:"^/*/*$"` excludes `*`; the registry predicate still counts both,
+  hiding the mismatch between the returned HTTPQL and the badge. → Keep requests without path segments
+  directly on the host as specified; only append query nodes beneath an actual path node. Add a fixture
+  for root and non-origin paths so the mock does not teach T-020 a different tree shape.
+- [ ] [minor] web/src/lib/api/mocks/sitemap.ts:175 — Parent-ID validation accepts any JSON array.
+  Probes with `[]`, `[1]`, and `[true,2,{}]` all return an empty list instead of the documented `BAD_INPUT`.
+  This conflates malformed IDs with well-formed nodes that no longer match. → Validate the mock ID's
+  tuple shape and element types, with tests distinguishing malformed tuples from a valid absent node.
+
+Verdict: **changes_requested** (1 major, 2 minor). Task status set accordingly. Only this task file changed.
