@@ -3,7 +3,7 @@ id: T-012
 title: Shared TrafficTable (virtualized) and MessageViewer components
 milestone: M1
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-012-shared-table-viewer
@@ -61,6 +61,21 @@ MessageViewer modes: Raw, Pretty (JSON/XML/HTML/JS), Hex, Table (headers/params)
   `bun run build` check stays required (recorded in the Handoff).
 
 ## Handoff (implementer)
+### Round 3 — review round 2 responses
+- Major, view state kept across messages: `$effect.pre` on `raw` (the reset body is `untrack`ed) resets `limit`,
+  `hexLimit` and `current`; `mode` and the search text stay. Test: search on a 5 MB message, Enter twice, Show more,
+  then `rerender({ raw: other })` → counter `1/1` and the 128 KB first chunk again.
+- Minor, `active` past the end after a filter: the keydown handler clamps `from` to `rows.length - 1`, and both
+  `aria-activedescendant` and the scroll-follow prop drop an index outside the rows. Test: End on 600 rows, `rerender` to
+  10, ArrowUp lands on row 8, Enter opens it.
+- Minor, unreachable matches: the counter shows the reachable count — `3/1000+` once `total > indices.length` (asserted in
+  the reset test) instead of promising matches that `jump` cannot reach.
+- Nit, shifted offsets: `findMatches` matches the original text with an escaped `giu` regex instead of a lowercased copy, so
+  a length-changing case mapping (`'İ'`) no longer shifts every mark. Such a character can now miss a match instead of
+  corrupting the rest (the `u` flag has no full case folding); stated in the doc comment, asserted for `'İX A'`.
+- `make check` green (web: svelte-check 0/0, eslint, prettier, 123 tests). `bun run build` re-checked: 0 matches for
+  "Component gallery" in `internal/api/static/dist/`, no gallery chunk. `routes.ts` untouched this round.
+
 ### Round 2 status
 Rebased onto `main` (`2b4bcae`, T-011 + T-013 merged) — clean rebase, no conflicts, 121 web tests now (T-013 added
 its own). Restored the approved dev-only route and re-ran `make check` (green) and `bun run build` (gallery absent from
@@ -118,7 +133,9 @@ shows frame drops, swapping in tanstack is a change confined to `TableView.svelt
 
 ### Known limitations
 - The gallery has no production build artifact and no E2E; it is covered by a jsdom smoke test and the manual steps above.
-- `MessageViewer` search matches the raw message only; jumping from Pretty/Hex switches to Raw. JS is shown as-is in
+- `MessageViewer` search matches the raw message only; jumping from Pretty/Hex switches to Raw. At most 1000 matches
+  are reachable (the counter says `1000+`), and the `giu` regex has no full case folding, so a few exotic case pairs
+  (e.g. `İ`) are not found. JS is shown as-is in
   Pretty (no JS formatter), markup re-indent is best-effort (no `<pre>`/`<script>` special-casing).
 - Table mode samples: params come from the first 128 KB of the body, max 500 rows, and the note says so. Query params
   of a request line are never truncated (start lines are short).

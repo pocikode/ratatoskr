@@ -87,6 +87,26 @@ describe('MessageViewer', () => {
     expect(firstPre().textContent!.length).toBeGreaterThan(128 * 1024);
   });
 
+  it('resets chunking and the match counter when the message changes', async () => {
+    const user = userEvent.setup();
+    // A page keeps one viewer and swaps `raw` for the selected row.
+    const { rerender } = render(MessageViewer, {
+      props: { raw: 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n' + 'x'.repeat(5_000_000) },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Search message (Ctrl+F)' }));
+    await user.type(screen.getByLabelText('Search message'), 'x');
+    await user.keyboard('{Enter}{Enter}');
+    expect(screen.getByText('3/1000+')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Show more' }));
+    expect(document.querySelector('pre')!.textContent!.length).toBeGreaterThan(128 * 1024);
+
+    await rerender({ raw: 'HTTP/1.1 200 OK\r\n\r\nx' + 'y'.repeat(5_000_000) });
+    expect(screen.getByText('1/1')).toBeVisible();
+    expect(screen.getByText(/Showing 128 KB of/)).toBeVisible();
+    expect(document.querySelector('pre')!.textContent!.length).toBeLessThan(129 * 1024);
+  });
+
   it('searches with Ctrl+F, counts matches and jumps', async () => {
     const user = userEvent.setup();
     render(MessageViewer, { props: { raw: request } });

@@ -31,6 +31,8 @@ describe('format', () => {
     expect(matches.indices).toEqual([0, 14]);
     expect(findMatches('aaaa', 'a', 2).indices).toHaveLength(2);
     expect(findMatches('abc', '')).toEqual({ total: 0, indices: [] });
+    // Offsets index the original text, not a lowercased copy of a different length.
+    expect(findMatches('İX A', 'a').indices).toEqual([3]);
   });
 
   it('marks the current match in the highlighted segments', () => {

@@ -129,6 +129,25 @@ describe('TrafficTable', () => {
     expect(selection.size).toBe(0);
   });
 
+  it('keeps the keyboard working when the rows shrink', async () => {
+    const user = userEvent.setup();
+    const onrowopen = vi.fn<(row: Row) => void>();
+    const { rerender } = setup({ rows: makeRows(600), onrowopen });
+    const grid = screen.getByRole('grid', { name: 'Traffic table' });
+    grid.focus();
+
+    await user.keyboard('{End}');
+    expect(grid.getAttribute('aria-activedescendant')).toMatch(/-row-599$/);
+
+    await rerender({ rows: makeRows(600).slice(0, 10) }); // a filter leaves the active row behind
+    expect(grid).not.toHaveAttribute('aria-activedescendant');
+
+    await user.keyboard('{ArrowUp}');
+    expect(grid.getAttribute('aria-activedescendant')).toMatch(/-row-8$/);
+    await user.keyboard('{Enter}');
+    expect(onrowopen).toHaveBeenCalledWith(expect.objectContaining({ id: 592 }));
+  });
+
   it('selects all with Ctrl+A', async () => {
     const { selection } = setup();
     const grid = screen.getByRole('grid', { name: 'Traffic table' });

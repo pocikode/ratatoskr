@@ -79,7 +79,9 @@ const NO_MATCHES = { total: 0, indices: [] as number[] };
 
 /**
  * Case-insensitive count of matches, keeping the first `cap` offsets for highlighting; large
- * bodies would otherwise hold millions of indices.
+ * bodies would otherwise hold millions of indices. Matching the original text (not a lowercased
+ * copy) keeps offsets right when case mapping changes length, e.g. `'İ'`. The `u` flag cannot
+ * provide full case folding, so such characters can miss a match rather than shift the marks.
  */
 export function findMatches(
   text: string,
@@ -87,15 +89,12 @@ export function findMatches(
   cap = 1000,
 ): { total: number; indices: number[] } {
   if (!query) return NO_MATCHES;
-  const haystack = text.toLowerCase();
-  const needle = query.toLowerCase();
+  const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
   const indices: number[] = [];
   let total = 0;
-  let at = haystack.indexOf(needle);
-  while (at >= 0) {
+  for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
     total += 1;
-    if (indices.length < cap) indices.push(at);
-    at = haystack.indexOf(needle, at + needle.length);
+    if (indices.length < cap) indices.push(m.index);
   }
   return { total, indices };
 }

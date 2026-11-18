@@ -84,7 +84,7 @@
 
   function onkeydown(e: KeyboardEvent) {
     if (e.target !== e.currentTarget || !rows.length) return; // header/resize buttons own their keys
-    const from = active < 0 ? 0 : active;
+    const from = Math.min(Math.max(active, 0), rows.length - 1); // rows can shrink under a filter
     const actions: Record<string, () => void> = {
       ArrowDown: () => setActive(active < 0 ? 0 : Math.min(rows.length - 1, from + 1), e.shiftKey),
       ArrowUp: () => setActive(active < 0 ? 0 : Math.max(0, from - 1), e.shiftKey),
@@ -160,7 +160,7 @@
   aria-rowcount={rows.length + 1}
   aria-colcount={visible.length}
   aria-multiselectable={selection ? true : undefined}
-  aria-activedescendant={active >= 0 ? `${uid}-row-${active}` : undefined}
+  aria-activedescendant={active >= 0 && active < rows.length ? `${uid}-row-${active}` : undefined}
   tabindex="0"
   class="flex h-full min-h-0 flex-col"
   onclick={ongridclick}
@@ -195,7 +195,7 @@
     idPrefix={uid}
     config={cfg}
     {sort}
-    {active}
+    active={active < rows.length ? active : -1}
     bind:pageRows
     {selection}
     {color}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Tabs } from 'bits-ui';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import SearchIcon from '@lucide/svelte/icons/search';
@@ -36,6 +36,16 @@
   let searchInput = $state<HTMLInputElement | null>(null);
   let body = $state<HTMLDivElement | null>(null);
 
+  // Pages reuse one viewer for the selected row: a new message gets a fresh first chunk and match.
+  $effect.pre(() => {
+    void raw;
+    untrack(() => {
+      limit = CHUNK;
+      hexLimit = HEX_CHUNK;
+      current = 0;
+    });
+  });
+
   const available = $derived<ViewerMode[]>(
     modes ?? (previewUrl ? [...TEXT_MODES, 'preview'] : [...TEXT_MODES]),
   );
@@ -46,6 +56,10 @@
   );
   const matches = $derived(
     search.trim() ? findMatches(raw, search.trim()) : { total: 0, indices: [] as number[] },
+  );
+  // Only the capped offsets are reachable; say so instead of promising matches we cannot jump to.
+  const found = $derived(
+    matches.total > matches.indices.length ? `${matches.indices.length}+` : `${matches.total}`,
   );
   const parts = $derived(
     mode === 'raw' && search.trim()
@@ -137,9 +151,7 @@
             }}
           />
           <span class="min-w-16 text-xs text-muted" aria-live="polite">
-            {#if search.trim()}{matches.total
-                ? `${current + 1}/${matches.total}`
-                : 'No matches'}{/if}
+            {#if search.trim()}{matches.total ? `${current + 1}/${found}` : 'No matches'}{/if}
           </span>
           <button
             type="button"
