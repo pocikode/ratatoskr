@@ -3,7 +3,7 @@ id: T-018
 title: Scopes and filter presets backend with preset expansion
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-015]
 owner: "claude-sonnet-5-5"
 branch: task/T-018-scopes-presets-backend
