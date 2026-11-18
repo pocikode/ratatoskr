@@ -19,6 +19,11 @@ import (
 	"time"
 )
 
+// This file is Hetty's RSA certificate authority, kept as reference only. The
+// product issues interception certificates from internal/ca (T-008): ECDSA
+// P-256, a root CA sealed with secret.key, and per-host leaves. Nothing imports
+// this package (internal/legacy/importguard_test.go).
+//
 // MaxSerialNumber is the upper boundary that is used to create unique serial
 // numbers for the certificate. This can be any unsigned integer up to 20
 // bytes (2^(8*20)-1).
