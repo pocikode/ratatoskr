@@ -1,0 +1,209 @@
+# Golden SQL text and bind values of the HTTPQL compiler
+# (docs/04-query-language.md §4). One case per "<name>/<field>" file: query is
+# the input, where the expected WHERE fragment over `requests r LEFT JOIN
+# responses s`, args the JSON array of bind values. Rewrite with
+# `go test ./internal/query/httpql -run TestSQLGolden -update`.
+-- host-eq/query --
+req.host.eq:"shop.example.com"
+-- host-eq/where --
+r.host = ?
+-- host-eq/args --
+["shop.example.com"]
+-- method-ne/query --
+req.method.ne:"POST"
+-- method-ne/where --
+r.method <> ?
+-- method-ne/args --
+["POST"]
+-- path-cont/query --
+req.path.cont:"API"
+-- path-cont/where --
+instr(lower(r.path), lower(?)) > 0
+-- path-cont/args --
+["API"]
+-- path-ncont/query --
+req.path.ncont:"admin"
+-- path-ncont/where --
+instr(lower(r.path), lower(?)) = 0
+-- path-ncont/args --
+["admin"]
+-- path-like/query --
+req.path.like:"/static/%"
+-- path-like/where --
+r.path LIKE ? ESCAPE '\'
+-- path-like/args --
+["/static/%"]
+-- path-nlike/query --
+req.path.nlike:"%.css"
+-- path-nlike/where --
+r.path NOT LIKE ? ESCAPE '\'
+-- path-nlike/args --
+["%.css"]
+-- method-regex/query --
+req.method.regex:"^(GET|POST)$"
+-- method-regex/where --
+regexp(?, r.method)
+-- method-regex/args --
+["^(GET|POST)$"]
+-- method-nregex/query --
+req.method.nregex:"^PUT"
+-- method-nregex/where --
+NOT regexp(?, r.method)
+-- method-nregex/args --
+["^PUT"]
+-- port-gte/query --
+req.port.gte:443
+-- port-gte/where --
+r.port >= ?
+-- port-gte/args --
+[443]
+-- tls-eq/query --
+req.tls.eq:true
+-- tls-eq/where --
+r.tls = ?
+-- tls-eq/args --
+[1]
+-- edited-ne/query --
+req.edited.ne:false
+-- edited-ne/where --
+(r.edited_from IS NOT NULL) <> ?
+-- edited-ne/args --
+[0]
+-- created-gt/query --
+req.created_at.gt:"2024-03-15T10:30:00Z"
+-- created-gt/where --
+r.created_at > ?
+-- created-gt/args --
+[1710498600000]
+-- color-eq/query --
+req.color.eq:"red"
+-- color-eq/where --
+coalesce(r.color, '') = ?
+-- color-eq/args --
+["red"]
+-- note-cont/query --
+req.note.cont:"auth"
+-- note-cont/where --
+instr(lower(coalesce(r.note, '')), lower(?)) > 0
+-- note-cont/args --
+["auth"]
+-- len-lt/query --
+req.len.lt:200
+-- len-lt/where --
+r.len < ?
+-- len-lt/args --
+[200]
+-- raw-cont/query --
+req.raw.cont:"session=abc"
+-- raw-cont/where --
+bcontains_fold(r.raw, ?)
+-- raw-cont/args --
+["session=abc"]
+-- body-like/query --
+req.body.like:"{%}"
+-- body-like/where --
+cast(coalesce(substr(r.raw, r.body_offset + 1), x'') AS TEXT) LIKE ? ESCAPE '\'
+-- body-like/args --
+["{%}"]
+-- body-regex/query --
+req.body.regex:"password"
+-- body-regex/where --
+regexp(?, coalesce(substr(r.raw, r.body_offset + 1), x''))
+-- body-regex/args --
+["password"]
+-- header-any-cont/query --
+req.header.cont:"mozilla"
+-- header-any-cont/where --
+EXISTS (SELECT 1 FROM request_headers h WHERE h.request_id = r.id AND (instr(lower(h.name), lower(?)) > 0 OR instr(lower(h.value), lower(?)) > 0))
+-- header-any-cont/args --
+["mozilla","mozilla"]
+-- header-name-eq/query --
+req.header.name.eq:"Cookie"
+-- header-name-eq/where --
+EXISTS (SELECT 1 FROM request_headers h WHERE h.request_id = r.id AND h.name = ?)
+-- header-name-eq/args --
+["Cookie"]
+-- header-value-like/query --
+req.header.value.like:"session=%"
+-- header-value-like/where --
+EXISTS (SELECT 1 FROM request_headers h WHERE h.request_id = r.id AND h.value LIKE ? ESCAPE '\')
+-- header-value-like/args --
+["session=%"]
+-- header-key-eq/query --
+req.header["user-agent"].eq:"curl"
+-- header-key-eq/where --
+EXISTS (SELECT 1 FROM request_headers h WHERE h.request_id = r.id AND h.name_lc = ? AND h.value = ?)
+-- header-key-eq/args --
+["user-agent","curl"]
+-- header-key-ncont/query --
+req.header["x-debug"].ncont:"on"
+-- header-key-ncont/where --
+NOT EXISTS (SELECT 1 FROM request_headers h WHERE h.request_id = r.id AND h.name_lc = ? AND instr(lower(h.value), lower(?)) > 0)
+-- header-key-ncont/args --
+["x-debug","on"]
+-- resp-code-gte/query --
+resp.code.gte:200
+-- resp-code-gte/where --
+coalesce(s.code, 0) >= ?
+-- resp-code-gte/args --
+[200]
+-- resp-code-lt/query --
+resp.code.lt:400
+-- resp-code-lt/where --
+coalesce(s.code, 0) < ?
+-- resp-code-lt/args --
+[400]
+-- resp-roundtrip-lt/query --
+resp.roundtrip.lt:100
+-- resp-roundtrip-lt/where --
+coalesce(s.roundtrip_ms, 0) < ?
+-- resp-roundtrip-lt/args --
+[100]
+-- resp-len-eq/query --
+resp.len.eq:122
+-- resp-len-eq/where --
+coalesce(s.len, 0) = ?
+-- resp-len-eq/args --
+[122]
+-- resp-raw-like/query --
+resp.raw.like:"HTTP/1.1 200%"
+-- resp-raw-like/where --
+cast(coalesce(s.raw, x'') AS TEXT) LIKE ? ESCAPE '\'
+-- resp-raw-like/args --
+["HTTP/1.1 200%"]
+-- resp-body-ncont/query --
+resp.body.ncont:"error"
+-- resp-body-ncont/where --
+NOT bcontains_fold(coalesce(substr(coalesce(s.raw, x''), coalesce(s.body_offset, 0) + 1), x''), ?)
+-- resp-body-ncont/args --
+["error"]
+-- resp-header-key/query --
+resp.header["content-type"].regex:"^application/"
+-- resp-header-key/where --
+EXISTS (SELECT 1 FROM response_headers h WHERE h.request_id = r.id AND h.name_lc = ? AND regexp(?, h.value))
+-- resp-header-key/args --
+["content-type","^application/"]
+-- row-id-eq/query --
+row.id.eq:1
+-- row-id-eq/where --
+r.id = ?
+-- row-id-eq/args --
+[1]
+-- source/query --
+source:proxy
+-- source/where --
+r.source = ?
+-- source/args --
+["proxy"]
+-- logic/query --
+req.method.eq:"GET" AND (req.tls.eq:true OR resp.code.eq:200) AND NOT req.ext.eq:".css"
+-- logic/where --
+((r.method = ? AND (r.tls = ? OR coalesce(s.code, 0) = ?)) AND (NOT (r.ext = ?)))
+-- logic/args --
+["GET",1,200,".css"]
+-- shorthand/query --
+"app.js"
+-- shorthand/where --
+(bcontains_fold(r.raw, ?) OR bcontains_fold(coalesce(s.raw, x''), ?))
+-- shorthand/args --
+["app.js","app.js"]
