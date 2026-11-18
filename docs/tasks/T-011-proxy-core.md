@@ -26,6 +26,7 @@ and captures every request/response into the project DB (batched) emitting `Requ
 ## Notes from lead
 - (2026-11-18, T-006) `app.New` is now `app.New(ctx, opts)`. It opens instance.db plus `project.Service` (`ctx` is wrapped in `context.WithoutCancel`). Rebase on T-006 and keep that signature.
 - T-006 also edits `internal/app/app.go` (project service wiring). Start from a `main` that includes T-006, or rebase onto it before review.
+- (2026-11-18, T-008) `internal/app/app.go` already opens `ca.Open(...)` and mounts `/ca.crt` + `/ca.der` on the UI listener: rebase, do not re-add it. Call `ca.Service.TLSConfig()` for MITM. F-NET-2's `http://ratatoskr.localhost/ca.crt` arrives through the proxy listener, so answer it there too (and let `ratatoskr.localhost` pass the loopback Host check).
 
 ## Acceptance criteria
 - [ ] `curl -x` HTTP and HTTPS (with `--cacert`) through the proxy return identical bodies to direct requests (integration test against testutil servers).
