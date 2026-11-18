@@ -1,4 +1,4 @@
-// urql exchange that answers HTTP History operations from a fake backend, so the UI
+// urql exchange that answers HTTP History, scope- and filter-preset operations from a fake backend, so the UI
 // works with no server (docs/07-agent-workflow.md: contract-first mocks). It validates
 // and runs the real schema with graphql-js, so selections, arguments and errors behave
 // as on the wire. Operations touching any other root field are forwarded unchanged.
@@ -15,6 +15,7 @@ import {
 import { filter, make, merge, mergeMap, pipe, share, takeUntil } from 'wonka';
 import sdl from '../generated/schema.graphql?raw';
 import { createHistoryMock, type MockHistoryOptions } from './history';
+import { createPresetsMock } from './presets';
 
 const schema = buildSchema(sdl);
 
@@ -32,9 +33,9 @@ function isIterator(v: unknown): v is AsyncGenerator<ExecutionResult> {
   return typeof v === 'object' && v !== null && Symbol.asyncIterator in v;
 }
 
-/** Exchange serving the history contract from {@link createHistoryMock}. */
+/** Exchange serving the history and preset contracts ({@link createHistoryMock}, {@link createPresetsMock}). */
 export function mockHistoryExchange(opts: MockHistoryOptions = {}): Exchange {
-  const { root } = createHistoryMock(opts);
+  const root = { ...createHistoryMock(opts).root, ...createPresetsMock().root };
   const handles = (op: Operation) => {
     const fields = rootFields(op.query);
     return fields.length > 0 && fields.every((f) => f in root);
@@ -103,7 +104,7 @@ export function mockHistoryExchange(opts: MockHistoryOptions = {}): Exchange {
     };
 }
 
-/** A client that serves only the mocked history operations; for tests and stories. */
+/** A client that serves only the mocked operations; for tests and stories. */
 export function createMockClient(opts: MockHistoryOptions = {}): Client {
   return new Client({ url: '/mock', exchanges: [mockHistoryExchange(opts)] });
 }

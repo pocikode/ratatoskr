@@ -1,0 +1,88 @@
+# Filter presets (docs/01-feature-spec.md F-FILTER-1, docs/04-query-language.md §1).
+# Owned by the lead; contract: T-091, resolvers: T-092. Presets live in the
+# selected project's database. There is no subscription: the list is small, so
+# pages refetch `filterPresets` after their own mutations. WebSocket filter
+# presets are a separate, later contract.
+
+"""
+A named HTTPQL query that other queries reference as `preset:"Name"` or
+`preset:alias`. A reference is resolved by exact name first, then by alias.
+References may nest (up to depth 8) but must not form a cycle.
+"""
+type FilterPreset implements Node {
+  id: ID!
+  "Display name: trimmed, 1-200 characters, unique among filter presets."
+  name: String!
+  """
+  Optional short reference name, unique among filter presets: lowercase
+  letters, digits, `-` and `_`, starting with a letter or digit
+  (`[a-z0-9][a-z0-9_-]*`). Null when the preset has none.
+  """
+  alias: String
+  "The HTTPQL text, trimmed and non-empty. May itself reference other presets."
+  query: String!
+}
+
+extend type Query {
+  "All filter presets of the selected project, in preset order (see `reorderFilterPresets`). Not paginated."
+  filterPresets: [FilterPreset!]!
+  "One filter preset, or null if no preset has this ID."
+  filterPreset(id: ID!): FilterPreset
+  """
+  All filter presets as a JSON document, in preset order, for download:
+  `{"version":1,"presets":[{"name":"…","alias":"…","query":"…"}, …]}`
+  (`alias` is omitted when null). `importFilterPresets` reads the same format.
+  """
+  exportFilterPresets: String!
+}
+
+extend type Mutation {
+  """
+  Creates a filter preset, placed last in preset order. `name`, `alias` and
+  `query` are trimmed; an empty or null `alias` means none.
+
+  Errors:
+  - `BAD_INPUT`: `name` empty or longer than 200 characters; `alias` not of the
+    form `[a-z0-9][a-z0-9_-]*`; `query` empty; the project already has 1000
+    filter presets.
+  - `CONFLICT`: another filter preset has this name, or this alias.
+  - `BAD_QUERY` (with `extensions.span` into `query`): `query` does not parse,
+    references a preset that does not exist, would create a reference cycle,
+    or nests references deeper than 8 levels.
+  """
+  createFilterPreset(name: String!, alias: String, query: String!): FilterPreset!
+  """
+  Replaces a preset's name, alias and query; its position is kept. Same
+  validation and errors as `createFilterPreset` (a preset keeping its own name
+  or alias is not a conflict). Renaming or re-aliasing does not rewrite other
+  presets that reference the old name. `NOT_FOUND` for an unknown ID.
+  """
+  updateFilterPreset(id: ID!, name: String!, alias: String, query: String!): FilterPreset!
+  """
+  Deletes a preset and returns its ID. Presets that reference it are kept;
+  queries that reach the dangling reference then fail with `BAD_QUERY`.
+  `NOT_FOUND` for an unknown ID.
+  """
+  deleteFilterPreset(id: ID!): ID!
+  """
+  Sets the preset order and returns all presets in the new order. `ids` must
+  list every current filter preset exactly once: a missing, extra, unknown or
+  repeated ID is `BAD_INPUT` and nothing changes.
+  """
+  reorderFilterPresets(ids: [ID!]!): [FilterPreset!]!
+  """
+  Adds the presets of an `exportFilterPresets` document, appended in file
+  order, and returns how many were added. A preset whose name already exists
+  is skipped (not counted, not changed). All or nothing: on any error nothing
+  is added. Imported presets may reference each other in any order.
+
+  Errors:
+  - `BAD_INPUT`: not valid JSON of that shape; `version` other than 1; more than
+    1000 presets in the file or in the project afterwards; any preset failing
+    the `createFilterPreset` field rules.
+  - `CONFLICT`: a new preset's alias is already used.
+  - `BAD_QUERY` (with `extensions.span` into that preset's query): a new
+    preset's query does not parse, references a missing preset, or forms a cycle.
+  """
+  importFilterPresets(json: String!): Int!
+}
