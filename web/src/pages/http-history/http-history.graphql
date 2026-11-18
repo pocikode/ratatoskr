@@ -1,0 +1,118 @@
+# HTTP History page operations (T-017, F-HIST-1..3), against the contract in
+# internal/api/graphql/schema/history.graphqls (T-013).
+
+fragment HistoryRow on HttpRequest {
+  id
+  source
+  host
+  port
+  tls
+  method
+  path
+  query
+  ext
+  length
+  createdAt
+  color
+  note
+  isDropped
+  isTruncated
+  editedFrom {
+    id
+  }
+  response {
+    code
+    length
+    roundtripMs
+    createdAt
+  }
+}
+
+# Bodies are capped at the 4 MiB per-call limit; `bodyLength` tells whether the
+# viewer shows a truncated body.
+fragment HistoryMessage on HttpRequest {
+  id
+  head
+  bodyLength
+  body(limit: 4194304, decode: true)
+  response {
+    head
+    bodyLength
+    body(limit: 4194304, decode: true)
+  }
+}
+
+query HistoryRequests($query: String, $first: Int!, $sort: RequestSort) {
+  requests(query: $query, first: $first, sort: $sort) {
+    totalCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    edges {
+      cursor
+      node {
+        ...HistoryRow
+      }
+    }
+  }
+}
+
+query HistoryRequest($id: ID!) {
+  request(id: $id) {
+    ...HistoryMessage
+  }
+}
+
+subscription HistoryRequestAdded($query: String) {
+  requestAdded(query: $query) {
+    ...HistoryRow
+  }
+}
+
+subscription HistoryRequestUpdated($query: String) {
+  requestUpdated(query: $query) {
+    matches
+    request {
+      ...HistoryRow
+    }
+  }
+}
+
+subscription HistoryRequestsDeleted {
+  requestsDeleted {
+    ids
+  }
+}
+
+query HistoryCompletions($text: String!, $cursor: Int!) {
+  queryCompletions(language: HTTPQL, text: $text, cursor: $cursor) {
+    from
+    to
+    items {
+      label
+      insertText
+      kind
+      detail
+      isExtension
+    }
+  }
+}
+
+mutation HistorySetColor($ids: [ID!]!, $color: RequestColor) {
+  setRequestColor(ids: $ids, color: $color) {
+    id
+    color
+  }
+}
+
+mutation HistorySetNote($id: ID!, $note: String) {
+  setRequestNote(id: $id, note: $note) {
+    id
+    note
+  }
+}
+
+mutation HistoryDeleteRequests($ids: [ID!]!) {
+  deleteRequests(ids: $ids)
+}
