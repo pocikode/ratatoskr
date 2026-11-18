@@ -1,0 +1,68 @@
+# Conformance corpus for the HTTPQL back-ends (docs/04 §§4-5). One sample
+# message per archive; T-014 checks every query parses, T-015 runs both the
+# SQL compiler and the evaluator and requires the expected result.
+#
+# request, response: exact wire bytes as one Go-quoted string.
+# meta: "key: value" lines for what the wire does not carry: host (no port),
+#   port, tls, created_at (RFC3339), roundtrip (ms), id, source, color, note,
+#   edited. Empty value means empty string.
+# cases: "true|false<TAB>query"; blank lines and lines starting with # skip.
+#
+# Semantics pinned here: req.len/resp.len are the raw message length;
+# header["X"] matches header names ASCII case-insensitively; req.query has no
+# leading "?"; req.ext includes the dot and is empty when the path has none; a
+# message without a body has an empty body, so negated operators match it.
+#
+# This archive pins the non-ASCII and wildcard edges both back-ends must share:
+# cont/like fold ASCII letters only (like SQLite's lower()), '_' matches one
+# UTF-8 character, and '\' escapes the next character.
+-- meta --
+host: bücher.example
+port: 443
+tls: true
+created_at: 2024-05-05T05:05:05Z
+roundtrip: 7
+id: 3
+source: proxy
+color:
+note:
+edited: false
+-- request --
+"GET /käse/%C3%A4?q=Ä HTTP/1.1\r\nHost: bücher.example\r\nX-Test: ÄBC\r\nContent-Length: 19\r\n\r\nbody-ä 100%_x here"
+-- response --
+"HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 6\r\n\r\nKäse "
+-- cases --
+# ASCII-only folding: 'Ä' and 'ä' are different bytes
+true	req.path.cont:"Käse"
+false	req.path.cont:"KÄSE"
+true	req.header.value.eq:"ÄBC"
+false	req.header.value.eq:"äbc"
+true	req.header["x-test"].cont:"Äbc"
+false	req.header["x-test"].cont:"äbc"
+true	req.host.cont:"Bücher"
+false	req.host.cont:"BÜCHER"
+true	req.body.cont:"BODY-ä"
+true	req.query.eq:"q=Ä"
+true	req.raw.cont:"ä"
+
+# '_' is one character, not one byte
+true	req.path.like:"/k_se/%C3%A4"
+false	req.path.like:"/k__se/%C3%A4"
+true	req.body.like:"body-_ 100%_x here"
+false	req.body.like:"body-__ 100%_x here"
+true	resp.body.like:"K_se "
+false	resp.body.like:"K_se"
+true	resp.body.regex:"K.se"
+
+# '\' escapes the next character
+true	req.body.like:"%100\\%\\_x here"
+false	req.body.like:"%100\\%x here"
+true	req.body.like:"%100%_x here"
+true	req.body.nlike:"%100\\%\\_y here"
+true	req.raw.like:"%X-Test: ÄBC%"
+true	req.raw.nlike:"%X-Test: äbc%"
+
+# regex and bytes
+true	req.body.regex:"100%_x"
+true	resp.body.nregex:"käse"
+true	req.body.ncont:"NOTHERE"
