@@ -35,7 +35,7 @@ const (
 	// (F-NET-1, F-NET-2).
 	UIHost = "ratatoskr.localhost"
 
-	idleTimeout           = 2 * time.Minute
+	defaultIdleTimeout    = 2 * time.Minute
 	handshakeTimeout      = 10 * time.Second
 	defaultHeaderTimeout  = 60 * time.Second
 	maxConns              = 10000
@@ -74,6 +74,9 @@ type Deps struct {
 	ShutdownGrace time.Duration
 	// HeaderTimeout is how long an upstream may take to answer with a head.
 	HeaderTimeout time.Duration
+	// IdleTimeout bounds each read and write on a connection that makes no
+	// progress. Zero means 2 min.
+	IdleTimeout time.Duration
 }
 
 // Server is the proxy. Create it with [New] and run it with [Server.Serve].
@@ -99,6 +102,10 @@ func New(deps Deps) *Server {
 
 	if s.deps.ShutdownGrace == 0 {
 		s.deps.ShutdownGrace = uiShutdownGrace
+	}
+
+	if s.deps.IdleTimeout == 0 {
+		s.deps.IdleTimeout = defaultIdleTimeout
 	}
 
 	if s.deps.HeaderTimeout == 0 {
@@ -128,7 +135,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	uiSrv := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: handshakeTimeout,
-		IdleTimeout:       idleTimeout,
+		IdleTimeout:       s.deps.IdleTimeout,
 		MaxHeaderBytes:    s.maxHead(),
 		// Same hardening the UI server had when it owned the listener.
 		MaxHeaderValueCount: maxHeaderValues,
@@ -278,8 +285,8 @@ func (d destination) key() netx.Key {
 func (s *Server) serveConn(ctx context.Context, conn net.Conn, info listenerInfo, ui *chanListener) {
 	defer s.untrack(conn)
 
-	ic := &netx.IdleConn{Conn: conn, Idle: idleTimeout}
-	sess := &session{s: s, ctx: ctx, info: info, ui: ui, conn: conn, br: bufio.NewReader(ic), idle: ic}
+	ic := &netx.IdleConn{Conn: conn, Idle: s.deps.IdleTimeout}
+	sess := &session{s: s, ctx: ctx, info: info, ui: ui, conn: ic, br: bufio.NewReader(ic), idle: ic}
 
 	sess.requests()
 
@@ -348,7 +355,8 @@ func (c *session) handle(req *rawhttp.Request) bool {
 			return false
 		}
 
-		if strings.EqualFold(host, UIHost) {
+		// A target naming the listener itself must not be forwarded back to it.
+		if !isTLS && c.isUIHost(authority) || strings.EqualFold(host, UIHost) {
 			return c.serveUIAbsolute(req, path)
 		}
 
@@ -412,7 +420,7 @@ func (c *session) handOffToUI(head []byte) bool {
 	select {
 	case c.ui.ch <- rc:
 		c.handedOff = true
-		c.s.untrack(c.conn)
+		c.s.untrack(c.idle.Conn)
 	case <-c.ui.done:
 	case <-c.ctx.Done():
 	}
@@ -453,7 +461,7 @@ func (c *session) connect(req *rawhttp.Request) bool {
 	}
 
 	if first[0] != tlsHandshakeRecordTag {
-		c.idle.Idle = idleTimeout
+		c.idle.Idle = c.s.deps.IdleTimeout
 		c.tun = &destination{host: host, port: port}
 
 		return true // plain HTTP inside the tunnel: keep looping
@@ -461,13 +469,18 @@ func (c *session) connect(req *rawhttp.Request) bool {
 
 	tc := tls.Server(&replayConn{Conn: c.conn, r: c.br}, c.mitmConfig(host))
 
+	// One deadline for the whole handshake, reads and writes alike.
+	c.idle.Idle = 0
+	_ = tc.SetDeadline(time.Now().Add(handshakeTimeout))
+
 	if err := tc.HandshakeContext(c.ctx); err != nil {
 		c.s.log.Debug("proxy: tls handshake", "component", "proxy", "host", host, "error", err)
 
 		return false
 	}
 
-	c.idle.Idle = idleTimeout
+	_ = tc.SetDeadline(time.Time{})
+	c.idle.Idle = c.s.deps.IdleTimeout
 
 	c.conn, c.br = tc, bufio.NewReader(tc)
 	c.tun = &destination{host: host, port: port, tls: true, sni: tc.ConnectionState().ServerName}

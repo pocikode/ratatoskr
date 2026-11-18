@@ -133,7 +133,7 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn)
 		}
 
 		if resp.Status()/100 != 1 || resp.Status() == 101 {
-			up.SetIdle(idleTimeout) // the body is read next: a stalled upstream must not hold us
+			up.SetIdle(c.s.deps.IdleTimeout) // the body is read next: a stalled upstream must not hold us
 
 			return resp, nil
 		}

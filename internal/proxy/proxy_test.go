@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/tools/txtar"
 
+	"github.com/pocikode/ratatoskr/internal/proxy"
 	"github.com/pocikode/ratatoskr/internal/testutil"
 )
 
@@ -288,4 +289,97 @@ func connectThrough(t *testing.T, proxyAddr, host string, port int) (net.Conn, *
 	}
 
 	return conn, br
+}
+
+// Servers close idle keep-alive connections early; a POST after a pause must
+// not be sent on the dead one.
+func TestPostAfterUpstreamIdleClose(t *testing.T) {
+	t.Parallel()
+
+	r := startProxy(t)
+
+	s := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	s.Config.IdleTimeout = 50 * time.Millisecond
+	s.Start()
+	t.Cleanup(s.Close)
+
+	c := r.client(t)
+
+	for i := range 2 {
+		resp, err := c.Post(s.URL, "text/plain", strings.NewReader("x"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST %d: status %d", i, resp.StatusCode)
+		}
+
+		time.Sleep(300 * time.Millisecond) //nolint:forbidigo // T-011: real upstream idle timer, no synctest over real sockets
+	}
+}
+
+// An absolute target naming the listener with a zero-padded port is the UI,
+// not a request to forward to ourselves.
+func TestSelfTargetWithPaddedPortIsUI(t *testing.T) {
+	t.Parallel()
+
+	r := startProxy(t)
+	_, port, _ := net.SplitHostPort(r.addr)
+
+	conn, err := net.Dial("tcp", r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	_, _ = fmt.Fprintf(conn, "GET http://127.0.0.1:%s/ HTTP/1.1\r\nHost: 127.0.0.1:0%s\r\nConnection: close\r\n\r\n", port, port)
+
+	b, _ := io.ReadAll(conn)
+	if !bytes.HasSuffix(b, []byte("ui:/")) || len(r.rec.all()) != 0 {
+		t.Fatalf("reply %q, entries %d", b, len(r.rec.all()))
+	}
+}
+
+// An upstream that sends a head and then stalls must not hold the session.
+func TestStalledUpstreamBodyTimesOut(t *testing.T) {
+	t.Parallel()
+
+	r := startProxy(t, func(d *proxy.Deps) { d.IdleTimeout = 100 * time.Millisecond })
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+
+		t.Cleanup(func() { _ = c.Close() })
+
+		_, _ = io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc")
+	}()
+
+	conn, err := net.Dial("tcp", r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	_, _ = fmt.Fprintf(conn, "GET http://%s/ HTTP/1.1\r\nHost: %[1]s\r\n\r\n", ln.Addr())
+
+	if _, err := io.ReadAll(conn); err != nil { // EOF means the proxy closed on its own
+		t.Fatalf("proxy did not close the stalled session: %v", err)
+	}
 }

@@ -47,7 +47,7 @@ type rig struct {
 
 // startProxy runs a proxy whose UI answers "ui:<path>" and which trusts any
 // upstream certificate (the upstreams are httptest servers).
-func startProxy(t testing.TB) *rig {
+func startProxy(t testing.TB, opts ...func(*proxy.Deps)) *rig {
 	t.Helper()
 
 	root, err := os.OpenRoot(t.TempDir())
@@ -78,12 +78,17 @@ func startProxy(t testing.TB) *rig {
 	pool := &netx.Pool{TLS: &tls.Config{InsecureSkipVerify: true}}
 	t.Cleanup(pool.Close)
 
-	srv := proxy.New(proxy.Deps{
+	deps := proxy.Deps{
 		CA: svc, Pool: pool, Capture: rec,
 		UI: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("ui:" + r.URL.Path))
 		}),
-	})
+	}
+	for _, o := range opts {
+		o(&deps)
+	}
+
+	srv := proxy.New(deps)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)

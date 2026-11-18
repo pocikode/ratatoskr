@@ -89,3 +89,53 @@ func TestPoolIdleExpiry(t *testing.T) {
 		p.Close()
 	})
 }
+
+func TestPoolDropsServerClosedConn(t *testing.T) {
+	t.Parallel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			_ = c.Close() // the server hangs up on the idle connection
+		}
+	}()
+
+	p := &netx.Pool{}
+	t.Cleanup(p.Close)
+
+	key := netx.Key{Host: "127.0.0.1", Port: ln.Addr().(*net.TCPAddr).Port}
+
+	c, _, err := p.Get(t.Context(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.Put(c)
+
+	// Wait for the FIN to arrive, polling the pool itself.
+	deadline := time.Now().Add(5 * time.Second)
+
+	for {
+		c2, reused, err := p.Get(t.Context(), key)
+		if err == nil && !reused {
+			_ = c2.Close()
+
+			return
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal("dead connection still handed out as reused")
+		}
+
+		if err == nil {
+			p.Put(c2)
+		}
+	}
+}

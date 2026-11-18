@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"strconv"
 	"sync"
@@ -18,6 +19,8 @@ const (
 	DefaultTLSTimeout  = 10 * time.Second
 	DefaultIdleTimeout = 90 * time.Second
 	DefaultMaxIdle     = 16 // idle connections kept per key
+
+	liveProbe = 100 * time.Microsecond
 )
 
 // Key identifies connections that can serve the same requests.
@@ -99,10 +102,12 @@ func (p *Pool) take(key Key) *Conn {
 		c := conns[len(conns)-1] // most recently used is the likeliest alive
 		p.idle[key] = conns[:len(conns)-1]
 
-		if c.timer.Stop() {
+		if c.timer.Stop() && c.alive() {
 			return c
 		}
-		// The timer already fired: expire is closing this one.
+		// Either the timer already fired (expire is closing it) or the server
+		// hung up while the connection sat idle.
+		_ = c.Close()
 	}
 
 	return nil
@@ -163,11 +168,34 @@ func (c *Conn) SetIdle(d time.Duration) {
 	}
 }
 
-// IdleConn refreshes the read deadline before every Read while Idle > 0.
+// alive reports whether the server left the idle connection open: a read must
+// time out, not hit EOF or unsolicited bytes.
+func (c *Conn) alive() bool {
+	// An already expired deadline fails before the socket is read, so give the
+	// read a moment instead.
+	_ = c.SetReadDeadline(time.Now().Add(liveProbe))
+	_, err := c.BR.Peek(1)
+	_ = c.SetReadDeadline(time.Time{})
+
+	var ne net.Error
+
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// IdleConn refreshes the read and write deadlines before every Read and Write
+// while Idle > 0.
 type IdleConn struct {
 	net.Conn
 
 	Idle time.Duration
+}
+
+func (c *IdleConn) Write(p []byte) (int, error) {
+	if c.Idle > 0 {
+		_ = c.SetWriteDeadline(time.Now().Add(c.Idle))
+	}
+
+	return c.Conn.Write(p)
 }
 
 func (c *IdleConn) Read(p []byte) (int, error) {

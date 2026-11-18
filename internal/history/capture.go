@@ -209,8 +209,6 @@ func (c *Capture) write(ctx context.Context, db *store.DB, batch []Entry) ([]int
 	ids := make([]int64, 0, len(batch))
 
 	err := db.Write(ctx, func(tx *sql.Tx) error {
-		ids = ids[:0] // Write may retry the closure
-
 		for i := range batch {
 			e := &batch[i]
 
@@ -251,6 +249,7 @@ func (c *Capture) write(ctx context.Context, db *store.DB, batch []Entry) ([]int
 	return ids, nil
 }
 
+// TODO(T-011-followup): replace with an exported store.InsertRequestTx; this copies store.insertRequestSQL.
 func insertRequest(ctx context.Context, tx *sql.Tx, r store.Request) (int64, error) {
 	res, err := tx.ExecContext(ctx, `INSERT INTO requests
 		(source, host, port, tls, method, path, query, ext, raw, body_offset, len,
