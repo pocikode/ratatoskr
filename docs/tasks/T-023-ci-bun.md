@@ -3,7 +3,7 @@ id: T-023
 title: Install Bun and web dependencies in CI so make check runs the web checks
 milestone: M0
 role: lead
-status: in_review
+status: done
 depends_on: [T-001, T-003]
 owner: "claude-code (claude-opus-5-5)"
 branch: task/T-023-ci-bun
@@ -57,5 +57,34 @@ workflow (T-001) never installs Bun or the web dependencies, so every run fails 
 - Follow-ups (proposed tasks): T-021 should add a Playwright E2E job (needs `bunx playwright install --with-deps`).
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
-- Findings:
+**Reviewer**: lead (post-merge reconciliation) · 2026-11-18 · `cdb122f` (merged as PR #3, `ccdef3e`)
+
+The task was merged without a recorded verdict: PR #3 landed the code and the task file in the same commit, so the
+`Review` section was still the empty template when `main` picked it up. Nothing below is a code change; this records the
+verification that should have preceded the merge, run against `main` at `985ca05` and the PR's final CI run.
+
+**Checks**
+- PR #3 final run `44124552779`: `make check (ubuntu-latest)` pass (52s), `make check (macos-latest)` pass (2m13s).
+  The handoff cites run `44124158942` — that was an earlier push on the same PR; `44124552779` is the run that guarded the merge.
+- `main:.github/workflows/ci.yml`: `BUN_VERSION: 1.4.4` in job `env`, `oven-sh/setup-bun@v2` with `bun-version: ${{ env.BUN_VERSION }}`,
+  then `bun install --frozen-lockfile` with `working-directory: web`, all before `make check`. Pinned exact version, one place to bump ✔
+- `main:docs/06-frontend-conventions.md` §1: the Bun row states the pin location and version and the `--frozen-lockfile` install ✔
+- `main:docs/08-roadmap.md`: T-023 present in the M0 index, and T-028 already depends on it ✔
+- Scope: `ccdef3e` touched exactly `ci.yml`, docs/06, docs/08 and this task file — all inside `paths` ✔
+- Hard rules: no product dependency added (CI action only, no ADR needed), no generated code touched, no secrets ✔
+
+**AC coverage**: all five checkboxes stand on the evidence above (pinned Bun, frozen-lockfile install, both matrix jobs
+green on the branch PR, pin documented in docs/06, local `make check` green per handoff).
+
+**Findings**
+- [x] [minor] docs/tasks/T-023-ci-bun.md:59-61 — review section was left as the template and `status` stayed `in_review`
+  after the merge → closed out here as `done`. Process note for later lead tasks: mark `done` in the handoff commit or in a
+  follow-up commit before merging, so `main` never carries a stale `in_review`.
+- [x] [minor] docs/tasks/T-023-ci-bun.md:53 — handoff cites the wrong CI run number → corrected in the checks above.
+- [ ] [minor] `.github/workflows/ci.yml:32` + `web/package.json` — the Bun version is pinned in CI only; a dev on another
+  version can still resolve a different tree (caught by `--frozen-lockfile` at review time, but late). A `packageManager`
+  field (corepack-style) or `.bun-version` would make local and CI agree by construction → fold into T-021 or a small follow-up.
+- [ ] [minor] `.github/workflows/ci.yml:47-49` — `bun install` has no dependency cache, so each job re-downloads the tree.
+  Deliberately out of scope here; T-028 (CI cost trim) is the natural home.
+
+**Verdict**: approve — merged and green on `main`.
