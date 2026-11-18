@@ -3,7 +3,7 @@ id: T-094
 title: Contract - sitemap
 milestone: M1
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-013]
 owner: "claude-code (opus-5.5)"
 branch: task/T-094-contract-sitemap
@@ -99,3 +99,40 @@ Findings:
   tuple shape and element types, with tests distinguishing malformed tuples from a valid absent node.
 
 Verdict: **changes_requested** (1 major, 2 minor). Task status set accordingly. Only this task file changed.
+
+### Round 2 — review of `375f021`
+
+Reviewed `main...HEAD` by Codex (2026-11-19).
+
+- Scope: all 14 changed files match the task's `paths`. Read the full diff, linked spec sections,
+  history query/deletion/subscription callers, HTTPQL parser and lexer, and query-bar submission path.
+  Assumed one local proxy process; mock checks use 300 seeded requests. Production tree derivation and
+  the 10k-request / 200-host performance budget remain T-020 work.
+- Previous findings: all three are resolved. Empty/whitespace bars now use the node query alone;
+  the real parser regression covers empty-group rejection; query nodes only appear under path nodes;
+  malformed ID tuples are rejected while valid absent nodes return an empty list.
+- Verification: `make check` passed, including Go race tests and 34 web test files / 211 tests.
+  The first sandbox run failed with `context loading failed: no go files to analyze` (trimmed);
+  the authorized rerun passed without source changes.
+  `make gen` passed in a temporary HEAD copy and byte comparison found no tracked-file differences.
+  Its sandbox attempt failed with `open /home/agus/.cache/go-build/…: read-only file system`;
+  the authorized rerun passed. `git diff --check main...HEAD` passed.
+- Direct mock probe: all 142 nodes' query counts equal their badges; deleting a host query removes
+  exactly its 11 requests and the host disappears. Temporary real-parser probes confirmed the finding
+  below; adding a newline before the closing parenthesis fixes the trailing-line-comment case.
+
+Findings:
+- [ ] [major] internal/api/graphql/schema/sitemap.graphqls:61 — The revised composition rule still
+  rejects valid query bars containing comments. `req.method.eq:"GET" // note` parses on its own,
+  but `(req.host.eq:"example.test") and (req.method.eq:"GET" // note)` fails with
+  `query: expected ')' or AND/OR, found end of query (at 62-62)` because the comment consumes `)`.
+  A comment-only bar such as `/* note */` is also valid and means no filter, but grouping it produces
+  `query: empty parentheses (at 33-45)`. The existing query bar submits this text unchanged.
+  → Treat comment-only bars as empty and terminate trailing line comments before the appended `)`.
+  Update the schema, F-SITE-1 and T-020 guidance consistently, regenerate, and add both cases to the
+  real-parser composition regression. Otherwise a T-020 client following this contract would load
+  the tree successfully but fail to load a selected node's requests or delete that node.
+
+Verdict: **changes_requested** (1 major). Task status set accordingly. Only this task file changed.
+Not checked: E2E and production sitemap performance (backend/page are T-020); `make test-int`
+was not required because no proxy/store/rawhttp files changed.
