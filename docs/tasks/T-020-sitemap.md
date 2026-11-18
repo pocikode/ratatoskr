@@ -149,3 +149,25 @@ Verdict: **changes_requested** — fix the major (refresh fan-out after Shift-ex
 
 Implementer revision (2026-11-19, Codex): five findings fixed, the harmless shared-filter parse nit retained with the
 scope rationale above. Final `make check`: green (36 web test files / 221 tests). Ready for re-review.
+
+### Re-review 2026-11-19 (Claude Code, reviewer)
+Scope: fix commit 2ba597b plus the full `git diff main...HEAD`; all files still inside `paths`. `make check`: green
+(Go vet/lint/race; web 36 files / 221 tests). `make test-int` not run: no proxy/store/rawhttp changes.
+All five earlier fixes are confirmed. Refresh now sends one `recursive: true` call per Shift-expanded root and skips covered
+or hidden descendants (test at sitemap.svelte.test.ts:70). Loaded pages are kept. IPv6 rules are bracketed. The confirm
+dialog count updates. Keeping the extra parse nit is accepted, since fixing it needs `service.go`, which is outside `paths`.
+
+- [ ] [minor] web/src/pages/sitemap/sitemap.svelte.ts:342-346 — refresh is all-or-nothing. If one live update pushes a
+  Shift-expanded subtree past the 5000-node cap (internal/history/sitemap.go:204), that branch returns `BAD_INPUT` on every
+  refresh. Then nothing updates: no roots, no other branches, no table. This lasts until the user collapses the node, and
+  the message does not tell them to do that. → Apply the results that succeeded and report only the failed branch. For a
+  failed recursive branch, also run `recursiveRoots.delete(parentId)` and add " Expand level by level." to the message.
+- [ ] [minor] web/src/pages/sitemap/sitemap.svelte.ts:393-401,360-363 — `rowsDirty` is set only by `requestUpdated`. Suppose
+  one request under the selected node is deleted and another is added in the same 1 s window. `requestCount === total`, so
+  the table is not reloaded: it keeps showing the deleted row and misses the new one. → Also set `rowsDirty` in a `tap` on
+  the `requestsDeleted` stream. Deletes are rare, so the extra reload costs little.
+- [ ] [nit] web/src/pages/sitemap/sitemap.svelte.ts:347-351 — directories that appear inside a Shift-expanded subtree
+  during a live refresh are loaded into `children` but are not added to `expanded`. They show as collapsed next to
+  expanded siblings. → In the recursive branch of refresh, add `hasChildren` nodes to `expanded` the same way `toggle` does.
+
+Verdict: **approve** — no blocker/major left. The minors can go in a follow-up or in this branch before merge.
