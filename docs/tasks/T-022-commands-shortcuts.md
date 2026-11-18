@@ -3,7 +3,7 @@ id: T-022
 title: Command registry, shortcuts manager and context menu builder
 milestone: M1
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-022-commands-shortcuts
@@ -115,3 +115,23 @@ AC coverage: AC1 (shared registry: palette/shortcuts/`commandMenu` + ContextMenu
 persist, reset) ✔ apart from the chord gap above · AC3 (chord, typing guard, `global`) ✔. Missing E2E is justified in Handoff (T-021).
 
 Verdict: **changes_requested** — fix the major; the minors are cheap and should go in the same pass.
+
+### Round 2
+Reviewer: claude-opus-5-5 · 2026-11-18 · branch `task/T-022-commands-shortcuts` @ 87d55a7
+
+Scope: all changed files still inside `paths`. `make check` green (svelte-check 0/0, eslint, prettier, 140 vitest tests).
+All four round-1 findings are fixed and each has a test. `App.svelte` (`new ShortcutManager(registry)`) is the only caller and
+still works with the new options signature.
+
+Findings:
+- [ ] [major] web/src/lib/commands/shortcuts.ts:25 — `intercept.drop` (Ctrl/⌘+Backspace) is `global: true`, so it fires inside the
+  request editor on the Intercept page. Ctrl+Backspace is "delete previous word" on Win/Linux (⌘⌫ is "delete to line start" on macOS).
+  A user editing an intercepted request who deletes a word drops the whole request and loses the edit. `when` only gets `{ page }`,
+  so the intercept task can't stop this either, and `rebind` keeps the `global` flag. docs/02 §4 says "Drop (Intercept, *item selected*)".
+  → Remove `global: true` from that row. Drop then still works from the list (focus outside the editor), and the editor keeps its normal
+  key. Add one test: with `intercept.drop` registered and page `intercept`, ⌘Backspace from an `input()` target doesn't run it and
+  leaves `defaultPrevented === false`.
+
+AC coverage: AC1 ✔ · AC2 ✔ (chord conflicts now reported) · AC3 ✔ apart from the editor case above. Missing E2E is still justified (T-021).
+
+Verdict: **changes_requested** — a one-line fix plus a test.
