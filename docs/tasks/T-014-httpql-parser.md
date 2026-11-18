@@ -3,7 +3,7 @@ id: T-014
 title: HTTPQL-compatible lexer, parser, AST and conformance corpus
 milestone: M1
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-001]
 owner: "claude-code (opus-5.5)"
 branch: task/T-014-httpql-parser
@@ -55,3 +55,14 @@ Defaults (flagged in Handoff): unquoted string values rejected; `finding.*` acce
 - T-015: evaluate the corpus on both back-ends. T-018: preset expansion (`core.Preset`, depth 8). Completions (§7) not in scope.
 
 ## Review (reviewer)
+Reviewed `main...HEAD` (eae92ea). All changed files are inside `internal/query/**` plus this task file. `make check` is green. No `make test-int` run: proxy/store/rawhttp are untouched.
+I checked the grammar against docs/04 §1, the type table against §2/§3, StreamQL against §6, the error spans, the round-trip and depth limits, and the conformance corpus. I recomputed every `*.len.eq` value from the wire bytes and checked the boolean/LIKE/escape cases by hand. They all match.
+
+- [ ] [major] internal/query/core/types.go:123 — The `time.RFC1123` layout (`… 15:04:05 MST`) accepts any zone abbreviation. `time.Parse` gives unknown abbreviations a zero offset, so `req.created_at.lt:"Wed, 31 Jan 2024 12:00:00 EST"` parses to `2024-01-31T12:00:00Z` with no error. The real time is 17:00Z, so the filter silently returns wrong rows. `PDT`, `XYZ` and so on behave the same (I confirmed this with a probe). → Replace `time.RFC1123` with the literal-GMT layout `"Mon, 02 Jan 2006 15:04:05 GMT"` (RFC 7231 IMF-fixdate is always GMT), so other abbreviations fall through to the "is not a datetime" error. Add an error-table case for `"… EST"`.
+- [ ] [minor] internal/query/httpql/httpql.go:36-37 — docs/04 §2 says `finding.*` is "Findings page only", but the one `httpql.Language` accepts it everywhere. As a result, `finding.title.cont:"x"` on HTTP history passes parsing and leaves T-015's SQL compiler to fail at run time (it has no findings join). §3 wants those to be parse errors with a span. → Remove `finding.*` from `Language` and export a `FindingsLanguage` that copies the fields and adds `finding.title`/`finding.reporter`, with a `ParseFindings` wrapper. Otherwise, set `blocked` and ask the lead to confirm the "caller's job" decision recorded in the Handoff.
+- [ ] [nit] internal/query/httpql/fuzz_test.go:19-20 — When the error is not a `*core.Error`, `qe` is nil and the `Fatalf` arguments dereference `qe.Span`. The test panics instead of printing the intended message. → Split the check: `if !ok { t.Fatalf("error %v is %T, want *core.Error", err, err) }`, then do the span checks.
+- [ ] [nit] internal/query/core/types.go:115-125 — Common ISO 8601 forms `2024-01-31T12:00Z` (no seconds) and `2024-01-31T12:00:00+0200` (offset without a colon) are rejected. The error message is clear, so this is not a correctness issue. → If wanted, add `"2006-01-02T15:04Z07:00"` and `"2006-01-02T15:04:05.999999999Z0700"`.
+
+AC coverage: all five ACs are covered by tests (`TestParseCanonical`, `TestParseErrors`, `TestPrecedence`, `FuzzParseHTTPQL`/`FuzzStreamQL` with round-trip, `TestConformanceCorpusParses` with 135 cases). Security and limits: input is capped at 64 KiB, paren depth at 128, RE2 only, and no I/O. I did not rerun the 60 s fuzz.
+
+**Verdict: changes_requested** (1 major).
