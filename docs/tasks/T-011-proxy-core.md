@@ -3,7 +3,7 @@ id: T-011
 title: Proxy core - listener multiplexing, CONNECT, MITM, forwarding, capture
 milestone: M1
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-005, T-008, T-010]
 owner: "claude (sonnet 5.5)"
 branch: task/T-011-proxy-core
@@ -120,3 +120,45 @@ AC 1-5 are each covered by a test (`TestHTTPAndHTTPSMatchDirect`, `TestCorpusByt
 - Retry only for GET/HEAD/OPTIONS/TRACE. Idle read deadline (`netx.IdleConn`) refreshed per read on both client and upstream sides; disabled for 101 tunnels and UI handoff.
 - `pool.Close()` after Serve; `bytes.NewReader`.
 - Pending row: not built; tracked as follow-up for the intercept task (lead to ack).
+
+### Re-review (round 2)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: changes_requested**
+
+Scope: all changed files still inside `paths`. `make check` green (exit 0). `make test-int` green (exit 0).
+All nine round-1 findings are fixed and the new tests cover them (`TestUIDownloadDoesNotCaptureConnection`,
+`TestCaptureFailedResponseLeavesNoRequest`, `TestOriginFormForeignHostIsMisdirected`). One older bug remains, and the
+stricter retry rule from round 1 now hits it more often.
+
+- [ ] [major] internal/netx/pool.go:94-109 + internal/proxy/forward.go:99 — `take` hands out an idle connection without
+  checking that the server is still there. Many servers close idle keep-alive connections long before the pool's 90 s
+  (Node and Apache: 5 s). A request with a body, or any non-safe method, sent on such a connection gets EOF and is
+  answered with a 502. It is not retried, and that part is correct. I confirmed this with a temporary test (now
+  deleted): upstream `IdleTimeout = 100ms`, `POST /login` through the proxy, wait 300 ms, the same POST again →
+  `200`, then `502`. Login forms and API calls after a short pause will fail every time.
+  → In `take`, check each popped connection before returning it: `c.SetReadDeadline(time.Now())`, `_, err := c.BR.Peek(1)`,
+  then `c.SetReadDeadline(time.Time{})`. A timeout error means the connection is alive, so return it. EOF, any other
+  error, or bytes that arrive unasked mean it is dead, so close it and try the next one. A read timeout is not sticky on
+  `tls.Conn`. Add a pool or proxy test with the setup above (short upstream `IdleTimeout`, two POSTs) that expects 200 twice.
+- [ ] [minor] internal/proxy/forward.go:59, server.go:321/424, forward.go:38 — Client writes have no deadline.
+  If a client stops reading in the middle of a large response (a suspended process, a laptop going to sleep without
+  sending FIN), `resp.WriteTo(c.conn)` blocks once the TCP buffers are full. The session goroutine and the upstream
+  connection then stay held until `Serve` ends. Round 1 fixed the read side only.
+  → Add the same idea for writes: a small `Write` wrapper on the client conn that calls `SetWriteDeadline(now+idleTimeout)`.
+  You can also put it in `netx.IdleConn` next to `Read`. Turn it off for 101 tunnels, as reads already are.
+- [ ] [minor] internal/proxy/server.go:448-470 — The TLS handshake used to have one 10 s deadline for the whole
+  handshake. Now the 10 s limit applies to each read, and the handshake writes have no deadline. A client that sends
+  its ClientHello one byte every 9 s keeps a goroutine for more than an hour. → Before `HandshakeContext`, set
+  `tc.SetDeadline(time.Now().Add(handshakeTimeout))` and set `c.idle.Idle = 0`. After the handshake, clear the deadline
+  and set `c.idle.Idle = idleTimeout`.
+- [ ] [minor] internal/proxy/proxy_test.go — Two round-1 fixes still have no test that would fail if they broke:
+  (a) the self-forward loop, `GET http://127.0.0.1:<port>/` with `Host: 127.0.0.1:0<port>`, which must reach the UI
+  and must not be forwarded; (b) the stall deadline, where an upstream sends its head and then nothing. For (b), make
+  `idleTimeout` a `Deps` field (zero → 2 min), as `HeaderTimeout` already is, so a test can set 100 ms.
+- [ ] [nit] internal/history/capture.go:254-266 — `insertRequest` copies the column list of `store.insertRequestSQL`
+  (internal/store/requests.go:27). The two copies must change together when the schema changes. → Ask the lead for an
+  exported `store.InsertRequestTx(ctx, tx, Request)` (out of scope here) and leave a `TODO(T-011-followup)` until then.
+  Also, capture.go:212 says "Write may retry the closure", but `store.runTx` never retries. → Remove the comment or
+  make it accurate.
+- [ ] [nit] Handoff "Pending row" — It still says "lead to ack", and there is no task id or `TODO(T-###)` for it. The
+  Definition of Done requires untracked TODOs to be tracked. → Get the follow-up task id from the lead and write it in
+  the Handoff.
