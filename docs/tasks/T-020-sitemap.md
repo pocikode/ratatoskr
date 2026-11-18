@@ -3,7 +3,7 @@ id: T-020
 title: Sitemap tree (backend derivation + page)
 milestone: M1
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-016, T-094]
 owner: "codex (GPT-6)"
 branch: task/T-020-sitemap
@@ -88,3 +88,36 @@ RESOLVED by lead (T-094): `internal/api/graphql/schema/sitemap.graphqls` did not
 - Review/approval remains pending; no PR opened.
 
 ## Review (reviewer)
+Reviewed 2026-11-19 (Claude Code, reviewer). Scope: `git diff main...HEAD` (15 files). All changed files are inside `paths`;
+generated files match `bun run codegen` (no diff). `make check`: green (Go vet/lint/race tests, svelte-check, eslint,
+prettier, vitest 36 files / 219 tests). `make test-int` not run: no proxy/store/rawhttp changes.
+Spec check (F-SITE-1): host/path/query derivation, directory/file kind, child order, `/a//b/`, `*`/absolute-form paths,
+IPv6 labels, query-bar composition (`(node) and (bar⏎)`, empty/comment-only bar), 5000-node cap, `BAD_QUERY` over
+`MaxQueryLen` and malformed IDs all match and are tested; the count == `requests(query: n.query)` invariant is tested
+across bars, scopes and all four kinds. Preset references in the bar still work (parsed, expanded later by `List`/`Delete`).
+
+- [ ] [major] web/src/pages/sitemap/sitemap.svelte.ts:196-199,283-305 — after a Shift-click, every descendant with
+  children is added to `expanded` (up to ~5000), and `refresh()` sends one `sitemapNodes` query per expanded node via
+  `Promise.all`. Each call rebuilds the whole tree server-side (full `GROUP BY` over filtered history,
+  internal/history/sitemap.go:110-112; ~55 ms at 10k rows). Shift-click a host with 1000 directories while the proxy is
+  capturing → ~1000 full scans every second, server CPU far above 1 s/s, UI never catches up. → Remember the nodes
+  expanded with Shift (`recursiveRoots`); in `refresh()` fetch each of them once with `recursive: true` (rebuild
+  `children` like `toggle` does) and skip expanded nodes that sit under one. Add a state test: Shift-expand a subtree
+  with N directories, emit `requestAdded`, assert ≤ (1 + recursive roots + other expanded) `SitemapNodes` calls.
+- [ ] [minor] web/src/pages/sitemap/sitemap.svelte.ts:318-321 — each live refresh calls `loadRows()` with `more=false`,
+  so rows paged in beyond the first 1000 are dropped and the table jumps back once per second during capture. →
+  Reload only when the refreshed `selected.requestCount` changed, and then request `first: rows.length` (or keep the
+  current pages) instead of resetting to page one.
+- [ ] [minor] web/src/pages/sitemap/sitemap.svelte.ts:383-389 — "Add host to scope" appends `target.host` raw. For an
+  IPv6 host (`::1`, which the tree supports) `scope.ParseRule` (internal/scope/match.go:45-54) finds `:` at index 0 →
+  "empty host" error, the action always fails. → Send `` `[${host}]` `` when the host contains `:`. Same bug exists in
+  web/src/pages/http-history/history.svelte.ts:119 (out of lane: lead to file a follow-up / shared helper).
+- [ ] [nit] web/src/pages/sitemap/sitemap.svelte.ts:284 — `new SvelteSet` used only to dedupe a local array; reactivity
+  is not needed → `new Set`.
+- [ ] [nit] web/src/pages/sitemap/sitemap.svelte.ts:41,317 — the confirm dialog shows the count captured when it opened;
+  refreshes update `target` but not `confirmation.node`, so with live traffic the dialog under-reports what `Delete`
+  removes. → In `refresh()`, also swap `confirmation.node` for its refreshed copy (keep `scopeId`).
+- [ ] [nit] internal/history/sitemap.go:97-105 — the bar is parsed a second time after `s.filter` already parsed it;
+  harmless, but `filter` could return whether the parsed node is nil to avoid the duplicate parse.
+
+Verdict: **changes_requested** — fix the major (refresh fan-out after Shift-expand); minors recommended in the same pass.
