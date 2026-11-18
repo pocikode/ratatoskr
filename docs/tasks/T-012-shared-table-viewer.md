@@ -3,7 +3,7 @@ id: T-012
 title: Shared TrafficTable (virtualized) and MessageViewer components
 milestone: M1
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-003]
 owner: opencode/deepseek-v4.1-flash-1017
 branch: task/T-012-shared-table-viewer
@@ -169,3 +169,49 @@ Load assumed: one user, up to 100k rows in the table, 5 MB bodies in the viewer 
 
 ### Verdict
 **changes_requested**. Fix the 2 blockers and 3 majors; the minors may go to follow-ups if noted in the Handoff.
+
+### Round 2
+Reviewer: claude-code (reviewer agent) · 2026-11-18 · branch `task/T-012-shared-table-viewer` @ ef1fea4
+
+`make check`: green (exit 0; vitest 19 files / 121 tests). `make test-int`: not run (no proxy/store/rawhttp changes).
+Scope: every file is inside `paths`. `routes.ts` change is only the approved trailing `import.meta.env.DEV` block.
+`paneforge` is on the docs/06 §1 list; the in-house virtual list is the decision docs/06 §1 delegates to T-012.
+Load assumed: one user, up to 100k rows in the table, 5 MB bodies in the viewer (AC + docs/02 §9).
+
+Round 1 findings: all 2 blockers, 3 majors, 7 minors and the nit are fixed, and each one has a test. I checked every fix
+against the code (`MessageTable` index key + 128 KB / 500-row sample, `{#if mode === 'table'}`, `e.target !== e.currentTarget`,
+`stripe` const, `normalizeConfig`, window around `current`, `queryParams`, `hexDump` prefix, SplitPane `mockClear`).
+
+#### Findings
+- [ ] [major] web/src/lib/components/MessageViewer/MessageViewer.svelte:31-35 — `limit`, `hexLimit` and `current` are set
+  once and never reset when the `raw` prop changes. A page keeps one viewer and passes the selected row's message, so:
+  (a) search "a" on a message with 700 matches, press Enter to reach 700, select a row with 3 matches → the counter shows
+  `701/3` and no match is marked; (b) press "Show more" about 40 times on a 5 MB body (`limit` ≈ 5 MB), select another 5 MB
+  row → the whole 5 MB goes into one `<pre>` in one render, so the "5 MB without freezing / chunked" AC breaks. The gallery
+  shows it too: the "Use 5 MB response" toggle swaps `raw` on the same viewer. → Reset the view state when `raw` changes,
+  e.g. `$effect.pre(() => { void raw; untrack(() => { limit = CHUNK; hexLimit = HEX_CHUNK; current = 0; }); });`
+  (keep `mode` and the search text). Add a test: `rerender({ raw: other })` after Enter/Show more → counter `1/N`, the
+  ShowMoreBar shows 128 KB again.
+- [ ] [minor] web/src/lib/components/TrafficTable/TrafficTable.svelte:51,87-90 — `active` is not clamped when `rows`
+  shrinks (the page filters). With `active = 500` and the rows filtered to 10: ArrowUp calls `setActive(499)`, which returns
+  early (`rows[499]` is undefined), so ArrowUp does nothing; Enter/Space/ContextMenu do nothing; `aria-activedescendant`
+  points to an id that does not exist. → `const from = Math.min(active, rows.length - 1)` (and the same for the
+  `aria-activedescendant` check), or set `active = -1` when `active >= rows.length`. One test with `rerender` to fewer rows.
+- [ ] [minor] web/src/lib/components/MessageViewer/format.ts:87 + MessageViewer.svelte:71,141 — `findMatches` keeps 1000
+  offsets but the counter shows `total`. The gallery's 5 MB body has 200 000 matches of "proxy": Enter goes
+  `1/200000 … 1000/200000`, then wraps to `1/200000`; matches 1001+ are never reached, and the counter says they exist.
+  → Show the reachable count (`1000+` when `total > indices.length`), or note the cap in the counter title. Add one assert to
+  the existing search test.
+- [ ] [nit] web/src/lib/components/MessageViewer/format.ts:90-91 — offsets come from `text.toLowerCase()`, which can change
+  the length (`'İ'` becomes 2 code units). After such a character every `<mark>` is shifted by one character. → Search with
+  `new RegExp(escaped, 'giu')` on the original text, or accept it and add it to Known limitations.
+
+#### AC coverage
+- Demo route with 100k rows: yes (`DevComponentsPage.test.ts`, route approved by the lead, absent from the prod build per Handoff).
+- Column show/hide/reorder/resize, sort, multi-select, keyboard, context menu: yes; key bubbling and no-active-row start now tested.
+- 5 MB without freezing + Ctrl+F: Raw, Hex and Table paths covered for a single message; not when the message changes (major above).
+- Selection and column-config callback tests: yes.
+
+#### Verdict
+**changes_requested**. Fix the major (a few lines plus one test). The minors and the nit can go to follow-ups if they are
+written in the Handoff.
