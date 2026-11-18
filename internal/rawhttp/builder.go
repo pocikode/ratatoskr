@@ -30,19 +30,20 @@ type Builder struct {
 // Builder returns a builder for m.
 func (m *Message) Builder() *Builder { return &Builder{m: m} }
 
-// SetMethod replaces the request method.
+// SetMethod replaces the request method. It is ignored on a response.
 func (b *Builder) SetMethod(method string) *Builder {
 	b.method = &method
 	return b
 }
 
-// SetTarget replaces the request target.
+// SetTarget replaces the request target. It is ignored on a response.
 func (b *Builder) SetTarget(target string) *Builder {
 	b.target = &target
 	return b
 }
 
-// SetStatus replaces the response status code and its reason phrase.
+// SetStatus replaces the response status code and its reason phrase. It is
+// ignored on a request.
 func (b *Builder) SetStatus(code int, reason string) *Builder {
 	b.status, b.reason = &code, &reason
 	return b
@@ -145,7 +146,7 @@ func (b *Builder) head() []byte {
 			head = append(head, h.Name...)
 			head = append(head, ':', ' ')
 			head = append(head, h.Value...)
-			head = append(head, '\r', '\n')
+			head = append(head, b.m.terminator()...)
 		}
 	} else {
 		head = append(head, b.m.raw[b.m.lineEnd:b.m.bodyAt]...)
@@ -153,8 +154,14 @@ func (b *Builder) head() []byte {
 	return append(head, b.m.raw[b.m.bodyAt:]...)
 }
 
+// lineEdited reports whether a start-line field of this message's own kind was
+// replaced. A setter for the other kind is ignored, not a reason to rebuild
+// (and not a nil dereference).
 func (b *Builder) lineEdited() bool {
-	return b.method != nil || b.target != nil || b.status != nil
+	if b.m.kind == kindResponse {
+		return b.status != nil || b.reason != nil
+	}
+	return b.method != nil || b.target != nil
 }
 
 func (b *Builder) startLine() []byte {
@@ -168,9 +175,13 @@ func (b *Builder) startLine() []byte {
 			line = append(line, b.m.version...)
 		}
 	} else {
+		code := b.m.status
+		if b.status != nil {
+			code = *b.status
+		}
 		line = append(line, b.m.version...)
 		line = append(line, ' ')
-		line = append(line, strconv.Itoa(*b.status)...)
+		line = strconv.AppendInt(line, int64(code), 10)
 		if reason := b.str(b.reason, b.m.reason); reason != "" {
 			line = append(line, ' ')
 			line = append(line, reason...)
