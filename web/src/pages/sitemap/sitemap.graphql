@@ -1,0 +1,32 @@
+query SitemapNodes($parentId: ID, $query: String, $scopeId: ID, $recursive: Boolean!) {
+  sitemapNodes(parentId: $parentId, query: $query, scopeId: $scopeId, recursive: $recursive) {
+    id
+    parentId
+    kind
+    label
+    url
+    host
+    requestCount
+    hasChildren
+    query
+  }
+}
+
+query SitemapRequests($query: String!, $scopeId: ID, $after: String, $sort: RequestSort) {
+  requests(query: $query, scopeId: $scopeId, first: 1000, after: $after, sort: $sort) {
+    totalCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    edges {
+      node {
+        ...HistoryRow
+      }
+    }
+  }
+}
+
+mutation SitemapDelete($query: String!, $scopeId: ID) {
+  deleteRequests(query: $query, scopeId: $scopeId)
+}
