@@ -3,7 +3,7 @@ id: T-009
 title: Workspace page (projects) and top-bar project switcher
 milestone: M0
 role: frontend
-status: in_review
+status: done
 depends_on: [T-003, T-006, T-007]
 owner: claude
 branch: task/T-009-workspace-page
@@ -47,8 +47,8 @@ Applied minimally because the task is unfinishable without them: `TopBar.svelte`
 ## Handoff (implementer)
 - **Changed:** project store, switcher, Workspace page/dialog, GraphQL ops, tests (see Plan).
 - **Verify:** `make check` green; `cd web && bun run dev` against `make run`, use the top-bar switcher and the Workspace page.
-- **Limitations:** (1) **No Playwright smoke**: `@playwright/test` and `web/tests/e2e` do not exist in the repo yet; needs E2E infra first. (2) Row actions (rename/duplicate/delete/default) call the store directly, not the command registry (commands take no per-row context yet); only `project.create` and per-project `project.select.*` are commands. (3) Page stores don't yet subscribe to `projects.onReset()`/`epoch`: no project-scoped stores exist yet; later tasks must hook in. (4) Backups tab is a placeholder. (5) Dialog `$effect`-free; switcher input shows the project name and filters only while open.
-- **Follow-ups:** E2E harness task; context-aware commands for row actions.
+- **Limitations:** (1) Playwright Workspace smoke lives in T-021 (no E2E harness yet; lead decision 2026-11-18). (2) Page stores don't yet subscribe to `projects.onReset()`/`epoch`: no project-scoped stores exist yet; later tasks must hook in. (3) Backups tab is a placeholder. (4) Switcher input shows the project name and filters only while open.
+- **Follow-ups:** `ProjectDialog.svelte` has no in-flight guard: a quick double submit sends the mutation twice (round-4 minor). Fix: a `busy` flag, `|| busy` on the button's `disabled`, and one test. Pick it up in the next frontend task that touches the Workspace page.
 
 ## Rework (round 1 fixes)
 - Store: full resubscribe on stream end (wonka `onEnd`) + refetch; refetch on ws reconnect; stale-refresh guard (`#seq`); `openDialog()` clears stale error; plain `Set`; new `project.svelte.test.ts`.
