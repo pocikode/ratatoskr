@@ -142,3 +142,32 @@ Findings:
 Verdict: **changes_requested** (1 major). Task status set accordingly. Only this task file changed.
 Not checked: E2E and production sitemap performance (backend/page are T-020); `make test-int`
 was not required because no proxy/store/rawhttp files changed.
+
+### Round 3 — review of `5ad0bda`
+
+Reviewed `main...HEAD` by Codex (2026-11-19).
+
+- Scope: all 14 changed files match the task's `paths`. Read the full diff, F-SITE-1,
+  architecture §6, Go/frontend conventions, and the connected history resolver, query/filter,
+  deletion, subscription and mock flows. Assumed one local proxy process; the mock uses
+  300 seeded requests. Production derivation and the 10k-request / 200-host budget belong to T-020.
+- Previous finding resolved: `SitemapNode.query` now includes the call's filter on the server;
+  clients pass it unchanged. The schema, feature spec and T-020 guidance agree. The real-parser
+  regression covers empty, whitespace-only, block/line-comment-only, trailing-line-comment,
+  ordinary and OR filters. The resolver remains the intended `ErrNotImplemented` contract stub.
+- Verification: `make check` passed (Go fix/vet/lint, race tests, Svelte/TypeScript, ESLint,
+  formatting, 34 web test files / 211 tests). `make gen` passed in a temporary HEAD copy;
+  byte comparison found no tracked-file differences. `git diff --check main...HEAD` passed.
+- Additional mock probe: 354 node/filter combinations returned history counts equal to their
+  badges, across empty, whitespace, ordinary and trailing-line-comment bars. Deleting one host
+  using its returned query removed exactly its 11 requests and the host disappeared.
+- Documented mock limits remain: scope filtering is ignored, general HTTPQL matching is simplified,
+  and comment-only bars are not treated as empty. These do not change the production contract.
+
+Findings: none remaining.
+
+Verdict: **approve**. Task remains `in_review` for the operator; this supersedes the previous verdicts.
+Only this task file changed.
+
+Not checked: production sitemap E2E and performance (backend/page are T-020); `make test-int`
+was not required because no proxy/store/rawhttp files changed.
