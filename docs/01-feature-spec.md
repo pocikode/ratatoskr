@@ -89,6 +89,24 @@ unlimited projects/plugins) are **free and unlimited** here.
 - Select node → bottom table of requests under that node (same table component as HTTP History) + request/response panes.
 - Shift-click expands a node fully. Context menu: delete node (deletes underlying requests after confirm), add host to scope, copy URL.
 - AC: 10k requests over 200 hosts render the tree in < 500 ms; deleting a node removes its rows from history.
+- Derivation (T-094 contract, `sitemap.graphqls`), computed at read time from the requests that match the active scope
+  preset and query bar; nothing is stored:
+  - **Host** node per `(tls, host, port)`, label `http(s)://host:port` (port always shown; IPv6 hosts in brackets).
+  - **Path** nodes: a path starting with `/` splits on `/` into its non-empty segments, as stored (not percent-decoded,
+    case-sensitive); `/a//b/` → `a`, `b`. Paths not starting with `/` (`*`, absolute-form) and `/` itself have no
+    segments and sit directly on the host. Kind **directory** when it has child path nodes, else **file**.
+  - **Query** nodes: children of a path node, one per distinct set of query parameter *names* (values ignored) among
+    requests whose path ends at that node. Names = non-empty `&`-separated pieces of `req.query` cut at the first `=`;
+    label `?a&b` (sorted, deduplicated). Requests with no names stay on the path node only.
+  - Count badge = requests at or below the node. Children order: path nodes by label (byte order), then query nodes by label.
+- Requests "under a node" are defined by an HTTPQL expression the server returns with the node (`SitemapNode.query`),
+  already combined with the query bar the tree was fetched with: the node expression alone when the bar is empty (only
+  whitespace/comments), else `(<node expr>) and (<bar>⏎)` (newline ends a trailing `//` comment; HTTPQL rejects `()`).
+  The UI passes it unchanged, same scope, for the request table and for delete (`deleteRequests`), never composing
+  queries itself. So the confirm dialog's count (the badge) is exactly what gets deleted.
+- Live: the page listens to `requestAdded`/`requestUpdated`/`requestsDeleted` with the page's query/scope and refetches
+  the roots and the expanded nodes, at most once per second. No dedicated sitemap subscription.
+- Shift-click: loads the whole subtree in one call, capped at 5000 nodes (beyond that: error, expand level by level).
 
 ### F-SCOPE-1 Scopes
 - Scope preset = `{name, allowlist[], denylist[]}`; entries are host globs (`*.example.com`, `api.*.com`), optional

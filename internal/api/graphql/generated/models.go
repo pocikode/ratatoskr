@@ -278,6 +278,44 @@ type ServerInfo struct {
 	AuthRequired bool `json:"authRequired"`
 }
 
+// One node of the sitemap tree. Counts and children depend on the `query` and
+// `scopeId` the node was fetched with.
+type SitemapNode struct {
+	// Opaque identifier, stable for the same host, path segments and query
+	// parameter names across calls and filters. Pass it as `sitemapNodes(parentId:)`.
+	ID string `json:"id"`
+	// ID of the parent node; null for `HOST` nodes.
+	ParentID *string         `json:"parentId,omitempty"`
+	Kind     SitemapNodeKind `json:"kind"`
+	// Text shown in the tree: `https://example.com:443` for hosts (port always
+	// shown, IPv6 hosts in brackets), the segment as stored for path nodes (not
+	// percent-decoded), `?a&b` for query nodes (names sorted, deduplicated).
+	Label string `json:"label"`
+	// URL for "Copy URL": the host label, then `/` and the segments joined by `/`
+	// for path nodes, then the query node label for query nodes.
+	URL string `json:"url"`
+	// Host of the target, without port or brackets (for "Add host to scope").
+	Host string `json:"host"`
+	// Port of the target.
+	Port int `json:"port"`
+	// Whether the target uses TLS.
+	TLS bool `json:"tls"`
+	// Number of requests at or below this node that match the call's `query` and `scopeId`.
+	RequestCount int `json:"requestCount"`
+	// Whether this node has children under the call's `query` and `scopeId`.
+	HasChildren bool `json:"hasChildren"`
+	// An HTTPQL expression selecting exactly the requests at or below this node
+	// that match the call's `query`; pass it unchanged, with the same `scopeId`,
+	// to `requests` (the node's table) and `deleteRequests` (delete node), and the
+	// result count equals `requestCount`. Clients never combine it with the query
+	// bar themselves (comments make textual composition unsafe): the server
+	// returns the node expression alone when the call's `query` is empty, or only
+	// whitespace and comments, else `(<node expression>) and (<call query>` + a
+	// newline + `)` (the newline ends a trailing `//` comment). Changes with the
+	// call's `query`, unlike `id`. Always parses; never empty.
+	Query string `json:"query"`
+}
+
 type Subscription struct {
 }
 
@@ -771,6 +809,71 @@ func (e *RequestSource) UnmarshalJSON(b []byte) error {
 }
 
 func (e RequestSource) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What a sitemap node stands for; clients pick the icon from it.
+type SitemapNodeKind string
+
+const (
+	// One `(tls, host, port)` target. Always a root.
+	SitemapNodeKindHost SitemapNodeKind = "HOST"
+	// A path segment that has child path segments.
+	SitemapNodeKindDirectory SitemapNodeKind = "DIRECTORY"
+	// A path segment without child path segments (it may have `QUERY` children).
+	SitemapNodeKindFile SitemapNodeKind = "FILE"
+	// Requests whose path ends at the parent path node and whose query string has
+	// this exact set of parameter names (values ignored). Always a leaf.
+	SitemapNodeKindQuery SitemapNodeKind = "QUERY"
+)
+
+var AllSitemapNodeKind = []SitemapNodeKind{
+	SitemapNodeKindHost,
+	SitemapNodeKindDirectory,
+	SitemapNodeKindFile,
+	SitemapNodeKindQuery,
+}
+
+func (e SitemapNodeKind) IsValid() bool {
+	switch e {
+	case SitemapNodeKindHost, SitemapNodeKindDirectory, SitemapNodeKindFile, SitemapNodeKindQuery:
+		return true
+	}
+	return false
+}
+
+func (e SitemapNodeKind) String() string {
+	return string(e)
+}
+
+func (e *SitemapNodeKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SitemapNodeKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SitemapNodeKind", str)
+	}
+	return nil
+}
+
+func (e SitemapNodeKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *SitemapNodeKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e SitemapNodeKind) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil
