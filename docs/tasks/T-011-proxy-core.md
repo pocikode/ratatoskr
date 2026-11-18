@@ -3,7 +3,7 @@ id: T-011
 title: Proxy core - listener multiplexing, CONNECT, MITM, forwarding, capture
 milestone: M1
 role: backend
-status: in_progress
+status: in_review
 depends_on: [T-005, T-008, T-010]
 owner: "claude (sonnet 5.5)"
 branch: task/T-011-proxy-core
@@ -29,11 +29,11 @@ and captures every request/response into the project DB (batched) emitting `Requ
 - (2026-11-18, T-008) `internal/app/app.go` already opens `ca.Open(...)` and mounts `/ca.crt` + `/ca.der` on the UI listener: rebase, do not re-add it. Call `ca.Service.TLSConfig()` for MITM. F-NET-2's `http://ratatoskr.localhost/ca.crt` arrives through the proxy listener, so answer it there too (and let `ratatoskr.localhost` pass the loopback Host check).
 
 ## Acceptance criteria
-- [ ] `curl -x` HTTP and HTTPS (with `--cacert`) through the proxy return identical bodies to direct requests (integration test against testutil servers).
-- [ ] Malformed requests from the golden corpus are forwarded byte-exact to a raw TCP test server.
-- [ ] 200 concurrent clients × 50 requests: no goroutine leak (goroutineleak profile/test), p99 added latency < 5 ms locally.
-- [ ] Upstream errors produce a 502 page from Ratatoskr and a stored record with error text.
-- [ ] Capture can be paused when no project is open (requests still forwarded).
+- [x] `curl -x` HTTP and HTTPS (with `--cacert`) through the proxy return identical bodies to direct requests (integration test against testutil servers).
+- [x] Malformed requests from the golden corpus are forwarded byte-exact to a raw TCP test server.
+- [x] 200 concurrent clients × 50 requests: no goroutine leak (goroutineleak profile/test), p99 added latency < 5 ms locally.
+- [x] Upstream errors produce a 502 page from Ratatoskr and a stored record with error text.
+- [x] Capture can be paused when no project is open (requests still forwarded).
 
 ## Plan (implementer, ≤15 lines)
 1. `internal/events`: generic `Bus[T]`, per-subscriber buffer 1024, non-blocking publish, slow subscribers get a `Stale` marker.
@@ -47,5 +47,18 @@ and captures every request/response into the project DB (batched) emitting `Requ
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
+**Changed:** new `internal/events` (Bus[T]), `internal/netx` (dial + keep-alive pool), `internal/history/capture.go` (batched writer 50 ms/200 rows, paused when no project DB), `internal/proxy` (listener mux, CONNECT/MITM, forward, 100-continue, 101 tunnel, 502 page), `internal/testutil` (RawServer), `internal/app` (Serve now runs proxy + capture; `app.Events()`).
+**Verify:** `make check`; `go test -race -tags integration ./internal/proxy` (200x50 clients, goroutine count back to baseline, p99 added < 5 ms).
+**Decisions / limitations:**
+- Upstream TLS is not verified (`InsecureSkipVerify`, justified nolint): a pentest proxy must reach broken targets. A Settings toggle is a follow-up.
+- No pending row: an exchange is inserted once complete, so `Added` and `Updated` are published together. The pending state arrives with intercept (T-0xx).
+- Upstream errors have no schema column: the synthetic 502 page is stored as the response (error text is in its body).
+- `http://ratatoskr.localhost/...` through the proxy supports GET/HEAD only (request is replayed into the UI server).
+- Absolute-form targets are rewritten to origin-form for the origin server; inside a CONNECT tunnel bytes are forwarded untouched.
+- Tests use Go's HTTP client as the "curl" stand-in; the golden-corpus test sends every forwardable wire request in `rawhttp/testdata/requests.txtar` through a CONNECT tunnel to a raw TCP server.
+- Multi `--listen` and `--ui-listen` stay gated with ErrNotImplemented (follow-up; needs Settings -> Network).
+- The integration test admits connects 32 at a time: a 200-connection burst overflows macOS's listen backlog before the proxy sees it.
+- WebSocket frames are not recorded (relayed raw after 101); matchreplace/intercept hooks not wired yet.
+- `make check` needed `bun install` in the worktree (no change to web files).
 
 ## Review (reviewer)

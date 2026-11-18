@@ -1,13 +1,15 @@
 // Package app wires a Ratatoskr instance together: configuration, logging, the
 // data dir and the HTTP servers, and runs them until the context is cancelled.
 //
-// The proxy joins in a later task; the store, the project registry and the CA
-// receive their dependencies from App instead of package-level state
+// The proxy listener serves proxy and UI traffic; the store, the project
+// registry and the CA receive their dependencies from App instead of
+// package-level state
 // (docs/03-architecture.md §2).
 package app
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +18,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/pocikode/ratatoskr/internal/api"
@@ -25,16 +28,17 @@ import (
 	"github.com/pocikode/ratatoskr/internal/api/static"
 	"github.com/pocikode/ratatoskr/internal/ca"
 	"github.com/pocikode/ratatoskr/internal/config"
+	"github.com/pocikode/ratatoskr/internal/events"
+	"github.com/pocikode/ratatoskr/internal/history"
 	"github.com/pocikode/ratatoskr/internal/logging"
+	"github.com/pocikode/ratatoskr/internal/netx"
 	"github.com/pocikode/ratatoskr/internal/project"
+	"github.com/pocikode/ratatoskr/internal/proxy"
+	"github.com/pocikode/ratatoskr/internal/rawhttp"
 	"github.com/pocikode/ratatoskr/internal/store"
 )
 
 const (
-	readHeaderTimeout = 10 * time.Second
-	idleTimeout       = 60 * time.Second
-	maxHeaderBytes    = 1 << 20
-	maxHeaderValues   = 512
 	// shutdownGrace bounds how long in-flight requests may take once the context
 	// is cancelled (T-004: SIGINT/SIGTERM shuts down within 5 s).
 	shutdownGrace = 5 * time.Second
@@ -69,6 +73,8 @@ type App struct {
 	inst    *store.DB
 	project *project.Service
 	ca      *ca.Service
+	capture *history.Capture
+	events  events.Bus[history.Event]
 	handler http.Handler
 
 	// grace is the shutdown deadline; tests shorten it.
@@ -126,6 +132,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		return nil, err
 	}
 
+	a.capture = history.New(history.Deps{DB: a.project.DB, Bus: &a.events, Logger: a.log})
 	a.handler = a.buildHandler(buildInfo(opts.Version, opts.Commit))
 
 	return a, nil
@@ -171,52 +178,41 @@ func (a *App) Run(ctx context.Context) error {
 	return a.Serve(ctx, ln)
 }
 
-// Serve serves on ln until ctx is cancelled, then drains in-flight requests for at
-// most the shutdown grace. The listener is passed in so the bound address is known
-// even for --listen 127.0.0.1:0, and so later tasks can multiplex it.
+// Serve serves proxy and UI traffic on ln until ctx is cancelled, then drains
+// in-flight UI requests for at most the shutdown grace and flushes the capture
+// queue. The listener is passed in so the bound address is known even for
+// --listen 127.0.0.1:0.
 func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	addr := ln.Addr().String()
 
 	a.log.Info("ratatoskr listening", "addr", addr, "config", a.cfg)
 	a.warnIfExposed(addr)
 
-	srv := &http.Server{
-		Handler:             a.handler,
-		ReadHeaderTimeout:   readHeaderTimeout,
-		IdleTimeout:         idleTimeout,
-		MaxHeaderBytes:      maxHeaderBytes,
-		MaxHeaderValueCount: maxHeaderValues,
-		ErrorLog:            slog.NewLogLogger(a.log.Handler(), slog.LevelWarn),
-	}
+	// Capture outlives the listener: it is stopped only after Serve returns, so
+	// the last exchanges are flushed.
+	runCtx, stopCapture := context.WithCancel(context.WithoutCancel(ctx))
 
-	// Serve returns as soon as Shutdown or Close is called, so the goroutine
-	// always ends with this function.
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- srv.Serve(ln) }()
+	var wg sync.WaitGroup
 
-	select {
-	case err := <-serveErr:
-		return fmt.Errorf("app: serve %s: %w", addr, err)
-	case <-ctx.Done():
-	}
+	wg.Go(func() { a.capture.Run(runCtx) })
 
-	// ctx is already cancelled, so the drain needs a deadline of its own.
-	drainCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.grace)
-	defer cancel()
+	srv := proxy.New(proxy.Deps{
+		CA:      a.ca,
+		Pool:    &netx.Pool{TLS: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // a security proxy must reach self-signed and broken targets (T-011)
+		Capture: a.capture,
+		UI:      a.handler,
+		Logger:  a.log,
+		Limits:  rawhttp.DefaultLimits,
 
-	if shutdownErr := srv.Shutdown(drainCtx); shutdownErr != nil {
-		// Close cuts off the requests that ignored the deadline, which also
-		// unblocks Serve.
-		_ = srv.Close()
+		ShutdownGrace: a.grace,
+	})
 
-		if serveErr := <-serveErr; !errors.Is(serveErr, http.ErrServerClosed) {
-			a.log.Warn("serve after a failed shutdown", "addr", addr, "error", serveErr)
-		}
+	err := srv.Serve(ctx, ln)
 
-		return fmt.Errorf("app: shutdown %s: %w", addr, shutdownErr)
-	}
+	stopCapture()
+	wg.Wait()
 
-	if err := <-serveErr; !errors.Is(err, http.ErrServerClosed) {
+	if err != nil {
 		return fmt.Errorf("app: serve %s: %w", addr, err)
 	}
 
@@ -256,6 +252,9 @@ func (a *App) Close() error {
 
 	return errors.Join(errs...)
 }
+
+// Events is the bus of stored-request events (Added, Updated) for the API layer.
+func (a *App) Events() *events.Bus[history.Event] { return &a.events }
 
 // DataRoot is the data dir, opened as an [os.Root]. The store, the CA and the
 // project registry do all their file access through it
