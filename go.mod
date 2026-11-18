@@ -9,10 +9,13 @@ require (
 	github.com/chromedp/chromedp v0.7.8
 	github.com/coder/websocket v1.8.15
 	github.com/gorilla/mux v1.7.4
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/oklog/ulid v1.3.1
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/vektah/gqlparser/v2 v2.5.64
 	go.uber.org/zap v1.21.0
+	golang.org/x/crypto v0.59.0
+	golang.org/x/sync v0.25.0
 	modernc.org/sqlite v1.62.0
 )
 
@@ -27,7 +30,6 @@ require (
 	github.com/gobwas/ws v1.1.0 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -40,10 +42,9 @@ require (
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/telemetry v0.0.0-20261010193011-f71dc92da45e // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
 	golang.org/x/vuln v1.9.0 // indirect
 	modernc.org/libc v1.80.1 // indirect
