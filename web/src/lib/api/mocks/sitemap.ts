@@ -91,10 +91,15 @@ function chain(r: MockRequest): Desc[] {
   return out;
 }
 
+// SitemapNode.query rule (F-SITE-1): node alone for an empty bar, else `(node) and (bar\n)`.
+// shortcut: only whitespace counts as empty (the real server also treats comment-only bars as empty).
+const compose = (node: string, bar: unknown) =>
+  typeof bar === 'string' && bar.trim() ? `(${node}) and (${bar}\n)` : node;
+
 const badQuery = (msg: string) => new GraphQLError(msg, { extensions: { code: 'BAD_QUERY' } });
 
 /**
- * Splits a node query alone, or `(<node query>) and (<rest>)`, as the Sitemap page builds it.
+ * Splits a node query alone, or `(<node query>) and (<rest>)`, as compose() builds it.
  * Returns null when the text does not start with a node query this mock produced. Like the
  * real parser, an empty `()` group is BAD_QUERY.
  */
@@ -144,7 +149,11 @@ function validId(v: unknown): boolean {
 
 /** Sitemap root resolver over `rows`, filtered with the history mock's `matcher`. */
 export function createSitemapMock(rows: MockRequest[], matcher: (query: unknown) => Pred) {
-  const children = (parentId: string | null, list: MockRequest[]): MockSitemapNode[] => {
+  const children = (
+    parentId: string | null,
+    list: MockRequest[],
+    bar: unknown,
+  ): MockSitemapNode[] => {
     const nodes = new Map<string, MockSitemapNode>();
     const order = new Map<MockSitemapNode, unknown[]>();
     for (const r of list) {
@@ -166,7 +175,7 @@ export function createSitemapMock(rows: MockRequest[], matcher: (query: unknown)
           tls: r.tls,
           requestCount: 0,
           hasChildren: false,
-          query: child.query,
+          query: compose(child.query, bar),
         };
         nodes.set(child.id, n);
         order.set(
@@ -203,7 +212,7 @@ export function createSitemapMock(rows: MockRequest[], matcher: (query: unknown)
           }
         }
         const list = rows.filter(matcher(query));
-        const top = children((parentId as string | null) ?? null, list);
+        const top = children((parentId as string | null) ?? null, list, query);
         if (!recursive) return top;
         const out: MockSitemapNode[] = [];
         const walk = (ns: MockSitemapNode[]) => {
@@ -213,7 +222,7 @@ export function createSitemapMock(rows: MockRequest[], matcher: (query: unknown)
               throw new GraphQLError(`subtree has more than ${MAX_RECURSIVE} nodes`, {
                 extensions: { code: 'BAD_INPUT' },
               });
-            if (n.hasChildren) walk(children(n.id, list));
+            if (n.hasChildren) walk(children(n.id, list, query));
           }
         };
         walk(top);

@@ -99,10 +99,11 @@ unlimited projects/plugins) are **free and unlimited** here.
     requests whose path ends at that node. Names = non-empty `&`-separated pieces of `req.query` cut at the first `=`;
     label `?a&b` (sorted, deduplicated). Requests with no names stay on the path node only.
   - Count badge = requests at or below the node. Children order: path nodes by label (byte order), then query nodes by label.
-- Requests "under a node" are defined by an HTTPQL expression the server returns with the node (`SitemapNode.query`).
-  The UI combines it with the query bar, same scope, for the request table and for delete: the node query alone when the
-  bar is empty/whitespace (HTTPQL rejects `()`), else `(<node query>) and (<query bar>)`. So the confirm dialog's count
-  (the badge) is exactly what gets deleted (via `deleteRequests`).
+- Requests "under a node" are defined by an HTTPQL expression the server returns with the node (`SitemapNode.query`),
+  already combined with the query bar the tree was fetched with: the node expression alone when the bar is empty (only
+  whitespace/comments), else `(<node expr>) and (<bar>⏎)` (newline ends a trailing `//` comment; HTTPQL rejects `()`).
+  The UI passes it unchanged, same scope, for the request table and for delete (`deleteRequests`), never composing
+  queries itself. So the confirm dialog's count (the badge) is exactly what gets deleted.
 - Live: the page listens to `requestAdded`/`requestUpdated`/`requestsDeleted` with the page's query/scope and refetches
   the roots and the expanded nodes, at most once per second. No dedicated sitemap subscription.
 - Shift-click: loads the whole subtree in one call, capped at 5000 nodes (beyond that: error, expand level by level).

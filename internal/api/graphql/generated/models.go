@@ -304,13 +304,15 @@ type SitemapNode struct {
 	RequestCount int `json:"requestCount"`
 	// Whether this node has children under the call's `query` and `scopeId`.
 	HasChildren bool `json:"hasChildren"`
-	// An HTTPQL expression that selects exactly the requests at or below this node,
-	// ignoring the call's `query` and `scopeId`. Clients treat it as opaque and
-	// combine it with the query bar, passing the same `scopeId`, for `requests`
-	// (the node's table) and `deleteRequests` (delete node): the node query alone
-	// when the bar is empty or whitespace (HTTPQL rejects `()`), otherwise
-	// `(<node query>) and (<query bar>)`. The result count then equals
-	// `requestCount`. Always parses; never empty.
+	// An HTTPQL expression selecting exactly the requests at or below this node
+	// that match the call's `query`; pass it unchanged, with the same `scopeId`,
+	// to `requests` (the node's table) and `deleteRequests` (delete node), and the
+	// result count equals `requestCount`. Clients never combine it with the query
+	// bar themselves (comments make textual composition unsafe): the server
+	// returns the node expression alone when the call's `query` is empty, or only
+	// whitespace and comments, else `(<node expression>) and (<call query>` + a
+	// newline + `)` (the newline ends a trailing `//` comment). Changes with the
+	// call's `query`, unlike `id`. Always parses; never empty.
 	Query string `json:"query"`
 }
 

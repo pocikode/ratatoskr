@@ -3,7 +3,7 @@ id: T-094
 title: Contract - sitemap
 milestone: M1
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-013]
 owner: "claude-code (opus-5.5)"
 branch: task/T-094-contract-sitemap
@@ -63,6 +63,12 @@ blocked on the missing `sitemap.graphqls`.
   `internal/query/httpql/sitemap_compose_test.go` pins the rule against the real parser (path added to this task).
   Mock QUERY nodes only under path nodes (fixture: `/`, `*`, `/a`); parent ids validated as
   `[tls, host, port(, segs(, names))]` tuples, malformed → `BAD_INPUT`, well-formed absent → `[]`.
+- Round 3 (review fixes): composition moved server-side. `SitemapNode.query` now already includes the call's `query`:
+  node expression alone if the bar parses to empty (whitespace/comments), else `(<node>) and (<bar>\n)` (newline ends
+  a trailing `//` comment); over `MaxQueryLen` → `BAD_QUERY`. Clients pass it unchanged to `requests`/`deleteRequests`
+  and never compose. Updated schema docs, F-SITE-1, T-020 notes; `sitemap_compose_test.go` covers empty, whitespace,
+  `/* */`-only, `//`-only, trailing `//` and plain bars against the real parser. Mock composes the same way
+  (shortcut: only whitespace counts as empty there).
 
 ## Review (reviewer)
 Reviewed `main...HEAD` at `4a09453` by Codex (2026-11-19).
@@ -122,7 +128,7 @@ Reviewed `main...HEAD` by Codex (2026-11-19).
   below; adding a newline before the closing parenthesis fixes the trailing-line-comment case.
 
 Findings:
-- [ ] [major] internal/api/graphql/schema/sitemap.graphqls:61 — The revised composition rule still
+- [x] [major] internal/api/graphql/schema/sitemap.graphqls:61 — The revised composition rule still
   rejects valid query bars containing comments. `req.method.eq:"GET" // note` parses on its own,
   but `(req.host.eq:"example.test") and (req.method.eq:"GET" // note)` fails with
   `query: expected ')' or AND/OR, found end of query (at 62-62)` because the comment consumes `)`.

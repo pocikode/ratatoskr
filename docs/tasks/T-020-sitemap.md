@@ -23,12 +23,15 @@ Contract landed in T-094 (`sitemap.graphqls`, stub `resolvers/sitemap.go`, mock 
 Read the expanded F-SITE-1 for the derivation rules. Key points:
 - One query: `sitemapNodes(parentId, query, scopeId, recursive)`. No sitemap subscription and no delete mutation: the page
   reuses `requestAdded`/`requestUpdated`/`requestsDeleted` (refetch roots + expanded nodes, ≤ 1/s) and
-  `deleteRequests(query: <combined>, scopeId)`, where `<combined>` is `node.query` alone for an empty/whitespace bar
-  (HTTPQL rejects `()`), else `(<node.query>) and (<bar>)`. Use one helper for table and delete.
-- Backend: `SitemapNode.query` is server-built HTTPQL (e.g. `req.path.regex` with quoted segments). Test the invariant
-  `requests(query: <combined(n.query, q)>, scopeId).totalCount == n.requestCount`, with `q` both empty and
-  non-empty, for HOST/DIRECTORY/FILE/QUERY nodes, including `/a//b/`, `*` paths, IPv6 hosts and regex metacharacters in segments. Perf budget: roots for 10k requests /
-  200 hosts < 500 ms (benchmark).
+  `deleteRequests(query: node.query, scopeId)`. `node.query` already includes the bar the tree was fetched with;
+  the page never composes queries (use `node.query` unchanged for table and delete).
+- Backend: `SitemapNode.query` is server-built HTTPQL (e.g. `req.path.regex` with quoted segments), combined with the
+  call's `query`: node expression alone if it parses to empty (`core` Parse → nil: whitespace/comments only), else
+  `"(" + node + ") and (" + q + "\n)"`; over `MaxQueryLen` → `BAD_QUERY`. Rule pinned by
+  `internal/query/httpql/sitemap_compose_test.go`. Test the invariant
+  `requests(query: n.query, scopeId).totalCount == n.requestCount` with `q` empty, comment-only, ending in a `//`
+  comment and plain, for HOST/DIRECTORY/FILE/QUERY nodes, including `/a//b/`, `*` paths, IPv6 hosts and regex
+  metacharacters in segments. Perf budget: roots for 10k requests / 200 hosts < 500 ms (benchmark).
 - Replace the stub in `internal/api/graphql/resolvers/sitemap.go` (inside this task's `paths`).
 
 ## Acceptance criteria

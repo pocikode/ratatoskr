@@ -33,28 +33,34 @@ describe('sitemap mock', () => {
 
     const all = await nodes(c, '(recursive: true)');
     for (const n of all.slice(0, 40)) {
-      expect(await total(c, `(${n.query})`)).toBe(n.requestCount);
+      expect(await total(c, n.query)).toBe(n.requestCount);
     }
     const q = all.find((n) => n.kind === 'QUERY');
     expect(q?.label).toBe('?page&sort');
     expect(all.find((n) => n.id === q!.parentId)?.kind).toMatch(/FILE|DIRECTORY/);
   });
 
-  it('loads children lazily and combines node and bar queries', async () => {
+  it('loads children lazily and returns node queries already combined with the bar', async () => {
     const c = client();
     const [host] = await nodes(c);
     const kids = await nodes(c, `(parentId: ${JSON.stringify(host!.id)})`);
     expect(kids.length).toBeGreaterThan(0);
     expect(kids.every((k) => k.parentId === host!.id && k.url.startsWith(host!.url))).toBe(true);
 
-    const filtered = await nodes(c, '(query: "\\"static\\"")');
-    const n = filtered[0]!;
-    expect(await total(c, `(${n.query}) and ("static")`)).toBe(n.requestCount);
+    for (const bar of ['"static"', '"static" // note']) {
+      const filtered = await nodes(c, `(query: ${JSON.stringify(bar)}, recursive: true)`);
+      expect(filtered.length).toBeGreaterThan(0);
+      for (const n of filtered.slice(0, 20)) {
+        expect(n.query.endsWith(`) and (${bar}\n)`)).toBe(true);
+        expect(await total(c, n.query)).toBe(n.requestCount);
+      }
+    }
   });
 
   it('uses the node query alone for an empty bar and rejects an empty group, like HTTPQL', async () => {
     const c = client();
-    const [host] = await nodes(c);
+    const [host] = await nodes(c, '(query: "  ")');
+    expect(host!.query.startsWith('(')).toBe(false);
     expect(await total(c, host!.query)).toBe(host!.requestCount);
     const res = await c
       .query(`query ($q: String) { requests(query: $q) { totalCount } }`, {
