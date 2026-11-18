@@ -3,7 +3,7 @@ id: T-020
 title: Sitemap tree (backend derivation + page)
 milestone: M1
 role: backend
-status: in_progress
+status: blocked
 depends_on: [T-016, T-094]
 owner: "codex (GPT-6)"
 branch: task/T-020-sitemap
@@ -47,8 +47,25 @@ Read the expanded F-SITE-1 for the derivation rules. Key points:
 5. Run `make check`, fill Handoff and set `in_review`.
 
 ## Out-of-scope change needed (if any)
+2026-11-19 (Codex): UI implementation needs `web/src/lib/api/generated/**` added to `paths` for
+codegen output. The new page operation belongs in `web/src/pages/sitemap/*.graphql`, but its typed
+document/types are emitted outside the allowed paths. Frontend conventions require page-local
+`.graphql` operations with generated typed documents; using handwritten operation types would
+bypass that convention. Per AGENTS.md rule 1, stopped before adding the operation or changing generated files.
+Question for lead/operator: may T-020 regenerate `web/src/lib/api/generated/**` with `make gen`?
+
 RESOLVED by lead (T-094): `internal/api/graphql/schema/sitemap.graphqls` did not exist (lead-owned, AGENTS.md rule 5; task notes say lead adds it first). Lead needs to add a contract (e.g. `sitemapRoots(scope, query)`, lazy `sitemapChildren(nodeId)`, `deleteSitemapNode`, live `sitemapUpdated` subscription), with stub resolvers as in T-091. Then run `make gen`, and T-020 can proceed. Also: `history` has no sitemap derivation yet; T-090 note says to move `And`/`Or` helpers into `internal/query/core` when this task adds a third copy.
 
 ## Handoff (implementer)
+Partial, blocked on generated frontend paths (see above).
+- Added history sitemap derivation and replaced the GraphQL stub through a narrow sitemap service interface.
+- Stable opaque IDs, scope/query filtering, deterministic ordering, recursive cap, server-composed selectors,
+  query-length checks and exact query-name sets (including empty names from `=value`).
+- Added service tests for badge/table agreement, special paths/hosts, comment bars, lazy children,
+  ordering, deletion, malformed IDs, query errors and the recursive cap; added a 10k-row/200-host benchmark.
+- Verified `go test ./internal/history ./internal/api/graphql/resolvers` before adding the sitemap tests;
+  verified `go test ./internal/history -run Sitemap -count=1` after adding them (passed).
+- Still needed: UI implementation/tests, GraphQL resolver integration test, run the benchmark and `make check`.
+  Acceptance criteria remain unchecked; task is not ready for review.
 
 ## Review (reviewer)
