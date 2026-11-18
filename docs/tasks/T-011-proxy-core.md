@@ -3,7 +3,7 @@ id: T-011
 title: Proxy core - listener multiplexing, CONNECT, MITM, forwarding, capture
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-005, T-008, T-010]
 owner: "claude (sonnet 5.5)"
 branch: task/T-011-proxy-core
@@ -275,3 +275,6 @@ Remaining items (none block merge):
   (`errors.AsType`). → `ne, ok := errors.AsType[net.Error](err); return ok && ne.Timeout()`.
 - [ ] [nit] process — This took 5 review rounds. docs/07 allows at most 3 before the lead is involved. The lead did step in after round 2,
   so no action is needed. This note is only for the record.
+
+**Lead (2026-11-18):** reviewer approved in round 5 → `status: done`. Open nit `internal/netx/pool.go:193-195` (`errors.AsType`)
+carries to the next task that touches `internal/netx`.
