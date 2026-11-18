@@ -66,3 +66,13 @@ I checked the grammar against docs/04 §1, the type table against §2/§3, Strea
 AC coverage: all five ACs are covered by tests (`TestParseCanonical`, `TestParseErrors`, `TestPrecedence`, `FuzzParseHTTPQL`/`FuzzStreamQL` with round-trip, `TestConformanceCorpusParses` with 135 cases). Security and limits: input is capped at 64 KiB, paren depth at 128, RE2 only, and no I/O. I did not rerun the 60 s fuzz.
 
 **Verdict: changes_requested** (1 major).
+
+### Round 2 (9503d4b)
+I re-reviewed the fix commit 9503d4b. It touches only `internal/query/**` and this task file. `make check` is green. The 30 s run of `FuzzParseHTTPQL` was clean (1.9M execs). No `make test-int` run, because proxy/store/rawhttp are unchanged.
+- The major is fixed. RFC 7231 now accepts only literal `GMT`. A probe showed that `"… EST"` and `"… UTC"` both give the "is not a datetime" error, and `"… GMT"` still parses as 12:00Z. An error-table case covers this.
+- `finding.*` is fixed. `Language` rejects it with `unknown namespace "finding"` at span 0-7. `FindingsLanguage` is a copy made with `maps.Clone`, so the base table is not changed (`TestParseFindings` checks this). The shared `Sources`/shorthand are read-only, so the shallow copy is safe. The shorthand also works under `ParseFindings`.
+- The fuzz nil-deref nit is fixed. The ISO forms `T12:00Z`, `+0200` and `.5+0530` parse and round-trip.
+
+- [ ] [nit] internal/query/core/parser.go:283 — On HTTP history, `finding.title.cont:"x"` gives `unknown namespace "finding"`. This is correct, but it does not tell the user where the field works. → Optional: when the namespace is `finding`, say "finding.* is only available on the Findings page". This needs a hint in `core.Language`, so leave it as a follow-up unless T-015/UI wants it.
+
+**Verdict: approve** (no blocker or major remains). Status stays `in_review`. The operator sets `done` after merge.
