@@ -3,9 +3,9 @@ id: T-011
 title: Proxy core - listener multiplexing, CONNECT, MITM, forwarding, capture
 milestone: M1
 role: backend
-status: todo
+status: done
 depends_on: [T-005, T-008, T-010]
-owner: ""
+owner: "claude (sonnet 5.5)"
 branch: task/T-011-proxy-core
 paths:
   - internal/proxy/**
@@ -14,6 +14,7 @@ paths:
   - internal/events/**
   - internal/testutil/**
   - internal/app/**
+  - internal/store/requests.go   # lead 2026-11-18: InsertRequestTx only
 spec:
   - docs/01-feature-spec.md#F-NET-1, #F-NET-2, #F-NET-3
   - docs/03-architecture.md §4, §7
@@ -27,18 +28,253 @@ and captures every request/response into the project DB (batched) emitting `Requ
 - (2026-11-18, T-006) `app.New` is now `app.New(ctx, opts)`. It opens instance.db plus `project.Service` (`ctx` is wrapped in `context.WithoutCancel`). Rebase on T-006 and keep that signature.
 - T-006 also edits `internal/app/app.go` (project service wiring). Start from a `main` that includes T-006, or rebase onto it before review.
 - (2026-11-18, T-008) `internal/app/app.go` already opens `ca.Open(...)` and mounts `/ca.crt` + `/ca.der` on the UI listener: rebase, do not re-add it. Call `ca.Service.TLSConfig()` for MITM. F-NET-2's `http://ratatoskr.localhost/ca.crt` arrives through the proxy listener, so answer it there too (and let `ratatoskr.localhost` pass the loopback Host check).
+- (2026-11-18, round-2 answers)
+  - **Pending row:** deferred to T-031 (intercept engine); written in docs/03 §4 and the roadmap. Replace "lead must assign one" in Handoff with "deferred to T-031". No TODO needed in code.
+  - **`store.InsertRequestTx`:** do it in this task. `internal/store/requests.go` is added to `paths` (nothing in flight touches it). Add `func InsertRequestTx(ctx context.Context, tx *sql.Tx, r Request) (int64, error)` reusing `insertRequestSQL`; make `InsertRequests` use it; call it from capture.go and delete `insertRequest` + the `TODO(T-011-followup)`. Add a store test.
+  - **Acked as spec:** 421 for foreign origin-form Host, listener-address absolute target → UI, upstream TLS not verified, upstream error stored as the 502 response. Now in docs/01 F-NET-1/F-NET-2.
+  - **Acked as follow-ups (no spec change):** multi `--listen`/`--ui-listen` stay `ErrNotImplemented` until Settings → Network; `ratatoskr.localhost` via proxy GET/HEAD only; WS frames unrecorded until T-050; M&R/intercept hooks wire in T-035/T-031.
 
 ## Acceptance criteria
-- [ ] `curl -x` HTTP and HTTPS (with `--cacert`) through the proxy return identical bodies to direct requests (integration test against testutil servers).
-- [ ] Malformed requests from the golden corpus are forwarded byte-exact to a raw TCP test server.
-- [ ] 200 concurrent clients × 50 requests: no goroutine leak (goroutineleak profile/test), p99 added latency < 5 ms locally.
-- [ ] Upstream errors produce a 502 page from Ratatoskr and a stored record with error text.
-- [ ] Capture can be paused when no project is open (requests still forwarded).
+- [x] `curl -x` HTTP and HTTPS (with `--cacert`) through the proxy return identical bodies to direct requests (integration test against testutil servers).
+- [x] Malformed requests from the golden corpus are forwarded byte-exact to a raw TCP test server.
+- [x] 200 concurrent clients × 50 requests: no goroutine leak (goroutineleak profile/test), p99 added latency < 5 ms locally.
+- [x] Upstream errors produce a 502 page from Ratatoskr and a stored record with error text.
+- [x] Capture can be paused when no project is open (requests still forwarded).
 
 ## Plan (implementer, ≤15 lines)
+1. `internal/events`: generic `Bus[T]`, per-subscriber buffer 1024, non-blocking publish, slow subscribers get a `Stale` marker.
+2. `internal/netx`: dialer with timeouts + keep-alive `Pool` keyed host:port:tls:sni (idle timers, per-key cap, no goroutines).
+3. `internal/history/capture.go`: batched writer (50 ms / 200 rows) into project.db requests/responses/*_headers; paused when no project DB; emits Added/Updated on a Bus. Upstream errors are stored as the synthetic 502 response (no schema change).
+4. `internal/proxy`: accept loop; per-conn goroutine tied to ctx. First request decides: CONNECT (TLS sniffed -> MITM via ca.TLSConfig with CONNECT-host SNI fallback, else plain), absolute-form -> forward, origin-form with listener/`ratatoskr.localhost` Host -> UI (conn replayed into an `http.Server` via a chan listener; absolute-form `ratatoskr.localhost` GET/HEAD rewritten to origin-form).
+5. Forward only through rawhttp + netx; absolute-form target rewritten to origin-form with `Builder.SetTarget`, everything else byte-exact; 1xx relayed, 101 tunnelled raw; stale pooled conn retried once for bodyless requests; errors -> 502 page + record.
+6. `internal/testutil`: raw TCP server, HTTP/TLS upstreams. Tests: unit, byte-exact corpus, capture, integration (`-tags integration`): 200x50 leak + latency, HTTP/HTTPS parity.
+7. `internal/app`: serve the listener through `proxy.Server` (UI handler as fallback). Multi `--listen` / `--ui-listen` stay gated (follow-up).
 
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
+**Changed:** new `internal/events` (Bus[T]), `internal/netx` (dial + keep-alive pool), `internal/history/capture.go` (batched writer 50 ms/200 rows, paused when no project DB), `internal/proxy` (listener mux, CONNECT/MITM, forward, 100-continue, 101 tunnel, 502 page), `internal/testutil` (RawServer), `internal/app` (Serve now runs proxy + capture; `app.Events()`).
+**Verify:** `make check`; `go test -race -tags integration ./internal/proxy` (200x50 clients, goroutine count back to baseline, p99 added < 5 ms).
+**Decisions / limitations:**
+- Upstream TLS is not verified (`InsecureSkipVerify`, justified nolint): a pentest proxy must reach broken targets. A Settings toggle is a follow-up.
+- No pending row: an exchange is inserted once complete, so `Added` and `Updated` are published together. The pending state deferred to T-031.
+- Upstream errors have no schema column: the synthetic 502 page is stored as the response (error text is in its body).
+- `http://ratatoskr.localhost/...` through the proxy supports GET/HEAD only (request is replayed into the UI server).
+- Absolute-form targets are rewritten to origin-form for the origin server; inside a CONNECT tunnel bytes are forwarded untouched.
+- Tests use Go's HTTP client as the "curl" stand-in; the golden-corpus test sends every forwardable wire request in `rawhttp/testdata/requests.txtar` through a CONNECT tunnel to a raw TCP server.
+- Multi `--listen` and `--ui-listen` stay gated with ErrNotImplemented (follow-up; needs Settings -> Network).
+- The integration test admits connects 32 at a time: a 200-connection burst overflows macOS's listen backlog before the proxy sees it.
+- WebSocket frames are not recorded (relayed raw after 101); matchreplace/intercept hooks not wired yet.
+- `make check` needed `bun install` in the worktree (no change to web files).
 
 ## Review (reviewer)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: changes_requested**
+
+Scope: all 15 changed files are inside `paths`. `make check` green (exit 0). `make test-int` green.
+AC 1-5 are each covered by a test (`TestHTTPAndHTTPSMatchDirect`, `TestCorpusByteExact`, `TestLoadNoLeakAndLatency`,
+`TestUpstreamErrorIs502AndRecorded`, `TestCapturePausedWithoutProject`). Hard rules: no net/http on the proxy path
+(UI handoff only), nolint is justified with the task id, no generated or schema files touched.
+
+- [x] [major] internal/proxy/server.go:391-401 — After a proxied `GET http://ratatoskr.localhost/...`, the whole
+  client connection is handed to the UI `http.Server`. The client (curl with several URLs, a browser after downloading
+  the CA) reuses that keep-alive proxy connection, so every later request on it goes to the UI handler. Those requests
+  are never forwarded and never recorded. I confirmed this with a temporary test (now deleted): `GET http://ratatoskr.localhost/ca.crt`
+  and then `GET http://127.0.0.1:<upstream>/x` on one `http.Transport` returned `"ui:/x"` with 0 recorded entries.
+  → Make the replayed request the last one on that connection: add `.SetHeader("Connection", "close")` to the builder
+  at :398 so `http.Server` closes after it answers. Add a regression test with exactly these two requests.
+- [x] [major] internal/history/capture.go:212-250 — Request rows are inserted in one transaction (`InsertRequests`) and
+  their headers and responses in a second one (`db.Write`). If the second transaction fails (busy DB, the 5 s flush
+  deadline at shutdown, a project closed between the two), the request rows stay in the DB with no headers and no
+  response. No event is published for them, and `dropped` counts them as lost even though they were stored. History then
+  shows requests that stay unanswered forever. → Write the requests, headers and responses in one `db.Write`
+  transaction. Either run the `INSERT INTO requests` inside the existing closure (capture.go already writes raw SQL for
+  responses), or ask the lead under "Out-of-scope change needed" for a `store` helper that takes a `*sql.Tx`. Add a
+  test where the response insert fails and check that no request row is left.
+- [x] [major] internal/proxy/server.go:360-372 — An origin-form request whose Host is neither the listener nor
+  `ratatoskr.localhost` is forwarded to that Host. That is invisible proxying, which F-NET-6 defines as an opt-in
+  listener option. F-NET-1 only defines the absolute-form/CONNECT → proxy and the listener/ratatoskr.localhost Host → UI
+  cases. This is product behaviour the spec does not define (hard rule 2). → Until F-NET-6 lands, answer these
+  requests with `421 Misdirected Request` (or `400`) using `writeSimple`. Or set `blocked` and ask the lead what the
+  default should be. Update `TestUIRouting` to match.
+- [x] [minor] internal/proxy/server.go:378-386 — `isUIHost` compares port strings, but the forwarder parses them with
+  `Atoi`. Absolute target `http://127.0.0.1:<listen-port>/` with `Host: 127.0.0.1:0<listen-port>` makes the proxy forward
+  to itself, and that hop sees the same Host and forwards again. The loop stops only at `maxConns` (10 000 conns and
+  goroutines). Separately, any Host whose port equals the listener port (e.g. `target.test:8080`) is sent to the UI.
+  → Use `parseAuthority` in `isUIHost` and compare numeric ports, and match the host against loopback/listener
+  addresses only, not every host with that port (F-NET-1: "Host = listener address").
+- [x] [minor] internal/proxy/forward.go:89 — The stale-connection retry repeats any request without a body, including
+  `POST`/`DELETE`. If the upstream ran the request and then dropped the connection before answering, the request
+  runs twice. → Retry only idempotent methods (`GET HEAD OPTIONS TRACE PUT DELETE` is the RFC 9110 set; drop
+  PUT/DELETE if you want to be strict), or only when no response byte was read.
+- [x] [minor] internal/proxy/forward.go:118 and server.go:297 — The read deadline is removed once the head is read.
+  An upstream that sends its head and then stops sending the body, or a client that stops sending its request body,
+  blocks the session goroutine until `Serve` ends. Nothing notices that the client already gave up. → While the body
+  is copied, set a per-read idle deadline (for example a small wrapper on `up` that sets `SetReadDeadline(now+idleTimeout)`
+  on each Read), or reuse `idleTimeout`.
+- [x] [nit] internal/app/app.go:201 — The pool is never closed, so idle upstream connections survive `Serve`. This only
+  matters if `Serve` is called again in the same process (tests). → `defer pool.Close()` after `srv.Serve` returns.
+- [x] [nit] internal/proxy/server.go:406 — `strings.NewReader(string(head))` copies the head. → Use `bytes.NewReader(head)`.
+- [x] [nit] Handoff "No pending row": docs/03 §4 defines `history.NewPending` plus `requestAdded(pending)` before
+  forwarding. Deferring this is reasonable, but get the lead to acknowledge it and add a `TODO(T-0xx)` or follow-up
+  task id so it is tracked.
+
+**Implementer reply (2026-11-18):** all findings addressed.
+- UI download: replayed request carries `Connection: close`; test `TestUIDownloadDoesNotCaptureConnection`.
+- Capture: requests, headers, responses in one `db.Write`; test `TestCaptureFailedResponseLeavesNoRequest`.
+- Foreign origin-form Host -> `421` until F-NET-6; test `TestOriginFormForeignHostIsMisdirected`.
+- `isUIHost` uses `parseAuthority`, numeric port, and only localhost/IP literals on the listener port.
+- Retry only for GET/HEAD/OPTIONS/TRACE. Idle read deadline (`netx.IdleConn`) refreshed per read on both client and upstream sides; disabled for 101 tunnels and UI handoff.
+- `pool.Close()` after Serve; `bytes.NewReader`.
+- Pending row: not built; tracked as follow-up for the intercept task (lead to ack).
+
+### Re-review (round 2)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: changes_requested**
+
+Scope: all changed files still inside `paths`. `make check` green (exit 0). `make test-int` green (exit 0).
+All nine round-1 findings are fixed and the new tests cover them (`TestUIDownloadDoesNotCaptureConnection`,
+`TestCaptureFailedResponseLeavesNoRequest`, `TestOriginFormForeignHostIsMisdirected`). One older bug remains, and the
+stricter retry rule from round 1 now hits it more often.
+
+- [x] [major] internal/netx/pool.go:94-109 + internal/proxy/forward.go:99 — `take` hands out an idle connection without
+  checking that the server is still there. Many servers close idle keep-alive connections long before the pool's 90 s
+  (Node and Apache: 5 s). A request with a body, or any non-safe method, sent on such a connection gets EOF and is
+  answered with a 502. It is not retried, and that part is correct. I confirmed this with a temporary test (now
+  deleted): upstream `IdleTimeout = 100ms`, `POST /login` through the proxy, wait 300 ms, the same POST again →
+  `200`, then `502`. Login forms and API calls after a short pause will fail every time.
+  → In `take`, check each popped connection before returning it: `c.SetReadDeadline(time.Now())`, `_, err := c.BR.Peek(1)`,
+  then `c.SetReadDeadline(time.Time{})`. A timeout error means the connection is alive, so return it. EOF, any other
+  error, or bytes that arrive unasked mean it is dead, so close it and try the next one. A read timeout is not sticky on
+  `tls.Conn`. Add a pool or proxy test with the setup above (short upstream `IdleTimeout`, two POSTs) that expects 200 twice.
+- [x] [minor] internal/proxy/forward.go:59, server.go:321/424, forward.go:38 — Client writes have no deadline.
+  If a client stops reading in the middle of a large response (a suspended process, a laptop going to sleep without
+  sending FIN), `resp.WriteTo(c.conn)` blocks once the TCP buffers are full. The session goroutine and the upstream
+  connection then stay held until `Serve` ends. Round 1 fixed the read side only.
+  → Add the same idea for writes: a small `Write` wrapper on the client conn that calls `SetWriteDeadline(now+idleTimeout)`.
+  You can also put it in `netx.IdleConn` next to `Read`. Turn it off for 101 tunnels, as reads already are.
+- [x] [minor] internal/proxy/server.go:448-470 — The TLS handshake used to have one 10 s deadline for the whole
+  handshake. Now the 10 s limit applies to each read, and the handshake writes have no deadline. A client that sends
+  its ClientHello one byte every 9 s keeps a goroutine for more than an hour. → Before `HandshakeContext`, set
+  `tc.SetDeadline(time.Now().Add(handshakeTimeout))` and set `c.idle.Idle = 0`. After the handshake, clear the deadline
+  and set `c.idle.Idle = idleTimeout`.
+- [x] [minor] internal/proxy/proxy_test.go — Two round-1 fixes still have no test that would fail if they broke:
+  (a) the self-forward loop, `GET http://127.0.0.1:<port>/` with `Host: 127.0.0.1:0<port>`, which must reach the UI
+  and must not be forwarded; (b) the stall deadline, where an upstream sends its head and then nothing. For (b), make
+  `idleTimeout` a `Deps` field (zero → 2 min), as `HeaderTimeout` already is, so a test can set 100 ms.
+- [x] [nit] internal/history/capture.go:254-266 — `insertRequest` copies the column list of `store.insertRequestSQL`
+  (internal/store/requests.go:27). The two copies must change together when the schema changes. → Ask the lead for an
+  exported `store.InsertRequestTx(ctx, tx, Request)` (out of scope here) and leave a `TODO(T-011-followup)` until then.
+  Also, capture.go:212 says "Write may retry the closure", but `store.runTx` never retries. → Remove the comment or
+  make it accurate.
+- [x] [nit] Handoff "Pending row" — It still says "lead to ack", and there is no task id or `TODO(T-###)` for it. The
+  Definition of Done requires untracked TODOs to be tracked. → Get the follow-up task id from the lead and write it in
+  the Handoff.
+
+**Implementer reply (round 2):** all findings addressed.
+- Pool `take` probes each idle conn (100 µs read deadline; EOF/data = dead, drop). The suggested `SetReadDeadline(now)` fails before reading the socket in Go, so a tiny future deadline is used. Tests: `TestPoolDropsServerClosedConn`, `TestPostAfterUpstreamIdleClose`.
+- `netx.IdleConn` now also sets a write deadline; the client conn is the IdleConn. TLS handshake uses one absolute 10 s deadline.
+- `Deps.IdleTimeout` (zero → 2 min). Tests: `TestStalledUpstreamBodyTimesOut`, `TestSelfTargetWithPaddedPortIsUI`.
+- The self-forward test exposed a real bug: an absolute `http://<listener>/` target was still forwarded. It now goes to the UI like `ratatoskr.localhost`.
+- capture.go: stale comment removed, `TODO(T-011-followup)` for `store.InsertRequestTx` (lead).
+- Pending row: deferred to T-031 (intercept engine).
+
+### Re-review (round 3)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: changes_requested**
+
+Scope: all changed files are inside `paths` (`internal/store/requests.go` is limited to `InsertRequestTx`, as allowed). `make check` green
+(exit 0). `make test-int` green (exit 0). All six round-2 findings are fixed and tested. `store.InsertRequestTx` is used by capture
+and has a rollback test. I confirmed three new problems with temporary tests (now deleted).
+
+- [x] [major] internal/proxy/forward.go:165-166 — On a 101 upgrade the client side clears only the **read** deadline. The 101 head
+  was just written through `netx.IdleConn` while `Idle > 0`, so a write deadline of now+IdleTimeout (2 min) stays on the socket.
+  Every WebSocket through the proxy therefore dies 2 minutes after the upgrade, at the first server→client frame after that.
+  Behind MITM it is the same, and a write timeout on `tls.Conn` is permanent. Temp test: `IdleTimeout=200ms`, the upstream answers 101
+  and then sends "ping" every 150 ms. The client got one ping, then the proxy closed the connection.
+  → Use `_ = c.conn.SetDeadline(time.Time{})` instead of `SetReadDeadline` at :166. Also add a test where `IdleTimeout` is short
+  and the tunnel lives through several idle periods.
+- [x] [major] internal/proxy/server.go:390-393 (used at :359) — `isUIHost` treats **any** IP literal on the listener port as Ratatoskr.
+  On the default `127.0.0.1:8080`, `curl -x … http://192.168.1.20:8080/` (Tomcat, Jenkins and many dev servers run on 8080) is
+  sent to the UI and never forwarded. Temp test: `GET http://192.0.2.10:<listen-port>/x` returned `ui:/x`. F-NET-1 says
+  "Host = listener address".
+  → Keep the listener IP in `listenerInfo` and match only `addr.IsLoopback() || addr == listenerIP` (plus `localhost`). Add the
+  192.0.2.10 case to `TestSelfTargetWithPaddedPortIsUI` (expect a forward/502, not `ui:`).
+- [x] [major] internal/netx/pool.go:105 — `alive()` waits ≥100 µs for its read to time out, which is the success path, and it does
+  this while holding `p.mu`. That one mutex covers every host. So each reuse of a pooled connection queues all other `Get`/`Put`
+  calls behind it. Temp test: 64 concurrent `Get`s on 64 idle connections → the slowest waited 8.9-9.8 ms. That is above the
+  5 ms p99 budget (AC 3) for a browser loading one page. → Pop the connection under the lock, unlock, then probe. If it is dead,
+  close it and lock again for the next one. Probes then run in parallel, and the code is no longer.
+- [x] [minor] internal/proxy/server.go:416 — `handOffToUI` clears only the read deadline. After an earlier proxied response on
+  the same connection, the write deadline (last write + 2 min) goes with the connection to the UI server, which never resets it (no
+  `WriteTimeout`). An origin-form keep-alive UI connection then fails its writes after 2 min. → `_ = c.conn.SetDeadline(time.Time{})`.
+- [x] [minor] internal/proxy/forward.go:123 — Writes to the upstream have no deadline (`netx.Conn` writes bypass `IdleConn`).
+  If an upstream accepts the connection but never reads, and the request body is bigger than the socket buffers (for example a
+  4 MB upload), the session blocks until `Serve` ends. → Before `out.WriteTo(up)`, call
+  `up.SetWriteDeadline(time.Now().Add(c.s.deps.HeaderTimeout))`, or send writes through `IdleConn` too.
+- [x] [nit] docs/tasks/T-011-proxy-core.md:60 — Handoff still says "deferred to T-031". → "deferred to T-031", as the lead asked.
+- [ ] [nit] The lead's spec edits (docs/01 F-NET-1/F-NET-2, docs/03 §4, docs/08 T-031) are uncommitted in the worktree and not on this
+  branch. The 421 and loop-guard behaviour rests on them. → The lead must commit them before merge. I did not touch them.
+
+**Implementer reply (round 3):** all findings addressed; branch rebased onto main (T-014 merged).
+- 101 upgrade and UI hand-off now call `SetDeadline(time.Time{})`. Test `TestUpgradeSurvivesIdleTimeout` (IdleTimeout 200 ms, pings every 150 ms x6).
+- `isUIHost` matches `localhost`, loopback, or the listener's own IP on the listener port. Test `TestForeignIPOnListenerPortIsForwarded` (192.0.2.10:<port> is dialed, not sent to the UI).
+- `Pool.take` pops under the lock and probes outside it, so probes run in parallel.
+- Upstream writes get a `HeaderTimeout` write deadline before `out.WriteTo(up)`.
+- Handoff wording fixed ("deferred to T-031").
+- Nit 2 (lead's uncommitted spec edits in docs/01, 03, 08): left untouched in the worktree; lead must commit them.
+
+### Re-review (round 4)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: changes_requested**
+
+Scope: all changed files are inside `paths`. `make check` green (exit 0). `make test-int` green (exit 0). The round-3 findings
+are fixed and tested: the client deadline is cleared on upgrade and UI hand-off, `isUIHost` now matches the listener IP, the pool
+probes outside the lock, and the handoff wording is fixed. Two new problems were found. I confirmed the first with temporary tests
+(now deleted). The second follows directly from reading the code.
+
+- [x] [major] internal/proxy/forward.go:123 — The new upstream write deadline is one fixed time limit, `now+HeaderTimeout`
+  (60 s). It is never cleared, and `netx.Conn` writes do not go through `IdleConn`. This causes two breakages:
+  (a) `upgrade` calls only `up.SetIdle(0)`, which clears the **read** deadline. So in every WebSocket, client→server writes fail
+  60 s after the handshake. With MITM it is the same, and a write timeout on a `tls.Conn` cannot be undone. (b) Request bodies are
+  streamed to the upstream (`Builder` streams the original body). Any upload that takes longer than 60 s therefore ends in a 502
+  `i/o timeout`, even while bytes keep moving. Temp tests with `HeaderTimeout=300ms`: an upgrade followed by a client message at
+  600 ms got EOF instead of the echo. A 10-byte POST body sent 1 byte every 80 ms got `502 … write tcp …: i/o timeout`.
+  → Use an idle deadline for each write, not one total deadline: `out.WriteTo(&netx.IdleConn{Conn: up, Idle: c.s.deps.IdleTimeout})`.
+  After that, call `_ = up.SetWriteDeadline(time.Time{})`, which also clears it for the 101 tunnel and for pooled reuse. Add two
+  regression tests with a short `HeaderTimeout`: client→server data after the upgrade, and a slow upload whose total time is longer
+  than `HeaderTimeout` but whose gaps between writes are shorter than `IdleTimeout`.
+- [x] [major] internal/proxy/server.go:126-130, 394-405 — With `--listen 0.0.0.0:8080` (or `[::]`), `info.ip` is the
+  unspecified address. A remote browser that opens `http://192.168.1.5:8080/` sends `Host: 192.168.1.5:8080`. That IP is not
+  loopback and is not equal to `0.0.0.0`, so the request gets `421`. The UI cannot be reached from other machines, but F-WSP-4
+  ("remote use", `--auth-token`) depends on exactly that. Also, an absolute-form `http://<own-LAN-IP>:8080/` is no longer caught
+  by the loop guard; it costs one extra hop, then the 421 stops it.
+  → Compare with the address the client actually connected to, not the listen address: in `isUIHost`, use
+  `netip.ParseAddrPort(c.conn.LocalAddr().String())` and match `ip.Unmap() == local.Addr().Unmap()`. Keep the loopback and
+  `localhost` checks. This removes `listenerInfo.ip`. Add a test: listener on `0.0.0.0:0`, connect via a non-loopback local IP
+  if one exists (else `t.Skip`), and expect the UI. Alternatively, unit-test `isUIHost` with a fake `LocalAddr`.
+- [ ] [nit] (carried over) The lead's spec edits in docs/01, docs/03 and docs/08 are still uncommitted in the worktree. The 421
+  behaviour and the loop guard depend on them. The lead must commit them before merge.
+
+**Implementer reply (round 4):** both majors addressed; nit 3 (lead's uncommitted spec edits) is the lead's to commit.
+- Upstream writes go through `netx.IdleConn` (per-write idle deadline), then the write deadline is cleared, so 101 tunnels, long uploads and pooled reuse are unaffected. Tests `TestUpgradeClientWriteAfterHeaderTimeout`, `TestSlowUploadOutlastsHeaderTimeout`.
+- `isUIHost` compares the Host IP with the connection's `LocalAddr` (works for `0.0.0.0`/`[::]`); `listenerInfo.ip` removed. Test `TestWildcardListenerServesUIOnLocalIP` (skips without a non-loopback IPv4).
+
+### Re-review (round 5)
+**Reviewer:** claude (opus 5.5) · 2026-11-18 · **Verdict: approve**
+
+Scope: all changed files are inside `paths`. The lead's spec edits are now committed on this branch (638ae4e: docs/01, docs/03, docs/08),
+so the carried-over nit is closed. `make check` green (exit 0). `make test-int` green (exit 0). The new tests also pass uncached with
+`-race -count=1`: `TestUpgradeClientWriteAfterHeaderTimeout`, `TestSlowUploadOutlastsHeaderTimeout`, `TestUpgradeSurvivesIdleTimeout`,
+`TestWildcardListenerServesUIOnLocalIP`. The wildcard test really ran on this machine; it did not skip. `TestLoadNoLeakAndLatency` and
+`TestCorpusByteExact` pass too.
+Both round-4 majors are fixed:
+- forward.go:124-125: each upstream write gets an idle deadline, and the deadline is cleared afterwards. So a 101 tunnel or a reused
+  pooled connection does not inherit it. `Pool.Put` still calls `SetIdle(0)`, so the liveness probe is not slowed by an idle read deadline.
+- server.go:400-409: `isUIHost` compares the Host IP with `LocalAddr`, so `0.0.0.0` and `[::]` listeners serve the UI on the address the
+  client used. `listenerInfo.ip` is removed.
+
+Remaining items (none block merge):
+- [ ] [nit] internal/netx/pool.go:193-195 — `var ne net.Error; errors.As(err, &ne)` goes against docs/05 §"Errors"
+  (`errors.AsType`). → `ne, ok := errors.AsType[net.Error](err); return ok && ne.Timeout()`.
+- [ ] [nit] process — This took 5 review rounds. docs/07 allows at most 3 before the lead is involved. The lead did step in after round 2,
+  so no action is needed. This note is only for the record.
+
+**Lead (2026-11-18):** reviewer approved in round 5 → `status: done`. Open nit `internal/netx/pool.go:193-195` (`errors.AsType`)
+carries to the next task that touches `internal/netx`.

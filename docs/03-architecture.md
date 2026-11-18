@@ -96,6 +96,8 @@ accept conn → detect (CONNECT | absolute-form | origin-form→UI | invisible)
       write response to client; history.Complete(record) → requestUpdated event
   → if Upgrade: websocket → ws.Recorder relays frames both ways (intercept/M&R hooks per message)
 ```
+M1 (T-011) has no pending row: the exchange is inserted once complete and `requestAdded` + `requestUpdated` fire together.
+`history.NewPending` lands with the intercept engine (T-031), which needs held requests visible in history.
 Bodies > capture cap are streamed through and stored truncated (`truncated=true`). Timeouts: dial 10 s, TLS 10 s,
 response header 60 s (configurable).
 
