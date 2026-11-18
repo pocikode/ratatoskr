@@ -3,7 +3,7 @@ id: T-015
 title: HTTPQL SQL compiler, in-memory evaluator and benchmarks
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-014, T-005]
 owner: "opencode (deepseek-v4.1-flash-1017)"
 branch: task/T-015-httpql-sql-eval
@@ -168,4 +168,4 @@ Reviewer: Claude Code (reviewer agent), 2026-11-18. Branch `task/T-015-httpql-sq
 **New findings**
 - [ ] [nit] internal/query/httpql/eval.go:22-36 — `And`/`Or` short-circuit, so a query error in the right-hand clause shows up only for some messages. Example: `req.host.eq:"nope" AND preset:"x"` (or a like pattern over 50k) gives `false, nil` for most messages, but `Compile` always fails. This can't happen with a parser-built, preset-expanded AST from today's callers. → T-016/T-018: validate the tree once (e.g. `Compile` it, or walk it to find a `Preset`) before `Eval` runs per message. Note this in the T-016 follow-up. No change needed here.
 
-**Verdict: approve.** No blockers or majors are left. Status stays `in_review` until the operator merges.
+**Verdict: approve.** No blockers or majors are left. Operator set `done` and opened the PR.
