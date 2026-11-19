@@ -16,6 +16,7 @@ paths:
   - web/src/lib/api/mocks/**
   - gqlgen.yml
   - docs/tasks/M2/T-099-contract-match-replace.md
+  - docs/01-feature-spec.md (F-MR-1 API details only)
 spec:
   - docs/01-feature-spec.md#F-MR-1 (incl. "Contract (lead, 2026-11-19, M2)")
   - docs/03-architecture.md §6

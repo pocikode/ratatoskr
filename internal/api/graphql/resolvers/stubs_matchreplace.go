@@ -14,7 +14,9 @@ import (
 type MatchReplaceService any
 
 // MatchReplaceRule returns the MatchReplaceRule field resolver.
-func (r *Resolver) MatchReplaceRule() generated.MatchReplaceRuleResolver { return &matchReplaceRuleResolver{r} }
+func (r *Resolver) MatchReplaceRule() generated.MatchReplaceRuleResolver {
+	return &matchReplaceRuleResolver{r}
+}
 
 type matchReplaceRuleResolver struct{ *Resolver }
 

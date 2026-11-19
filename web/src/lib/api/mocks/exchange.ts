@@ -1,5 +1,5 @@
-// urql exchange that answers HTTP History, Intercept, scope- and filter-preset, Replay and
-// Environment operations from a fake backend, so the UI
+// urql exchange that answers HTTP History, Intercept, scope- and filter-preset, Replay,
+// Environment and Match & Replace operations from a fake backend, so the UI
 // works with no server (docs/07-agent-workflow.md: contract-first mocks). It validates
 // and runs the real schema with graphql-js, so selections, arguments and errors behave
 // as on the wire. Operations touching any other root field are forwarded unchanged.
@@ -18,6 +18,7 @@ import sdl from '../generated/schema.graphql?raw';
 import { createHistoryMock, type MockHistoryOptions } from './history';
 import { createInterceptMock } from './intercept';
 import { createEnvironmentMock } from './environment';
+import { createMatchReplaceMock } from './matchreplace';
 import { createPresetsMock } from './presets';
 import { createReplayMock } from './replay';
 import { createSitemapMock } from './sitemap';
@@ -48,7 +49,7 @@ function isIterator(v: unknown): v is AsyncGenerator<ExecutionResult> {
 /**
  * Exchange serving the history, intercept, preset and sitemap contracts ({@link createHistoryMock},
  * {@link createInterceptMock}, {@link createPresetsMock}, {@link createSitemapMock},
- * {@link createReplayMock}, {@link createEnvironmentMock}).
+ * {@link createReplayMock}, {@link createEnvironmentMock}, {@link createMatchReplaceMock}).
  */
 export function mockHistoryExchange(opts: MockExchangeOptions = {}): Exchange {
   const history = createHistoryMock(opts);
@@ -62,6 +63,7 @@ export function mockHistoryExchange(opts: MockExchangeOptions = {}): Exchange {
       liveIntervalMs: opts.interceptLiveIntervalMs,
     }).root,
     ...env.root,
+    ...createMatchReplaceMock().root,
     ...createReplayMock(
       {
         addRecord: history.addRecord,
