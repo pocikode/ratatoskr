@@ -187,6 +187,46 @@ describe('replay mock', () => {
     expect(seeded.data!.replaySession.entries.edges[0].node.request.ext).toBe('');
   });
 
+  it('accepts token methods and keeps the whole query', async () => {
+    const { m } = run(client());
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { error request { method path query } } }`,
+      { c: CONN, raw: btoa('M-SEARCH /search?q=a?b HTTP/1.1\r\nHost: example.test\r\n\r\n') },
+    );
+    expect(res.data!.sendReplaySession.error).toBeNull();
+    expect(res.data!.sendReplaySession.request).toEqual({
+      method: 'M-SEARCH',
+      path: '/search',
+      query: 'q=a?b',
+    });
+  });
+
+  it('times out at timeoutMs with no response and dates the entry at the start', async () => {
+    const { m } = run(createMockClient({ count: 3, liveIntervalMs: 0, replaySendDelayMs: 1250 }));
+    const before = Date.now();
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c, options: { timeoutMs: 1000 } }) { error createdAt request { response { code } } } }`,
+      { c: CONN, raw: RAW },
+    );
+    const e = res.data!.sendReplaySession;
+    expect(e.error).toBe('timeout after 1000 ms');
+    expect(e.request.response).toBeNull();
+    expect(Date.parse(e.createdAt) - before).toBeLessThan(500);
+  });
+
+  it('normalizes Bytes like the server: CR/LF ignored, canonical padding', async () => {
+    const { m } = run(client());
+    const create = (raw: string) =>
+      m(
+        `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { createReplaySession(input: { connection: $c, raw: $raw }) { draft } }`,
+        { c: CONN, raw },
+      );
+    expect((await create('YR==')).data!.createReplaySession.draft).toBe('YQ==');
+    expect(
+      (await create(RAW.slice(0, 8) + '\r\n' + RAW.slice(8))).data!.createReplaySession.draft,
+    ).toBe(RAW);
+  });
+
   it('splits an LF-only request at its blank line', async () => {
     const { m } = run(client());
     const raw = 'POST /lf HTTP/1.1\nHost: example.test\n\nbody\n';

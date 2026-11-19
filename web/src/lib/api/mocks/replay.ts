@@ -103,12 +103,13 @@ function mergeOptions(cur: Options, p: Partial<Options> | null | undefined): Opt
 }
 
 function checkBytes(b64: unknown): string {
-  const s = String(b64);
-  // Same input rules as the server's Bytes scalar: standard base64 with padding.
+  // Same input rules as the server's Bytes scalar (Go StdEncoding): padded, CR/LF ignored.
+  const s = String(b64).replace(/[\r\n]/g, '');
   if (s.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s))
     throw fail('BAD_INPUT', 'not valid base64');
-  if (atob(s).length > MAX_BYTES) throw fail('BAD_INPUT', 'request is larger than 16 MiB');
-  return s;
+  const bytes = atob(s);
+  if (bytes.length > MAX_BYTES) throw fail('BAD_INPUT', 'request is larger than 16 MiB');
+  return btoa(bytes); // canonical form, as the server re-encodes
 }
 
 /** `METHOD target` from the request line, cut to 60 characters; `Untitled` without one. */
@@ -130,7 +131,10 @@ function record(id: number, raw: string, c: Connection, failed: boolean): MockRe
   const head = raw.slice(0, end);
   const rest = raw.slice(end);
   const line = /^(\S+) (\S+)/.exec(raw);
-  const [path = '/', query = ''] = (line?.[2] ?? '/').split('?', 2);
+  const target = line?.[2] ?? '/';
+  const q = target.indexOf('?');
+  const path = q < 0 ? target : target.slice(0, q);
+  const query = q < 0 ? '' : target.slice(q + 1);
   const respBody = '{"ok":true,"mock":"replay"}';
   const respHead = `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${respBody.length}\r\n\r\n`;
   return {
@@ -248,12 +252,13 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
     raw: string,
     error: string | null,
     connection = s.connection,
+    createdAt = new Date().toISOString(),
   ): MockReplayEntry => {
     const e: MockReplayEntry = {
       id: `re${next++}`,
       request: deps.addRecord((id) => record(id, raw, connection, error != null)),
       error,
-      createdAt: new Date().toISOString(),
+      createdAt,
     };
     s.list.unshift(e);
     return e;
@@ -424,11 +429,14 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
       // shortcut: interpolation only, no Match & Replace, Content-Length update or redirects;
       // the request-line check stands in for the rawhttp parser (T-106).
       const raw = deps.interpolate(atob(draft));
-      if (!/^[A-Za-z]+ \S+ HTTP\/1\.[01]\r?\n/.test(raw))
+      // Method is an RFC 9110 token, e.g. M-SEARCH.
+      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+ \S+ HTTP\/1\.[01]\r?\n/.test(raw))
         throw fail('BAD_INPUT', 'malformed request line');
       s.sending = true;
+      const startedAt = new Date().toISOString();
+      const timedOut = options.timeoutMs < sendDelayMs;
       const cancelled = await new Promise<boolean>((resolve) => {
-        const t = setTimeout(() => resolve(false), sendDelayMs);
+        const t = setTimeout(() => resolve(false), Math.min(sendDelayMs, options.timeoutMs));
         cancels.set(s.id, () => {
           clearTimeout(t);
           resolve(true);
@@ -436,7 +444,12 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
       });
       cancels.delete(s.id);
       s.sending = false;
-      return addEntry(s, raw, cancelled ? 'cancelled' : null, connection);
+      const error = cancelled
+        ? 'cancelled'
+        : timedOut
+          ? `timeout after ${options.timeoutMs} ms`
+          : null;
+      return addEntry(s, raw, error, connection, startedAt);
     },
     cancelReplaySend({ id }: Args) {
       const cancel = cancels.get(String(session(id).id));
