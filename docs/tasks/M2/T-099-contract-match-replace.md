@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -85,5 +85,23 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - Follow-ups (proposed tasks): none; T-035/T-102/T-036/T-108 can start.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
 - Findings:
+  - [ ] [major] web/src/lib/api/mocks/matchreplace.ts:322 — JSON import bypasses GraphQL input validation:
+    `normalize` assumes typed rule fields, but parsed JSON has no runtime type/enum or unknown-field checks.
+    Reproduced through the generated schema's GraphQL executor: export the seed, change the first rule's
+    `sources` to `["BOGUS"]`, and import it. Import returns 2 and appends both collections; a subsequent
+    `matchReplaceCollections { rules { sources } }` fails with
+    `Enum "MatchReplaceSource" cannot represent value: "BOGUS"`. Invalid matcher kinds and
+    `enabled: "yes"` also import successfully and break later queries. Unknown rule fields are silently
+    accepted; a missing collection name becomes `"undefined"`, and missing `rules` becomes an empty list.
+    This violates the documented import rejection/all-or-nothing contract even for a single mock client.
+    → Validate object shape, required/unknown fields, scalar types and enum values at every JSON level
+    before appending anything; reuse the schema's rule-input coercion where practical. Add a table-driven
+    import test asserting `BAD_INPUT` and unchanged collections/export for these malformed inputs.
+- Verification: `make check` passed (Go race tests, vet/lint, Svelte/ESLint/Prettier, 43 Vitest files / 335 tests).
+  `make gen` passed and left the working tree unchanged. All 12 changed files match the task's paths.
+  Reviewed the schema, stubs, mock exchange/callers, CRUD/tester tests and linked contract against the expected
+  single-process desktop use with at most 1000 rules. The explicitly documented tester/HTTPQL/regex mock shortcuts
+  are accepted for this contract task.
+- Not checked: browser E2E and `make test-int`; no UI, proxy, store or rawhttp implementation changed.
