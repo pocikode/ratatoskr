@@ -168,3 +168,20 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
     `paths`, then run `go mod tidy`.
     Implementer: replaced the import with a standard-library call to `LockFileEx`. The lock protects legacy empty
     files from the stat/remove race where a second opener could remove a newly initialized key. `go mod tidy -diff` passes.
+
+### Re-review 2 (reviewer, 2026-11-19)
+- Verdict: approve
+- Checked: the earlier major is fixed. `lock_windows.go` now uses only `syscall` + `unsafe`. `go.mod`/`go.sum` match
+  `main`, and `go mod tidy -diff` passes. All 14 changed files are inside `paths`. `make check` is green (exit 0,
+  329 web tests). `GOOS=windows CGO_ENABLED=0 go build ./...` and `GOOS=windows go vet ./internal/secret` pass.
+  The `LockFileEx` call is correct. `os.OpenFile` returns a synchronous handle, so a zero `Overlapped` blocks and does
+  not return `ERROR_IO_PENDING`. The `uintptr(unsafe.Pointer(..))` conversion sits inside the `Call` argument list,
+  which is a valid `unsafe.Pointer` pattern. `kernel32` is a KnownDLL, so no DLL hijacking (a planted DLL getting
+  loaded instead) is possible. Locking 1 byte past EOF on an empty legacy file is allowed on Windows. The lock is
+  released when the handle closes. `make test-int` was not rerun because proxy/store/rawhttp did not change.
+- Findings:
+  - [ ] [minor] internal/secret/lock_windows.go:16 — `GOOS=windows golangci-lint run ./internal/secret/...` reports
+    `G103: Use of unsafe calls should be audited (gosec)`. CI only lints on Linux/macOS, so it stays hidden until
+    someone lints for Windows. The stdlib has no public `LockFileEx` wrapper, so `unsafe` is required. → Add a
+    justified suppression on that line: `//nolint:gosec // T-037: LockFileEx takes *OVERLAPPED; stdlib has no public wrapper.`
+    It can go into this branch or into the next task that touches `internal/secret`.
