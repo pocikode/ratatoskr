@@ -3,7 +3,7 @@ id: T-104
 title: RawEditor - byte-preserving editable HTTP editor with {{var}} highlighting
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: []
 owner: "claude-sonnet-5.5"
 branch: task/T-104-raw-editor
@@ -81,3 +81,15 @@ changes bytes the user did not edit.
 - [x] [minor] web/src/lib/editor/http.test.ts:7 — The lexer test uses CodeMirror's default newline handling, so both cases reach the parser as LF. Set `EditorState.lineSeparator.of('\n')`, as RawEditor does, to exercise the CRLF path with its retained CR.
 - Verification: The final `make check` passed, including all 248 web tests. The earlier run stopped at Prettier's `[warn] src/lib/editor/RawEditor.svelte`, and a separate web test run reported `Error: Test timed out in 5000ms.` at `src/pages/sitemap/sitemap.svelte.test.ts:132`. The format fix and the final gate cleared both failures.
 - Browser checks mounted the component in Chromium. The app's Playwright suite and 5 MB interaction timing were outside this review.
+
+### Re-review of `f00c0d7`
+
+- Verdict: `changes_requested`. This is the third review round. Escalate the remaining CRLF editing defects to the lead under `docs/07-agent-workflow.md` §7.
+- Reviewed `main...f00c0d7` for one operator editing messages up to 5 MB. The product changes are within the task paths. The new tests cover identity changes, parent echoes, and the lexer’s retained-CR path. Chromium confirmed ordinary End followed by typing or Delete works from the start of a line and that both Ctrl+Enter and Cmd+Enter bubble without editing.
+- [ ] [major] web/src/lib/editor/RawEditor.svelte:104 — The cursor filter uses the old position to infer rightward motion. Starting at the beginning of `a\r\nb`, Right then End then `x` emits `a\r\nxb`. Right then Shift+End then `x` emits `axb`, deleting the separator. Give End and Shift+End an explicit CRLF-aware line-end target and test them with the caret already at the visual end.
+- [ ] [major] web/src/lib/editor/RawEditor.svelte:152 — Shift+Backspace bypasses the custom eraser. At the start of the second line in `a\r\nb`, it emits `a\rb`. Bind Shift+Backspace to the same eraser and assert the emitted bytes.
+- [ ] [major] web/src/lib/editor/RawEditor.svelte:157 — The default line-move command treats CR as part of the line and reinserts LF as the separator. Alt+Down on the first line of `a\r\nb` emits `b\na\r`. Drop the optional line-move bindings and test that the shortcut leaves the bytes intact.
+- [ ] [minor] web/src/lib/editor/RawEditor.test.ts:136 — The Mod+Enter test only checks for emitted bytes. An editor handler that calls `preventDefault()` without editing would pass, but the app would skip Send and Forward. Assert that the key reaches a window listener with `defaultPrevented` false.
+- [ ] [minor] web/src/lib/editor/RawEditor.svelte:101 — The component is 270 lines, above the 250-line limit in `docs/06-frontend-conventions.md` §3. Use the CRLF fixes to move the keyboard handling into a module beside the component.
+- Verification: `make check` passed, including all 253 web tests. Chromium reproduced the three open editing defects. A local Chromium smoke check loaded two 5,000,000-byte fixtures, one multiline and one with a single-line body. Both emitted 5,000,001 bytes after typing one character.
+- The app’s Playwright suite and cross-browser behavior were outside this review. The component has no route-level consumer on this branch.
