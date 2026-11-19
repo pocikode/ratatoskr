@@ -117,3 +117,26 @@ pages with the existing `requests(first, after)` cursor when the table nears its
       reload. The Handoff documents this. Fine for now. Optional follow-up: re-arm when `message` is cleared, or show
       a "Retry" action in the message.
   - Implementer: Handoff records when automatic paging retries. A dedicated retry action remains a follow-up.
+
+### Round 2 (reviewer, 2026-11-19)
+- Verdict: approve
+- Checks: `make check` green (Go tests ok, svelte-check 0 errors / 0 warnings, eslint and prettier clean,
+  Vitest 36 files / 231 tests). `make test-int` not run because no proxy, store or rawhttp code changed.
+  All changed files are inside `paths`. The generated files change only for `$after`.
+- Round 1: all three findings are resolved. `{#key tableVersion}` is gone. `paginationKey` re-arms paging after a
+  new first page, and the table is no longer remounted on sort or reload. The keyboard sort test checks header
+  focus and the active request. A successful page clears only its own alert, and a newer alert stays visible
+  (tested with `it.each`).
+- Re-checked: at most one request is in flight. `reload` and `stop` cancel through `takeUntil` and the
+  `reloadToken` check, and `finally` only clears its own request. Pages with only duplicates keep looping until
+  the cursor stops changing. Deletes during a page are recorded in `dropped`. Live rows past the page boundary are
+  merged in sort order, and `compareRows` breaks ties by ID like `internal/history/list.go`. A project reset bumps
+  `projectToken`, which guards presets and detail. `activeKey` uses `lastActiveIndex` as a fast path, and its
+  `indexOf` fallback is O(n) only after the keys change.
+- Findings:
+- [ ] [nit] web/src/lib/components/TrafficTable/TrafficTable.svelte:24 — the doc comment says "once per row
+      count". It also re-arms when `paginationKey` changes. → Change it to "once per row count or
+      `paginationKey`".
+- [ ] [nit] web/src/pages/http-history/history.svelte.ts:259 — after a page error, scrolling does not retry until
+      the row count changes or a reload happens (round 1 nit, documented in Handoff). → Keep it as a follow-up:
+      a "Retry" action in the alert.
