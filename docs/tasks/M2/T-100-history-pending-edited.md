@@ -3,7 +3,7 @@ id: T-100
 title: History pending records, edited pairs and editedBy
 milestone: M2
 role: backend
-status: in_progress
+status: in_review
 depends_on: [T-030]
 owner: Codex
 branch: task/T-100-history-pending-edited
@@ -33,19 +33,19 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 - Out: creating edited pairs from the proxy (T-105 calls the API added here), intercept, M&R.
 
 ## Acceptance criteria
-- [ ] `NewPending` returns without waiting for a flush (`testing/synctest`: returns before `FlushInterval` elapses); IDs are
+- [x] `NewPending` returns without waiting for a flush (`testing/synctest`: returns before `FlushInterval` elapses); IDs are
       unique and increasing, also after closing and reopening the project.
-- [ ] Proxy integration test with a slow test server: the request is listed by `Service.List` with no response before the
+- [x] Proxy integration test with a slow test server: the request is listed by `Service.List` with no response before the
       server answers; `Added` then `Updated` events fire in that order; the final row equals what M1 stored (bytes, timing).
-- [ ] An exchange that fails upstream is completed as today (F-NET-1): the pending row is completed with the
+- [x] An exchange that fails upstream is completed as today (F-NET-1): the pending row is completed with the
       proxy-generated `502` as its response, error text in the body. `TestUpstreamErrorIs502AndRecorded` stays as is.
-- [ ] `Written` (synctest): blocks until the batch holding `id` commits, then `Service.Get(id)` finds it; returns at once
+- [x] `Written` (synctest): blocks until the batch holding `id` commits, then `Service.Get(id)` finds it; returns at once
       for a committed ID; returns ctx's error on cancel and an error when the project closes first; no goroutine leak.
-- [ ] `Complete` for an ID whose project was closed meanwhile is dropped and counted in `Dropped()`, no error, no panic.
-- [ ] Dropped flag stored as `is_dropped = 1`; an entry with `EditedFrom` stores `edited_from`; `editedBy` returns the edited
+- [x] `Complete` for an ID whose project was closed meanwhile is dropped and counted in `Dropped()`, no error, no panic.
+- [x] Dropped flag stored as `is_dropped = 1`; an entry with `EditedFrom` stores `edited_from`; `editedBy` returns the edited
       record, null otherwise (service + resolver tests).
-- [ ] Capture benchmark (add `BenchmarkCapture` if missing): pending + complete within 15% of the M1 single insert; numbers in Handoff.
-- [ ] `make check` and `make test-int` green.
+- [x] Capture benchmark (add `BenchmarkCapture` if missing): pending + complete within 15% of the M1 single insert; numbers in Handoff.
+- [x] `make check` and `make test-int` green.
 
 ## Notes from lead
 - Keep one writer goroutine per DB: pending inserts and completions go through the same channel so a completion can never
@@ -59,6 +59,7 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 ## Plan (implementer, ≤15 lines)
 - Confirm how history should record upstream failures and authorize the project subscription wiring.
 - Allocate IDs per open project and batch pending inserts and completions on the capture writer.
+- Acknowledge committed pending rows through the same writer for `Written`.
 - Publish pending proxy records while preserving streaming and final request and response bytes.
 - Persist dropped and edited metadata and resolve `editedBy`.
 - Cover capture, proxy, and resolver behavior, then benchmark and run both check targets.
@@ -79,10 +80,19 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
     in T-109, which runs after T-105 → T-100, so there is no overlap.
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- Capture reseeds IDs from the open project's database and reserves IDs held by unfinished exchanges across project switches.
+  The same writer queues inserts, completions and `Written` acknowledgments. A completion after switching projects counts as dropped.
+- The proxy records bodyless requests after reading the head and body-bearing requests after streaming the upload, before it
+  reads the upstream response. History keeps exact captured bytes and generated 502 responses.
+- Capture stores dropped state and edited links. GraphQL `editedBy` resolves the edited record when it exists.
+- `make test-int` and `VITEST_MAX_WORKERS=2 make check` passed. The worker cap avoided the sitemap test timeout on the
+  first run. `TestHistoryListsPendingBeforeUpstreamResponse` verifies the pending row, event order, final bytes
+  and timing. The history and resolver tests cover project switches, `Written`, dropped rows and edited pairs.
+- `BenchmarkCapture` used seven interleaved one-second runs per version on Darwin/arm64 with `-cpu=2 -benchmem`.
+  M1 used the same fixture and benchmark with `Capture.Add` and the original capture and store code from `607c0a6`.
+  Median M1 was 38.45 µs/op, 4,219 B/op, 90 allocs/op. Pending and complete measured 42.56 µs/op, 4,344 B/op,
+  90 allocs/op, 10.7% slower and within the 15% limit.
+- The capture queue retains bounded backpressure when full. T-105 will wire in interception and creation of edited pairs.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
