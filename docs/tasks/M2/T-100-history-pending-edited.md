@@ -26,7 +26,8 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 
 ## Scope
 - In: `history.Capture.NewPending(ctx, Entry) int64` (ID returned at once; IDs from `MAX(id)+1` at project open),
-  `Complete(ctx, id, *Response)`, a dropped flag, `EditedFrom` + `Source` on entries; the proxy switched from "insert when
+  `Complete(ctx, id, *Response)`, `Written(ctx, id) error` (returns once the pending row of `id` is committed, at
+  once if it already is; ctx error if ctx ends; error if the project closed first; F-INT-1, docs/03 §4), a dropped flag, `EditedFrom` + `Source` on entries; the proxy switched from "insert when
   complete" to `NewPending` at request read and `Complete` after the response (or failure); `editedBy` lookup in
   `history.Service` + resolver (delete `stubs_history_edited.go`).
 - Out: creating edited pairs from the proxy (T-105 calls the API added here), intercept, M&R.
@@ -38,6 +39,8 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
       server answers; `Added` then `Updated` events fire in that order; the final row equals what M1 stored (bytes, timing).
 - [ ] An exchange that fails upstream is completed as today (F-NET-1): the pending row is completed with the
       proxy-generated `502` as its response, error text in the body. `TestUpstreamErrorIs502AndRecorded` stays as is.
+- [ ] `Written` (synctest): blocks until the batch holding `id` commits, then `Service.Get(id)` finds it; returns at once
+      for a committed ID; returns ctx's error on cancel and an error when the project closes first; no goroutine leak.
 - [ ] `Complete` for an ID whose project was closed meanwhile is dropped and counted in `Dropped()`, no error, no panic.
 - [ ] Dropped flag stored as `is_dropped = 1`; an entry with `EditedFrom` stores `edited_from`; `editedBy` returns the edited
       record, null otherwise (service + resolver tests).
@@ -49,6 +52,9 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
   overtake its insert. A completion may land in the same batch as its insert; then emit `Added` before `Updated`.
 - The in-memory ID counter is per open project; reset it on project switch (`project.Service.Subscribe`).
 - Plan mode required (`internal/proxy`, `internal/store`).
+
+- **Scope added (lead, 2026-11-19, from T-031):** `Capture.Written` above. T-105 calls it before every hold so the
+  intercept queue never shows a record history cannot read yet (F-INT-1). Spec text lands with the T-031 branch.
 
 ## Plan (implementer, ≤15 lines)
 - Confirm how history should record upstream failures and authorize the project subscription wiring.
