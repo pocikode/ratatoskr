@@ -3,7 +3,7 @@ id: T-038
 title: Original/Modified viewer toggle and edited markers in HTTP History
 milestone: M2
 role: frontend
-status: in_review
+status: done
 depends_on: [T-030]
 owner: "DeepSeek V4.1 Flash (opencode)"
 branch: task/T-038-original-modified-viewer
