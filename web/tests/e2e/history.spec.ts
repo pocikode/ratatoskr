@@ -39,6 +39,35 @@ test('F-HIST-2 displays captured requests and decoded responses in the history v
   await expect(request.getByRole('table', { name: 'Params' })).toContainText('fixture');
 });
 
+test('F-HIST-2 renders a sandboxed response preview in History and in a new tab', async ({
+  instance,
+  target,
+  page,
+}) => {
+  await capture(instance, target, '/viewer/preview');
+  await page.goto('/#/http-history');
+  await page.getByRole('gridcell', { name: '/viewer/preview', exact: true }).click();
+  const response = page.getByRole('region', { name: 'Response', exact: true });
+
+  const previewResponse = page.waitForResponse(/\/api\/rest\/preview\/\d+$/);
+  await response.getByRole('tab', { name: 'Preview' }).click();
+  const preview = await previewResponse;
+  expect(preview.status()).toBe(200);
+  expect(await preview.headerValue('content-security-policy')).toBe('sandbox');
+  const iframe = response.getByTitle('Response preview');
+  await expect(iframe).toHaveAttribute('sandbox', '');
+  const frame = iframe.contentFrame();
+  await expect(frame.getByRole('heading', { name: 'Captured HTML response' })).toBeVisible();
+  await expect(frame.locator('#marker')).toHaveText('Script did not run');
+
+  const popupPromise = page.waitForEvent('popup');
+  await response.getByRole('link', { name: 'Open in browser' }).click();
+  const popup = await popupPromise;
+  await expect(popup).toHaveURL(preview.url());
+  await expect(popup.getByRole('heading', { name: 'Captured HTML response' })).toBeVisible();
+  await expect(popup.locator('#marker')).toHaveText('Script did not run');
+});
+
 test('F-HIST-1 filters 100,000 rows under 300 ms and scrolls to the oldest row', async ({
   instance,
   request,

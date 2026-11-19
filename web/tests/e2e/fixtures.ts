@@ -95,6 +95,11 @@ export const test = base.extend<{ instance: Instance; target: string }>({
       const encode = path.startsWith('/viewer/') && encoders.get(encoding);
       if (path === '/favicon.ico') {
         response.writeHead(204).end();
+      } else if (path === '/viewer/preview') {
+        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(`<!doctype html>
+          <p id="marker">Script did not run</p>
+          <script>document.getElementById('marker').textContent = 'Script ran';</script>
+          <h1>Captured HTML response</h1>`);
       } else if (encode) {
         response.writeHead(200, {
           'Content-Type': 'application/json',
