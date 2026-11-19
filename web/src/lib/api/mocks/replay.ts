@@ -113,12 +113,17 @@ function checkBytes(b64: unknown): string {
   return btoa(bytes); // canonical form, as the server re-encodes
 }
 
+/** HTTP/1.x request line; the method is an RFC 9110 token, e.g. M-SEARCH. */
+const REQUEST_LINE = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+) (\S+) HTTP\/1\.[01]\r?\n/;
+
+/** Latin1 byte string → text, decoded as UTF-8. */
+const utf8 = (bytes: string) =>
+  new TextDecoder().decode(Uint8Array.from(bytes, (ch) => ch.charCodeAt(0)));
+
 /** `METHOD target` from the request line, cut to 60 characters; `Untitled` without one. */
 function defaultName(b64: string): string {
-  const line = atob(b64).split(/\r?\n/, 1)[0]!;
-  const text = new TextDecoder().decode(Uint8Array.from(line, (ch) => ch.charCodeAt(0)));
-  const m = /^(\S+) (\S+)/.exec(text);
-  return m ? [...`${m[1]} ${m[2]}`].slice(0, 60).join('') : 'Untitled';
+  const m = REQUEST_LINE.exec(atob(b64));
+  return m ? [...utf8(`${m[1]} ${m[2]}`)].slice(0, 60).join('') : 'Untitled';
 }
 
 const body = (s: string) => slicer(Uint8Array.from(s, (ch) => ch.charCodeAt(0)));
@@ -131,9 +136,9 @@ function record(id: number, raw: string, c: Connection, failed: boolean): MockRe
   const end = blank ? blank.index + blank[0].length : raw.length;
   const head = raw.slice(0, end);
   const rest = raw.slice(end);
-  const line = /^(\S+) (\S+)/.exec(raw);
+  const line = REQUEST_LINE.exec(raw);
   // Same split as History's requestRow: drop the fragment, cut at the first `?`, strip absolute-form origin.
-  const target = (line?.[2] ?? '/').split('#', 1)[0]!;
+  const target = utf8(line?.[2] ?? '/').split('#', 1)[0]!;
   const q = target.indexOf('?');
   let path = q < 0 ? target : target.slice(0, q);
   const query = q < 0 ? '' : target.slice(q + 1);
@@ -437,9 +442,7 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
       // shortcut: interpolation only, no Match & Replace, Content-Length update or redirects;
       // the request-line check stands in for the rawhttp parser (T-106).
       const raw = deps.interpolate(atob(draft));
-      // Method is an RFC 9110 token, e.g. M-SEARCH.
-      if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+ \S+ HTTP\/1\.[01]\r?\n/.test(raw))
-        throw fail('BAD_INPUT', 'malformed request line');
+      if (!REQUEST_LINE.test(raw)) throw fail('BAD_INPUT', 'malformed request line');
       s.sending = true;
       const startedAt = new Date().toISOString();
       const timedOut = options.timeoutMs < sendDelayMs;

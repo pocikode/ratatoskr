@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -111,6 +111,11 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
   Escalation fixes: non-string `Bytes` variables (number, array) are `BAD_INPUT`; record path/query use the
   History `requestRow` split (fragment dropped, first `?`, absolute-form origin stripped: `http://h/docs?q` →
   `/docs`). Each has a test.
+  Recheck fixes: one `REQUEST_LINE` regex (`METHOD target HTTP/1.x`) drives the send check, the default name
+  (`hello world` → `Untitled`) and record metadata; the target is decoded as UTF-8 before the path/query split
+  (`/café?q=東京` is found by a History search for `café`). The name rules and the 16 MiB limit moved from the
+  file comment into field/argument descriptions, so they reach the generated SDL and introspection. Each mock fix
+  has a test.
 - How to verify: `make gen` (no diff), `make check`, `cd web && bun run test -- src/lib/api/mocks`.
 - Known limitations: the replay mock skips Match & Replace, Content-Length update and redirects, and checks only the
   request line (marked `shortcut:`). The generated models keep the lazy fields (e.g. `ReplayEntry.Request`) as plain
@@ -162,8 +167,8 @@ Reviewed `147ce74` against `main`. T-098 defines the Replay and Environments Gra
 Reviewed `fa48f63` against `main`. T-098 defines the Replay and Environments GraphQL contracts and gives frontend developers server stubs and an in-memory mock. The regression tests for non-string `Bytes` and absolute-form targets both pass.
 
 - Verdict: changes_requested
-- [ ] [major] `web/src/lib/api/mocks/replay.ts:136` — A send with a UTF-8 target of `/café?q=東京` stores garbled path and query text. A History search for `café` returns zero rows even though the request head contains the correct bytes. Decode the extracted target as UTF-8 before assigning the metadata, preserve the original head bytes, and test both the record and a History query.
-- [ ] [minor] `web/src/lib/api/mocks/replay.ts:120` — Creating a session with the draft `hello world` names it `hello world`. The schema specifies `Untitled` when the draft has no request line. Check for an HTTP request line before deriving the name and test the fallback while preserving the draft.
-- [ ] [minor] `internal/api/graphql/schema/replay.graphqls:27` — The generated web SDL and GraphQL introspection omit the source comments that define the shared name and byte limits. A frontend developer reading the generated schema sees a reference to missing name rules and cannot find the 16 MiB limit for an editor draft. Put the rules in schema descriptions and regenerate both outputs.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:136` — A send with a UTF-8 target of `/café?q=東京` stores garbled path and query text. A History search for `café` returns zero rows even though the request head contains the correct bytes. Decode the extracted target as UTF-8 before assigning the metadata, preserve the original head bytes, and test both the record and a History query.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:120` — Creating a session with the draft `hello world` names it `hello world`. The schema specifies `Untitled` when the draft has no request line. Check for an HTTP request line before deriving the name and test the fallback while preserving the draft.
+- [x] [minor] `internal/api/graphql/schema/replay.graphqls:27` — The generated web SDL and GraphQL introspection omit the source comments that define the shared name and byte limits. A frontend developer reading the generated schema sees a reference to missing name rules and cannot find the 16 MiB limit for an editor draft. Put the rules in schema descriptions and regenerate both outputs.
 - `make check` passed, including all 314 web tests. `make gen` reproduced both generated directories in a temporary checkout. GraphQL spot checks reproduced both mock findings. The branch diff has trailing whitespace in the generated web SDL.
 - Review assumes one frontend developer using the in-memory exchange. `make test-int` was skipped because the branch changes no proxy, store or raw HTTP code. The task remains with the lead under the escalation in the third review.

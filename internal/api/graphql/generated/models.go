@@ -44,9 +44,10 @@ type CreateReplaySessionInput struct {
 	// Connection for a session from scratch.
 	Connection *ReplayConnectionInput `json:"connection,omitempty"`
 	// Request bytes for a session from scratch. The URL dialog sends
-	// `GET <path> HTTP/1.1` with a `Host` header.
+	// `GET <path> HTTP/1.1` with a `Host` header. At most 16 MiB (16777216 bytes)
+	// decoded, else `BAD_INPUT`; stored exactly as given.
 	Raw []byte `json:"raw,omitempty"`
-	// Name; null for `METHOD path` (see `ReplaySession.name`).
+	// Name; null for `METHOD path` (see `ReplaySession.name` for the name rules).
 	Name *string `json:"name,omitempty"`
 }
 
@@ -368,7 +369,8 @@ type QueryCompletions struct {
 type ReplayCollection struct {
 	// Opaque identifier.
 	ID string `json:"id"`
-	// Display name; see the shared name rules at the top of this file.
+	// Display name. Names are trimmed; empty, longer than 200 characters or containing control
+	// characters is `BAD_INPUT`. Names need not be unique.
 	Name string `json:"name"`
 	// Whether this is the Default collection: it can be renamed but not deleted,
 	// and it receives new sessions created without `collectionId`.
@@ -476,7 +478,9 @@ type ReplaySession struct {
 	// Always `HTTP` in M2.
 	Kind ReplaySessionKind `json:"kind"`
 	// Display name. New sessions are named `METHOD path` from the request line,
-	// cut to 60 characters (`Untitled` when the bytes have no request line).
+	// cut to 60 characters (`Untitled` when the bytes do not start with an
+	// HTTP/1.x request line, `METHOD target HTTP/1.x`). Names are trimmed; empty, longer than 200 characters or containing control
+	// characters is `BAD_INPUT`. Names need not be unique.
 	Name string `json:"name"`
 	// Tag colour shown on the tab; null when none.
 	Color *RequestColor `json:"color,omitempty"`
@@ -488,7 +492,7 @@ type ReplaySession struct {
 	Options *ReplayOptions `json:"options"`
 	// The request bytes the editor shows: exactly as last saved by
 	// `updateReplaySession` or `sendReplaySession` (before interpolation, Match &
-	// Replace or Content-Length update).
+	// Replace or Content-Length update). At most 16 MiB (16777216 bytes).
 	Draft []byte `json:"draft"`
 	// Whether a send is in flight (see `sendReplaySession`).
 	Sending bool `json:"sending"`
@@ -555,7 +559,7 @@ func (ScopePreset) IsNode() {}
 
 // What to send. The values are first saved on the session, as `updateReplaySession` would.
 type SendReplaySessionInput struct {
-	// The editor's bytes; saved as the draft.
+	// The editor's bytes; saved as the draft. At most 16 MiB (16777216 bytes) decoded, else `BAD_INPUT`.
 	Raw []byte `json:"raw"`
 	// Saved as the session's connection.
 	Connection *ReplayConnectionInput `json:"connection"`
@@ -620,13 +624,13 @@ type Subscription struct {
 
 // Changes to a session. Omitted or null fields keep their value; nothing changes when any field is invalid.
 type UpdateReplaySessionInput struct {
-	// New name; see the shared name rules.
+	// New name; see `ReplaySession.name` for the name rules.
 	Name *string `json:"name,omitempty"`
 	// Replaces the whole connection.
 	Connection *ReplayConnectionInput `json:"connection,omitempty"`
 	// Merged into the current options.
 	Options *ReplayOptionsInput `json:"options,omitempty"`
-	// Replaces the draft bytes.
+	// Replaces the draft bytes: at most 16 MiB (16777216 bytes) decoded, else `BAD_INPUT`; stored exactly as given.
 	Draft []byte `json:"draft,omitempty"`
 }
 

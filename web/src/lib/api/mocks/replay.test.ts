@@ -254,6 +254,34 @@ describe('replay mock', () => {
     expect(atob(r.head)).toBe(raw);
   });
 
+  it('decodes a UTF-8 target into path and query and keeps the head bytes', async () => {
+    const { q, m } = run(client());
+    const head = String.fromCharCode(
+      ...new TextEncoder().encode('GET /café?q=東京 HTTP/1.1\r\nHost: example.test\r\n\r\n'),
+    );
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { request { id path query head } } }`,
+      { c: CONN, raw: btoa(head) },
+    );
+    const r = res.data!.sendReplaySession.request;
+    expect({ path: r.path, query: r.query }).toEqual({ path: '/café', query: 'q=東京' });
+    expect(atob(r.head)).toBe(head);
+    const found = await q(`{ requests(first: 10, query: "\\"café\\"") { edges { node { id } } } }`);
+    expect(found.data!.requests.edges.map((e: { node: { id: string } }) => e.node.id)).toEqual([
+      r.id,
+    ]);
+  });
+
+  it('names a session Untitled when the draft has no request line', async () => {
+    const { m } = run(client());
+    const raw = btoa('hello world');
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput, $raw: Bytes) { createReplaySession(input: { connection: $c, raw: $raw }) { name draft } }`,
+      { c: CONN, raw },
+    );
+    expect(res.data!.createReplaySession).toEqual({ name: 'Untitled', draft: raw });
+  });
+
   it('splits an LF-only request at its blank line', async () => {
     const { m } = run(client());
     const raw = 'POST /lf HTTP/1.1\nHost: example.test\n\nbody\n';

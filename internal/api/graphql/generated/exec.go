@@ -3048,13 +3048,8 @@ extend type Subscription {
 # Collections, sessions and entries live in the selected project's database.
 # There is no subscription: pages refetch after their own mutations.
 #
-# Shared rules:
-# - Names (collections and sessions) are trimmed; empty, longer than 200
-#   characters or containing control characters is ` + "`" + `BAD_INPUT` + "`" + `. Names need not
-#   be unique.
-# - Request bytes (` + "`" + `draft` + "`" + `, ` + "`" + `raw` + "`" + `) are at most 16 MiB (16777216 bytes) once
-#   decoded, else ` + "`" + `BAD_INPUT` + "`" + `; they are stored exactly as given.
-# - Unknown IDs are ` + "`" + `NOT_FOUND` + "`" + `.
+# The name, byte-limit and error rules are repeated in the descriptions below
+# so they reach the generated SDL and introspection.
 
 "What a Replay session sends. WebSocket (M4) and Pipeline (M7) sessions add values then."
 enum ReplaySessionKind {
@@ -3069,7 +3064,10 @@ first Replay use, so ` + "`" + `replayCollections` + "`" + ` never returns an em
 type ReplayCollection implements Node {
   "Opaque identifier."
   id: ID!
-  "Display name; see the shared name rules at the top of this file."
+  """
+  Display name. Names are trimmed; empty, longer than 200 characters or containing control
+  characters is ` + "`" + `BAD_INPUT` + "`" + `. Names need not be unique.
+  """
   name: String!
   """
   Whether this is the Default collection: it can be renamed but not deleted,
@@ -3150,7 +3148,9 @@ type ReplaySession implements Node {
   kind: ReplaySessionKind!
   """
   Display name. New sessions are named ` + "`" + `METHOD path` + "`" + ` from the request line,
-  cut to 60 characters (` + "`" + `Untitled` + "`" + ` when the bytes have no request line).
+  cut to 60 characters (` + "`" + `Untitled` + "`" + ` when the bytes do not start with an
+  HTTP/1.x request line, ` + "`" + `METHOD target HTTP/1.x` + "`" + `). Names are trimmed; empty, longer than 200 characters or containing control
+  characters is ` + "`" + `BAD_INPUT` + "`" + `. Names need not be unique.
   """
   name: String!
   "Tag colour shown on the tab; null when none."
@@ -3164,7 +3164,7 @@ type ReplaySession implements Node {
   """
   The request bytes the editor shows: exactly as last saved by
   ` + "`" + `updateReplaySession` + "`" + ` or ` + "`" + `sendReplaySession` + "`" + ` (before interpolation, Match &
-  Replace or Content-Length update).
+  Replace or Content-Length update). At most 16 MiB (16777216 bytes).
   """
   draft: Bytes!
   "Whether a send is in flight (see ` + "`" + `sendReplaySession` + "`" + `)."
@@ -3233,28 +3233,29 @@ input CreateReplaySessionInput {
   connection: ReplayConnectionInput
   """
   Request bytes for a session from scratch. The URL dialog sends
-  ` + "`" + `GET <path> HTTP/1.1` + "`" + ` with a ` + "`" + `Host` + "`" + ` header.
+  ` + "`" + `GET <path> HTTP/1.1` + "`" + ` with a ` + "`" + `Host` + "`" + ` header. At most 16 MiB (16777216 bytes)
+  decoded, else ` + "`" + `BAD_INPUT` + "`" + `; stored exactly as given.
   """
   raw: Bytes
-  "Name; null for ` + "`" + `METHOD path` + "`" + ` (see ` + "`" + `ReplaySession.name` + "`" + `)."
+  "Name; null for ` + "`" + `METHOD path` + "`" + ` (see ` + "`" + `ReplaySession.name` + "`" + ` for the name rules)."
   name: String
 }
 
 "Changes to a session. Omitted or null fields keep their value; nothing changes when any field is invalid."
 input UpdateReplaySessionInput {
-  "New name; see the shared name rules."
+  "New name; see ` + "`" + `ReplaySession.name` + "`" + ` for the name rules."
   name: String
   "Replaces the whole connection."
   connection: ReplayConnectionInput
   "Merged into the current options."
   options: ReplayOptionsInput
-  "Replaces the draft bytes."
+  "Replaces the draft bytes: at most 16 MiB (16777216 bytes) decoded, else ` + "`" + `BAD_INPUT` + "`" + `; stored exactly as given."
   draft: Bytes
 }
 
 "What to send. The values are first saved on the session, as ` + "`" + `updateReplaySession` + "`" + ` would."
 input SendReplaySessionInput {
-  "The editor's bytes; saved as the draft."
+  "The editor's bytes; saved as the draft. At most 16 MiB (16777216 bytes) decoded, else ` + "`" + `BAD_INPUT` + "`" + `."
   raw: Bytes!
   "Saved as the session's connection."
   connection: ReplayConnectionInput!
@@ -3274,9 +3275,9 @@ extend type Query {
 }
 
 extend type Mutation {
-  "Creates an empty collection, placed last. ` + "`" + `BAD_INPUT` + "`" + ` for an invalid name."
+  "Creates an empty collection, placed last. ` + "`" + `BAD_INPUT` + "`" + ` for an invalid name (see ` + "`" + `ReplayCollection.name` + "`" + `)."
   createReplayCollection(name: String!): ReplayCollection!
-  "Renames a collection (Default included). ` + "`" + `BAD_INPUT` + "`" + ` for an invalid name, ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID."
+  "Renames a collection (Default included). ` + "`" + `BAD_INPUT` + "`" + ` for an invalid name (see ` + "`" + `ReplayCollection.name` + "`" + `), ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID."
   renameReplayCollection(id: ID!, name: String!): ReplayCollection!
   """
   Deletes a collection with its sessions and their entries, and returns its ID.

@@ -66,12 +66,15 @@ input CreateReplaySessionInput {
   """
   fromRequestId: ID
 
-  """Name; null for `METHOD path` (see `ReplaySession.name`)."""
+  """
+  Name; null for `METHOD path` (see `ReplaySession.name` for the name rules).
+  """
   name: String
 
   """
   Request bytes for a session from scratch. The URL dialog sends
-  `GET <path> HTTP/1.1` with a `Host` header.
+  `GET <path> HTTP/1.1` with a `Host` header. At most 16 MiB (16777216 bytes)
+  decoded, else `BAD_INPUT`; stored exactly as given.
   """
   raw: Bytes
 }
@@ -542,7 +545,7 @@ type Mutation {
   createProject(name: String!, select: Boolean! = false): Project!
 
   """
-  Creates an empty collection, placed last. `BAD_INPUT` for an invalid name.
+  Creates an empty collection, placed last. `BAD_INPUT` for an invalid name (see `ReplayCollection.name`).
   """
   createReplayCollection(name: String!): ReplayCollection!
 
@@ -732,7 +735,7 @@ type Mutation {
   renameProject(id: ID!, name: String!): Project!
 
   """
-  Renames a collection (Default included). `BAD_INPUT` for an invalid name, `NOT_FOUND` for an unknown ID.
+  Renames a collection (Default included). `BAD_INPUT` for an invalid name (see `ReplayCollection.name`), `NOT_FOUND` for an unknown ID.
   """
   renameReplayCollection(id: ID!, name: String!): ReplayCollection!
 
@@ -1111,7 +1114,10 @@ type ReplayCollection implements Node {
   """
   isDefault: Boolean!
 
-  """Display name; see the shared name rules at the top of this file."""
+  """
+  Display name. Names are trimmed; empty, longer than 200 characters or containing control
+  characters is `BAD_INPUT`. Names need not be unique.
+  """
   name: String!
 
   """
@@ -1263,7 +1269,7 @@ type ReplaySession implements Node {
   """
   The request bytes the editor shows: exactly as last saved by
   `updateReplaySession` or `sendReplaySession` (before interpolation, Match &
-  Replace or Content-Length update).
+  Replace or Content-Length update). At most 16 MiB (16777216 bytes).
   """
   draft: Bytes!
 
@@ -1281,7 +1287,9 @@ type ReplaySession implements Node {
 
   """
   Display name. New sessions are named `METHOD path` from the request line,
-  cut to 60 characters (`Untitled` when the bytes have no request line).
+  cut to 60 characters (`Untitled` when the bytes do not start with an
+  HTTP/1.x request line, `METHOD target HTTP/1.x`). Names are trimmed; empty, longer than 200 characters or containing control
+  characters is `BAD_INPUT`. Names need not be unique.
   """
   name: String!
 
@@ -1446,7 +1454,9 @@ input SendReplaySessionInput {
   """Merged into the session's options; null keeps them."""
   options: ReplayOptionsInput
 
-  """The editor's bytes; saved as the draft."""
+  """
+  The editor's bytes; saved as the draft. At most 16 MiB (16777216 bytes) decoded, else `BAD_INPUT`.
+  """
   raw: Bytes!
 }
 
@@ -1614,10 +1624,12 @@ input UpdateReplaySessionInput {
   """Replaces the whole connection."""
   connection: ReplayConnectionInput
 
-  """Replaces the draft bytes."""
+  """
+  Replaces the draft bytes: at most 16 MiB (16777216 bytes) decoded, else `BAD_INPUT`; stored exactly as given.
+  """
   draft: Bytes
 
-  """New name; see the shared name rules."""
+  """New name; see `ReplaySession.name` for the name rules."""
   name: String
 
   """Merged into the current options."""
