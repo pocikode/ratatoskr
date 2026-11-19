@@ -42,9 +42,16 @@ export class HistoryState {
   pending = $state.raw<HistoryRowFragment[]>([]);
   total = $state(0);
   loading = $state(false);
-  message = $state<string | null>(null);
-  /** A reload restarts the virtual window even when the row count stays the same. */
-  tableVersion = $state(0);
+  private notice = $state<{ text: string; paging?: true } | null>(null);
+  paginationKey = $state(0);
+
+  get message(): string | null {
+    return this.notice?.text ?? null;
+  }
+
+  set message(text: string | null) {
+    this.notice = text === null ? null : { text };
+  }
 
   /** Text in the query bar; `applied` is what the server filtered on. */
   query = $state('');
@@ -234,7 +241,7 @@ export class HistoryState {
     }
     this.rows = connection.edges.map((edge) => edge.node);
     this.page = { variables, info: connection.pageInfo };
-    this.tableVersion++;
+    this.paginationKey++;
     this.total = connection.totalCount;
     this.pending = [];
     this.error = null;
@@ -256,11 +263,15 @@ export class HistoryState {
         if (token !== this.reloadToken) return;
         const connection = result?.data?.requests;
         if (result?.error || !connection) {
-          this.message = result?.error?.message ?? 'Loading more requests failed';
+          this.notice = {
+            text: result?.error?.message ?? 'Loading more requests failed',
+            paging: true,
+          };
           return;
         }
 
         page.info = connection.pageInfo;
+        if (this.notice?.paging) this.message = null;
         this.total = connection.totalCount;
         const seen = new SvelteSet(this.rows.map((row) => row.id));
         for (const row of this.pending) seen.add(row.id);

@@ -29,6 +29,29 @@ describe('HttpHistoryPage', () => {
     expect(within(grid).getAllByRole('row').length).toBeLessThan(80);
   });
 
+  it('keeps header focus and the active request after sorting by keyboard', async () => {
+    const user = userEvent.setup();
+    render(HttpHistoryPage, { client: createMockClient({ count: 12, liveIntervalMs: 0 }) });
+    await screen.findByText('12 rows');
+    const grid = screen.getByRole('grid', { name: 'HTTP History' });
+    grid.focus();
+    await user.keyboard('{ArrowDown}');
+
+    const header = within(grid).getByRole('button', { name: 'Host' });
+    header.focus();
+    await user.keyboard('{Enter}');
+    await screen.findByText('12 matching');
+
+    expect(header).toHaveFocus();
+    expect(within(grid).getByRole('columnheader', { name: 'Host' })).toHaveAttribute(
+      'aria-sort',
+      'ascending',
+    );
+    const active = document.getElementById(grid.getAttribute('aria-activedescendant') ?? '');
+    expect(active).toBe(within(grid).getByRole('row', { selected: true }));
+    expect(within(active!).getByRole('gridcell', { name: '12' })).toBeInTheDocument();
+  });
+
   it('shows the selected request and response in the viewers', async () => {
     render(HttpHistoryPage, { client: createMockClient({ count: 12, liveIntervalMs: 0 }) });
     await screen.findByText('12 rows');

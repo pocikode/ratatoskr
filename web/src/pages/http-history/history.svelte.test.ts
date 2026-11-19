@@ -125,35 +125,45 @@ describe('HistoryState', () => {
     state.stop();
   });
 
-  it('reports a paging error without dropping loaded rows', async () => {
-    const fail: Exchange =
-      ({ forward }) =>
-      (ops$) =>
-        pipe(
-          forward(ops$),
-          mergeMap((result) =>
-            fromValue(
-              result.operation.variables?.after
-                ? makeResult(result.operation, { errors: [new GraphQLError('Page unavailable')] })
-                : result,
-            ),
-          ),
-        );
-    const state = new HistoryState(
-      new Client({
-        url: '/test',
-        exchanges: [fail, mockHistoryExchange({ count: 1001, liveIntervalMs: 0 })],
-      }),
-    );
-    await state.reload();
-    const loaded = state.rows;
+  it.each([null, 'Clipboard unavailable'])(
+    'preserves loaded rows after a page failure and shows %s after recovery',
+    async (otherMessage) => {
+      let failNext = true;
+      const fail: Exchange =
+        ({ forward }) =>
+        (ops$) =>
+          pipe(
+            forward(ops$),
+            mergeMap((result) => {
+              if (!failNext || !result.operation.variables?.after) return fromValue(result);
+              failNext = false;
+              return fromValue(
+                makeResult(result.operation, { errors: [new GraphQLError('Page unavailable')] }),
+              );
+            }),
+          );
+      const state = new HistoryState(
+        new Client({
+          url: '/test',
+          exchanges: [fail, mockHistoryExchange({ count: 1001, liveIntervalMs: 0 })],
+        }),
+      );
+      await state.reload();
+      const loaded = state.rows;
 
-    await state.loadNextPage();
+      await state.loadNextPage();
 
-    expect(state.message).toContain('Page unavailable');
-    expect(state.rows).toBe(loaded);
-    state.stop();
-  });
+      expect(state.message).toContain('Page unavailable');
+      expect(state.rows).toBe(loaded);
+
+      if (otherMessage) state.message = otherMessage;
+      await state.loadNextPage();
+
+      expect(state.rows).toHaveLength(1001);
+      expect(state.message).toBe(otherMessage);
+      state.stop();
+    },
+  );
 
   it('does not restore a row deleted after the next page was read', async () => {
     const delayed = makeSubject<OperationResult>();

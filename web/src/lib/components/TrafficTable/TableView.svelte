@@ -24,6 +24,7 @@
     /** Fired on every drag step and once with `commit` when the drag ends. */
     onwidth: (id: string, width: number, commit: boolean) => void;
     onNearEnd?: () => void;
+    paginationKey?: number;
     empty?: Snippet;
   }
 
@@ -41,6 +42,7 @@
     onsort,
     onwidth,
     onNearEnd,
+    paginationKey,
     empty,
   }: Props = $props();
 
@@ -83,11 +85,14 @@
   );
 
   let previousCount = 0;
+  let previousKey: number | undefined;
   let notified = false;
   $effect(() => {
     const count = rows.length;
-    if (count !== previousCount) notified = false;
+    const key = paginationKey;
+    if (count !== previousCount || key !== previousKey) notified = false;
     previousCount = count;
+    previousKey = key;
     if (!onNearEnd || notified || count === 0 || (count - end) * rowH > bodyHeight) return;
     notified = true;
     untrack(onNearEnd);

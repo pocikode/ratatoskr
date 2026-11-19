@@ -3,7 +3,7 @@ id: T-095
 title: HTTP History paging via TrafficTable near-end hook (follow-up of T-017, unblocks T-021)
 milestone: M1
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: [T-017]
 owner: "Codex"
 branch: task/T-095-history-pagination
@@ -74,10 +74,14 @@ pages with the existing `requests(first, after)` cursor when the table nears its
 
 - The virtual table requests 1,000-row cursor pages as it nears the end. Live overlaps are deduplicated in sort order,
   and live deletions take precedence over an in-flight page. Reloads cancel paging, and the active row follows its key.
-- `make gen` and `make check` passed. Vitest passed 229 tests, including paging through 3,050 rows, cancellation,
-  error handling, and a bounded DOM row count as pages append.
-- Successful reloads restart the table at the top. A paging error preserves loaded rows and needs a row count change
-  or table reload before another automatic attempt.
+- Successful reloads keep the grid mounted, preserving header focus and the active row when its key is still present.
+  A new first page re-arms paging even at the same row count. Project switches reset the grid because row IDs are
+  project-scoped.
+- A paging error preserves loaded rows. The next row count change or successful reload re-arms automatic paging.
+  A successful page clears the paging alert, and any newer alert from another action stays visible.
+- `make check` passed with local test sockets enabled. Vitest passed 231 tests covering 3,050-row paging,
+  cancellation, bounded DOM rows, keyboard sorting, and paging error recovery. The initial implementation ran
+  `make gen`.
 - T-021 owns the 100,000-row browser test.
 
 ## Review (reviewer)
@@ -88,7 +92,7 @@ pages with the existing `requests(first, after)` cursor when the table nears its
   reload and project reset, paging error, deleted-during-page, prepend keeps `activeKey`, bounded DOM rows).
   The `compareRows` tie-break change (ties by ID in the sort direction) now matches `internal/history/list.go:82,210`.
 - Findings:
-- [ ] [major] web/src/pages/http-history/HttpHistoryPage.svelte:193 + history.svelte.ts:237 — `{#key history.tableVersion}`
+- [x] [major] web/src/pages/http-history/HttpHistoryPage.svelte:193 + history.svelte.ts:237 — `{#key history.tableVersion}`
       remounts the whole `TrafficTable` after every successful reload. That includes a header sort (`setSort` → `reload`),
       the reload command and `addHostToScope`. Case: a keyboard user tabs to the "Host" header and presses Enter. The
       focused header button is destroyed, focus falls to `<body>`, and the user loses their place. The grid's
@@ -99,12 +103,17 @@ pages with the existing `requests(first, after)` cursor when the table nears its
       A reload creates new row objects, so a same-count reload re-arms. A prepended live row leaves the last row
       unchanged, so it does not. AC 1 says "row count". Note in Handoff that it is "row count or last row" (or ask
       lead). Add a test: sort by header with keyboard focus → `document.activeElement` is still the header button.
-- [ ] [minor] web/src/pages/http-history/history.svelte.ts:259-263 — after a paging error, a later page can succeed.
+  - Implementer: a successful first-page reload explicitly re-arms the callback. Within that result set, row count
+    controls re-arming. This keeps a same-count note or color update from triggering another request. The keyboard
+    sort test checks focus and the active request after reloading.
+- [x] [minor] web/src/pages/http-history/history.svelte.ts:259-263 — after a paging error, a later page can succeed.
       For example, a live row changes the count, `onNearEnd` fires again, and the page loads. `message` still shows
       "Page unavailable" because only `reload` clears it (line 241). → After `page.info = connection.pageInfo`, add
       `if (this.message === pagingError) this.message = null`, keeping the failed text in a local or field. Or clear
       it only when the last message came from paging. Extend the existing error test with a second, successful call.
-- [ ] [nit] web/src/pages/http-history/history.svelte.ts:259 — after a paging error, `TableView` stays `notified`
+  - Implementer: paging recovery clears its own alert. The test also checks that it preserves a newer alert.
+- [x] [nit] web/src/pages/http-history/history.svelte.ts:259 — after a paging error, `TableView` stays `notified`
       until the row count changes. With no live traffic, scrolling never retries, and the only way out is a full
       reload. The Handoff documents this. Fine for now. Optional follow-up: re-arm when `message` is cleared, or show
       a "Retry" action in the message.
+  - Implementer: Handoff records when automatic paging retries. A dedicated retry action remains a follow-up.

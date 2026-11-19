@@ -32,6 +32,7 @@ interface TableProps {
   onrowopen?: (row: Row) => void;
   onrowcontextmenu?: (row: Row, event: MouseEvent) => void;
   onNearEnd?: () => void;
+  paginationKey?: number;
 }
 
 // `bind:this`-free, prop-only view of the generic component for the test renderer.
@@ -90,10 +91,16 @@ describe('TrafficTable', () => {
     await scrollToRow(951);
     expect(onNearEnd).toHaveBeenCalledTimes(1);
 
-    await rerender({ rows: [...rows, ...makeRows(1000).map((row) => ({ ...row, id: -row.id }))] });
+    const reloaded = rows.map((row) => ({ ...row }));
+    await rerender({ rows: reloaded });
     expect(onNearEnd).toHaveBeenCalledTimes(1);
-    await scrollToRow(1950);
+    await rerender({ paginationKey: 1 });
     expect(onNearEnd).toHaveBeenCalledTimes(2);
+
+    await rerender({ rows: [...rows, ...makeRows(1000).map((row) => ({ ...row, id: -row.id }))] });
+    expect(onNearEnd).toHaveBeenCalledTimes(2);
+    await scrollToRow(1950);
+    expect(onNearEnd).toHaveBeenCalledTimes(3);
     expect(within(grid).getAllByRole('row')).toHaveLength(windowSize);
   });
 

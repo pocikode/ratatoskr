@@ -190,7 +190,7 @@
       >
         {#snippet first()}
           <div class="relative flex min-h-0 flex-col">
-            {#key history.tableVersion}
+            {#key projects.epoch}
               <TrafficTable
                 rows={history.rows}
                 columns={historyColumns}
@@ -203,6 +203,7 @@
                 onconfigchange={(config) => history.setConfig(config)}
                 onsortchange={(sort) => history.setSort(sort)}
                 onNearEnd={() => void history.loadNextPage()}
+                paginationKey={history.paginationKey}
                 onrowopen={(row) =>
                   history.selection.click(
                     row.id,

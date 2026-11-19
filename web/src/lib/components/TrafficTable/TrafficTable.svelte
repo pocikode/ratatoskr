@@ -23,6 +23,8 @@
     onrowcontextmenu?: (row: Row, event: MouseEvent | KeyboardEvent) => void;
     /** Fired once per row count when the rendered window nears the end. */
     onNearEnd?: () => void;
+    /** Change when a new first page replaces the current data, even at the same row count. */
+    paginationKey?: number;
     color?: (row: Row) => RowColor | null;
     empty?: Snippet;
   }
@@ -40,6 +42,7 @@
     onrowopen,
     onrowcontextmenu,
     onNearEnd,
+    paginationKey,
     color,
     empty,
   }: Props = $props();
@@ -214,6 +217,7 @@
     onsort={toggleSort}
     onwidth={setWidth}
     {onNearEnd}
+    {paginationKey}
     {empty}
   />
 </div>
