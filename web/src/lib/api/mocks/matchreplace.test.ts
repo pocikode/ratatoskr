@@ -148,6 +148,11 @@ describe('match & replace mock', () => {
     const q2 = await m(CREATE, { c, i: { ...addHeader, condition: 'req.host.eq:"x' } });
     expect(code(q2)).toBe('BAD_QUERY');
     expect(q2.error!.graphQLErrors[0]!.extensions.span).toEqual({ start: 12, end: 14 });
+    const q3 = await m(CREATE, {
+      c,
+      i: { ...addHeader, condition: 'req.path.eq:"é" AND req.host.eq:"x' },
+    });
+    expect(q3.error!.graphQLErrors[0]!.extensions.span).toEqual({ start: 33, end: 35 });
     expect(code(await m(CREATE, { c: 'nope', i: addHeader }))).toBe('NOT_FOUND');
   });
 
@@ -183,6 +188,8 @@ describe('match & replace mock', () => {
 
   it.each([
     ['unknown source', (d: Dump) => (d.collections[0]!.rules![0]!.sources = ['BOGUS'])],
+    ['sources not a list', (d: Dump) => (d.collections[0]!.rules![0]!.sources = 'PROXY')],
+    ['missing matcher value', (d: Dump) => delete d.collections[0]!.rules![0]!.matcher.value],
     ['unknown matcher kind', (d: Dump) => (d.collections[0]!.rules![0]!.matcher.kind = 'GLOB')],
     ['non-boolean enabled', (d: Dump) => (d.collections[0]!.rules![0]!.enabled = 'yes')],
     ['non-string term', (d: Dump) => (d.collections[1]!.rules![0]!.term = 7)],
@@ -217,6 +224,12 @@ describe('match & replace mock', () => {
       conditionMatched: true,
       changed: true,
     });
+    const search = btoa('M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250\r\n\r\n');
+    const ext = (await m(TEST, { r: { ...addHeader, sources: [] }, k: 'REQUEST', raw: search }))
+      .data!.testMatchReplace;
+    expect(atob(ext.output)).toBe(
+      'M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250\r\nX-Test: 1\r\n\r\n',
+    );
 
     const resp = btoa('HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc');
     const body = {

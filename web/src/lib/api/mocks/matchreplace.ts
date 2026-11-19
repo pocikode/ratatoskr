@@ -76,7 +76,10 @@ function checkName(name: unknown): string {
 function checkCondition(q: string): void {
   const quotes = [...q.matchAll(/"/g)];
   if (quotes.length % 2)
-    throw fail('BAD_QUERY', 'unterminated string', { start: quotes.at(-1)!.index, end: q.length });
+    throw fail('BAD_QUERY', 'unterminated string', {
+      start: utf8Len(q.slice(0, quotes.at(-1)!.index)),
+      end: utf8Len(q),
+    });
 }
 
 /** Validates everything but name, enabled and sources (the tester skips those). */
@@ -172,7 +175,12 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
     Object.keys(o).length === keys.length &&
     keys.every((k) => Object.hasOwn(o, k));
   const importRule = (r: unknown): MockRuleInput => {
-    const coerced = sameKeys(r, RULE_KEYS) ? coerceInputValue(r, ruleInput) : undefined;
+    // Coercion would wrap a lone source in a list and default a missing matcher value; exports never do.
+    const exact =
+      sameKeys(r, RULE_KEYS) &&
+      Array.isArray((r as Args).sources) &&
+      sameKeys((r as Args).matcher, ['kind', 'value']);
+    const coerced = exact ? coerceInputValue(r, ruleInput) : undefined;
     if (coerced === undefined)
       throw fail('BAD_INPUT', 'unknown, missing or mistyped fields (see MatchReplaceRuleInput)');
     return normalize(coerced as Args);
@@ -383,7 +391,9 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
           throw fail('BAD_INPUT', 'raw is not valid base64');
         }
         const line =
-          kind === 'REQUEST' ? /^[A-Za-z]+ \S+ HTTP\/1\.[01]\r\n/ : /^HTTP\/1\.[01] \d{3}[ \r]/;
+          kind === 'REQUEST'
+            ? /^[!#$%&'*+.^_`|~0-9A-Za-z-]+ \S+ HTTP\/1\.[01]\r\n/
+            : /^HTTP\/1\.[01] \d{3}[ \r]/;
         if (!line.test(text) || !text.includes('\r\n\r\n'))
           throw fail('BAD_INPUT', `raw is not an HTTP/1.x ${String(kind).toLowerCase()}`);
         const out = applyRule(draft, text);

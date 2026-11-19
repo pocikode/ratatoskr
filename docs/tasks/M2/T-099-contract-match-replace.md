@@ -113,3 +113,27 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   single-process desktop use with at most 1000 rules. The explicitly documented tester/HTTPQL/regex mock shortcuts
   are accepted for this contract task.
 - Not checked: browser E2E and `make test-int`; no UI, proxy, store or rawhttp implementation changed.
+
+### Follow-up review
+
+- Verdict is `changes_requested`. The original invalid-enum case now returns `BAD_INPUT`.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:175` accepts malformed import JSON.
+  Replacing `sources: ["PROXY"]` with `sources: "PROXY"` or removing `matcher.value` each returns
+  2 and appends both seed collections. GraphQL input coercion wraps the string in a list and supplies
+  the default matcher value. Check that `sources` is an array and `matcher` has both export keys
+  before coercion. Add both cases to the existing tests that check `BAD_INPUT` and unchanged exports.
+  → Fixed: `importRule` requires `sources` to be an array and `matcher` to have exactly `kind`/`value`
+  before coercion; both cases added to the `it.each` import table.
+- [x] [minor] `web/src/lib/api/mocks/matchreplace.ts:386` rejects valid HTTP method tokens.
+  Testing the same header-add draft on a request starting with `M-SEARCH / HTTP/1.1` returns
+  `BAD_INPUT`. Allow the full HTTP token character set and add an extension-method case to the tester test.
+  → Fixed: request line accepts RFC 9110 `tchar`s; tester test adds an `M-SEARCH *` header-add case.
+- [x] [minor] `web/src/lib/api/mocks/matchreplace.ts:79` reports JavaScript string offsets where
+  the API specifies UTF-8 byte offsets. For `req.path.eq:"é" AND req.host.eq:"x`, the returned
+  span is `{start:32,end:34}` and the byte span is `{start:33,end:35}`. Measure the UTF-8 byte
+  length of the prefix and full condition, and extend the span test with a non-ASCII value.
+  → Fixed: span uses `utf8Len` of the prefix and condition; validation test asserts `{start:33,end:35}`.
+- Verification covered the generated schema, mock, and Go stubs for single-process desktop use with
+  up to 1000 rules per project. All three findings were reproduced through the GraphQL executor.
+  `make check` passed with 349 web tests.
+- Browser E2E and `make test-int` were skipped for this contract review.
