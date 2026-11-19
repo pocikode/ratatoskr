@@ -7,16 +7,8 @@ import { GraphQLError } from 'graphql';
 import { nodeFilter } from './sitemap';
 
 const COLORS = ['RED', 'ORANGE', 'YELLOW', 'GREEN', 'CYAN', 'BLUE', 'PURPLE', 'PINK'] as const;
-const SOURCES = [
-  'PROXY',
-  'PROXY',
-  'PROXY',
-  'PROXY',
-  'INTERCEPT',
-  'REPLAY',
-  'AUTOMATE',
-  'WORKFLOW',
-] as const;
+// No INTERCEPT: that source only marks the edited half of a pair (F-HIST-4), set below.
+const SOURCES = ['PROXY', 'PROXY', 'PROXY', 'PROXY', 'REPLAY', 'AUTOMATE', 'WORKFLOW'] as const;
 const HOSTS = [
   'example.com',
   'api.example.com',

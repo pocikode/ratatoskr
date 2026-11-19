@@ -34,6 +34,7 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
 - [ ] Hold blocks until Forward/Drop; Forward with bytes returns them (parsed with `rawhttp`, else `BAD_INPUT` with the
       parse error), Forward without bytes returns the held bytes; Content-Length rule table-tested (TE present, body without
       CL, CL present and wrong, no body no CL, `updateContentLength: false`).
+- [ ] Replacement `raw` over 16 MiB (decoded) → `BAD_INPUT`, item stays held (F-INT-1); exactly 16 MiB is accepted.
 - [ ] "Should hold" matrix table test: queuing × requests/responses × query × scope; `resp.*` clauses are false for a request.
 - [ ] Turning queuing off releases every held item in FIFO order (synctest, order asserted); turning `requests` off releases
       only request items; a project-switch call releases all and loads the new project's settings.

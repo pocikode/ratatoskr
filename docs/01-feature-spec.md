@@ -165,6 +165,8 @@ unlimited projects/plugins) are **free and unlimited** here.
     with the parse error. `updateContentLength` (default true) sets `Content-Length` to the body size when the message has
     no `Transfer-Encoding` and has a body or a `Content-Length` header; otherwise the bytes go out exactly as given.
     Editing `Host` or the target never changes the destination (the original connection's host, port and TLS).
+  - Replacement bytes are at most 16 MiB (else `BAD_INPUT`), so their base64 fits the 32 MiB API request cap (docs/03
+    §6). A held message over 16 MiB can only be forwarded unchanged or dropped; the UI shows it read-only and says why.
   - Drop of a request: nothing goes upstream, the client gets `dropStatusCode` with a short HTML body of our own wording,
     the record gets `isDropped`. Drop of a response: the client gets the same answer; the record keeps the server's
     response and gets `isDropped`. Dropping discards edits (no edited record, F-HIST-4).

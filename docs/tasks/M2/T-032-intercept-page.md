@@ -41,6 +41,8 @@ requests and responses on the Intercept page (against the T-030 mocks until T-10
 - [ ] Queue keeps FIFO order, appends new items without stealing selection, and the time-held column ticks.
 - [ ] Forward sends `raw` only when the editor bytes differ from the held bytes (else `raw: null`); Undo restores the held
       bytes; after Forward/Drop the next item is selected.
+- [ ] A held message over 16 MiB opens read-only with a short note that it can only be forwarded unchanged or dropped
+      (F-INT-1); Forward then sends `raw: null`.
 - [ ] Bad condition → inline error from `BAD_QUERY` span; drop status outside 100–599 shows the server's `BAD_INPUT`.
 - [ ] Empty state when nothing is held explains Forwarding/Queuing in our own words.
 - [ ] Component tests against the mock exchange; `make check` green.

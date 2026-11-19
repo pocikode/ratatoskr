@@ -153,8 +153,10 @@ type HttpRequest implements Node {
   """
   body(offset: Int64! = 0, limit: Int! = 1048576, decode: Boolean! = false): Bytes!
   """
-  The response; null while waiting (also while held in Intercept), or when the
-  request failed or was dropped.
+  The response; null while the request is pending (also while the request is
+  held in Intercept), or when it failed or the request was dropped. A response
+  held or dropped in Intercept is the server's response and stays available
+  here (F-INT-1).
   """
   response: HttpResponse
 }

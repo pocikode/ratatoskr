@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { pipe, subscribe } from 'wonka';
 import { createMockClient } from './exchange';
+import { MAX_EDIT_BYTES } from './intercept';
 
 type Client = ReturnType<typeof createMockClient>;
 
@@ -118,7 +119,44 @@ describe('intercept mock', () => {
     expect(again.error?.graphQLErrors[0]?.extensions.code).toBe('NOT_FOUND');
   });
 
-  it('rejects unparsable raw on forward and keeps the item', async () => {
+  it('REMOVED payloads show the item as it left the queue', async () => {
+    const c = client();
+    const [a, , resp] = await queue(c);
+    const out: {
+      id: string;
+      request: { isDropped: boolean; response: { code: number } | null };
+    }[] = [];
+    const { unsubscribe } = pipe(
+      c.subscription(
+        `subscription { interceptQueueChanged { item { id request { isDropped response { code } } } } }`,
+        {},
+      ),
+      subscribe((r) => out.push(r.data.interceptQueueChanged.item)),
+    );
+    await Promise.resolve();
+    await c
+      .mutation(`mutation ($id: ID!) { forwardInterceptItem(id: $id) }`, { id: a!.id })
+      .toPromise();
+    await c
+      .mutation(`mutation ($id: ID!) { dropInterceptItem(id: $id) }`, { id: resp!.id })
+      .toPromise();
+    await vi.waitFor(() => expect(out).toHaveLength(2));
+    unsubscribe();
+    expect(out[0]).toEqual({ id: a!.id, request: { isDropped: false, response: null } });
+    expect(out[1]!.request.isDropped).toBe(false);
+    expect(out[1]!.request.response).not.toBeNull();
+
+    const rec = async (id: string) =>
+      (
+        await c
+          .query(`query ($id: ID!) { request(id: $id) { isDropped response { code } } }`, { id })
+          .toPromise()
+      ).data.request;
+    expect((await rec(a!.request.id)).response).not.toBeNull();
+    expect((await rec(resp!.request.id)).isDropped).toBe(true);
+  });
+
+  it('rejects unparsable or oversized raw on forward and keeps the item', async () => {
     const c = client();
     const [a] = await queue(c);
     const fwd = (raw: string) =>
@@ -129,6 +167,10 @@ describe('intercept mock', () => {
         })
         .toPromise();
     expect((await fwd(btoa('garbage'))).error?.graphQLErrors[0]?.extensions.code).toBe('BAD_INPUT');
+    expect((await queue(c)).length).toBe(3);
+    const head = 'POST / HTTP/1.1\r\nHost: example.com\r\n\r\n';
+    const big = await fwd(btoa(head + 'a'.repeat(MAX_EDIT_BYTES - head.length + 1)));
+    expect(big.error?.graphQLErrors[0]?.extensions.code).toBe('BAD_INPUT');
     expect((await queue(c)).length).toBe(3);
     expect((await fwd(btoa('GET / HTTP/1.1\r\nHost: example.com\r\n\r\n'))).error).toBeUndefined();
     expect((await queue(c)).length).toBe(2);
@@ -265,6 +307,20 @@ describe('history mock edited pairs', () => {
     expect(await get30('24')).toEqual({ id: '24', editedFrom: null, editedBy: { id: '25' } });
     expect(await get30('25')).toEqual({ id: '25', editedFrom: { id: '24' }, editedBy: null });
     expect(await get('3')).toMatchObject({ editedFrom: null, editedBy: null });
+  });
+
+  it('only the edited half of a pair has source INTERCEPT', async () => {
+    const c = createMockClient({ count: 100, liveIntervalMs: 0 });
+    const q = `query ($id: ID!) { request(id: $id) { source editedFrom { id } } }`;
+    let pairs = 0;
+    for (let id = 1; id <= 100; id++) {
+      const r = (await c.query(q, { id: String(id) }).toPromise()).data.request;
+      if (r.source === 'INTERCEPT') {
+        expect(r.editedFrom, `row ${id}`).not.toBeNull();
+        pairs++;
+      }
+    }
+    expect(pairs).toBe(4);
   });
 
   it('pairs one exchange: request edited, response bytes unchanged', async () => {

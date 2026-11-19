@@ -110,8 +110,10 @@ type HTTPRequest struct {
 	// removed first and `offset`/`limit` apply to the decoded bytes (display only,
 	// F-HIST-2); undecodable bodies are returned as stored.
 	Body []byte `json:"body"`
-	// The response; null while waiting (also while held in Intercept), or when the
-	// request failed or was dropped.
+	// The response; null while the request is pending (also while the request is
+	// held in Intercept), or when it failed or the request was dropped. A response
+	// held or dropped in Intercept is the server's response and stays available
+	// here (F-INT-1).
 	Response *HTTPResponse `json:"response,omitempty"`
 }
 
@@ -171,7 +173,9 @@ type InterceptItem struct {
 	// (pending, no response yet), so it shows in HTTP History.
 	Request *HTTPRequest `json:"request"`
 	// The held message exactly as it would be sent now (after Match & Replace): the
-	// request for `REQUEST` items, the response for `RESPONSE` items.
+	// request for `REQUEST` items, the response for `RESPONSE` items. Up to the
+	// 64 MiB capture cap; only messages up to 16 MiB can be edited (see
+	// `forwardInterceptItem`).
 	Raw []byte `json:"raw"`
 	// When the item entered the queue.
 	HeldAt time.Time `json:"heldAt"`

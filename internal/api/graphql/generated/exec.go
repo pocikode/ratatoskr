@@ -1843,8 +1843,10 @@ type HttpRequest implements Node {
   """
   body(offset: Int64! = 0, limit: Int! = 1048576, decode: Boolean! = false): Bytes!
   """
-  The response; null while waiting (also while held in Intercept), or when the
-  request failed or was dropped.
+  The response; null while the request is pending (also while the request is
+  held in Intercept), or when it failed or the request was dropped. A response
+  held or dropped in Intercept is the server's response and stays available
+  here (F-INT-1).
   """
   response: HttpResponse
 }
@@ -2119,7 +2121,9 @@ type InterceptItem implements Node {
   request: HttpRequest!
   """
   The held message exactly as it would be sent now (after Match & Replace): the
-  request for ` + "`" + `REQUEST` + "`" + ` items, the response for ` + "`" + `RESPONSE` + "`" + ` items.
+  request for ` + "`" + `REQUEST` + "`" + ` items, the response for ` + "`" + `RESPONSE` + "`" + ` items. Up to the
+  64 MiB capture cap; only messages up to 16 MiB can be edited (see
+  ` + "`" + `forwardInterceptItem` + "`" + `).
   """
   raw: Bytes!
   "When the item entered the queue."
@@ -2169,7 +2173,10 @@ extend type Mutation {
   (` + "`" + `REMOVED` + "`" + `).
 
   ` + "`" + `raw` + "`" + `, when given, replaces the held message and must parse as an HTTP/1.x
-  request (or response for ` + "`" + `RESPONSE` + "`" + ` items). An edited exchange is stored as
+  request (or response for ` + "`" + `RESPONSE` + "`" + ` items) and be at most 16 MiB (16777216
+  bytes) once decoded, so its base64 form fits the 32 MiB API request cap. A
+  held message over 16 MiB can only be forwarded unchanged (` + "`" + `raw` + "`" + ` omitted) or
+  dropped. An edited exchange is stored as
   an edited record linked to the original (F-HIST-4). With
   ` + "`" + `updateContentLength` + "`" + `, ` + "`" + `Content-Length` + "`" + ` is set to the body size when the
   message has no ` + "`" + `Transfer-Encoding` + "`" + ` and has a body or a ` + "`" + `Content-Length` + "`" + `
@@ -2179,7 +2186,9 @@ extend type Mutation {
 
   Errors:
   - ` + "`" + `NOT_FOUND` + "`" + `: unknown ID or item already released.
-  - ` + "`" + `BAD_INPUT` + "`" + `: ` + "`" + `raw` + "`" + ` does not parse; the message quotes the parse error.
+  - ` + "`" + `BAD_INPUT` + "`" + `: ` + "`" + `raw` + "`" + ` does not parse (the message quotes the parse error) or
+    is over 16 MiB. A request body over the API cap gets HTTP 413 before this
+    mutation runs.
   """
   forwardInterceptItem(id: ID!, raw: Bytes, updateContentLength: Boolean! = true): ID!
   """

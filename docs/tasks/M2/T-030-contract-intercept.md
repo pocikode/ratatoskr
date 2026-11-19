@@ -3,7 +3,7 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: []
 owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
@@ -18,6 +18,9 @@ paths:
   - web/src/lib/api/mocks/**
   - gqlgen.yml
   - docs/tasks/M2/T-030-contract-intercept.md
+  - docs/01-feature-spec.md          # lead escalation, review round 3 (edit size)
+  - docs/tasks/M2/T-031-intercept-service.md
+  - docs/tasks/M2/T-032-intercept-page.md
 spec:
   - docs/01-feature-spec.md#F-INT-1 (incl. "Contract (lead, 2026-11-19, M2)")
   - docs/01-feature-spec.md#F-HIST-4
@@ -112,6 +115,14 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
   - Not changed: the trailing whitespace in generated `schema.graphql` comes from the `schema-ast` printer indenting
     blank lines inside descriptions (main already has 3 such lines). Generated files are not edited by hand.
   - `make check` green (244 web tests).
+- Round 4 (lead escalation of round 3, three-round limit):
+  - Edit size decision (F-INT-1 contract bullet added): replacement `raw` ≤ 16 MiB decoded, else `BAD_INPUT`; its base64
+    fits the 32 MiB API cap. Held messages over 16 MiB are forward-unchanged or drop only, UI read-only. Documented on
+    `InterceptItem.raw` and `forwardInterceptItem`; T-031 and T-032 got matching acceptance criteria; mock enforces it.
+  - `HttpRequest.response` docs: null for a pending/held, failed or dropped request; a held or dropped response stays.
+  - Mock queue events carry a copy of the item and request, so a `REMOVED` payload shows the item as it left.
+  - `INTERCEPT` removed from random fixture sources; only the edited half of a pair has it. Tests: payload snapshot,
+    source invariant over 100 rows (4 pairs), oversized raw. The payload and invariant tests fail without their fix.
 - Follow-ups (proposed tasks): none. T-031 replaces `stubs_intercept.go`; T-100 replaces `stubs_history_edited.go`.
 
 ## Review (reviewer)
@@ -156,21 +167,21 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
 
 ### Round 3 (`9c15b12`)
 
-- [ ] [major] internal/api/graphql/schema/intercept.graphqls:138 — A held message with a 25 MiB body can be read in
+- [x] [major] internal/api/graphql/schema/intercept.graphqls:138 — A held message with a 25 MiB body can be read in
   the editor, but sending the replacement takes 34,952,536 base64 bytes for the body alone. The 32 MiB GraphQL POST
   cap returns HTTP 413 before the resolver runs. → Define the supported edit size and oversized-edit behavior in
   the contract, or provide a bounded way to submit replacements for the full range of held messages. Align T-031
   and T-032 with that decision.
-- [ ] [major] internal/api/graphql/schema/history.graphqls:156 — The response field promises null when an exchange
+- [x] [major] internal/api/graphql/schema/history.graphqls:156 — The response field promises null when an exchange
   is held or dropped, while the same type and the Intercept contract retain the upstream response when that response
   is held or dropped. → Describe null for a pending, failed, or dropped request and state that a held or dropped
   response remains available.
-- [ ] [major] web/src/lib/api/mocks/intercept.ts:146 — The removal event queues a reference to the live history
+- [x] [major] web/src/lib/api/mocks/intercept.ts:146 — The removal event queues a reference to the live history
   object. Forwarding the first seeded request makes its `REMOVED` payload show response code 500, although the
   request had no response when it left the queue. Dropping similarly changes the event's `isDropped` flag after
   enqueue. → Snapshot the item and request when publishing queue events, and test those fields on the emitted
   payload separately from the completed history row.
-- [ ] [minor] web/src/lib/api/mocks/history.ts:15 — Ordinary generated rows can still have source `INTERCEPT`
+- [x] [minor] web/src/lib/api/mocks/history.ts:15 — Ordinary generated rows can still have source `INTERCEPT`
   without an original row. With 30 seeded rows, IDs 3, 8, 18 and 27 all return `editedFrom: null`. → Assign
   `INTERCEPT` when building the edited half of a pair and assert the invariant across a set of seeded rows.
 - Verification covered the single-user local proxy and its development mock. `make check` passed with 244 web

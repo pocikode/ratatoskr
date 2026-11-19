@@ -59,6 +59,9 @@ const fail = (code: string, message: string, span?: { start: number; end: number
 
 const FULL = { offset: 0, limit: 4194304, decode: false };
 
+/** Largest replacement `raw` forwardInterceptItem accepts (F-INT-1). */
+export const MAX_EDIT_BYTES = 16 * 1024 * 1024;
+
 /** Whole message as base64: head and body are both base64 of latin1-safe bytes. */
 const rawOf = (m: MockRequest | MockResponse) => btoa(atob(m.head) + atob(m.body(FULL)));
 
@@ -71,6 +74,7 @@ function checkRaw(kind: Kind, raw: string): void {
   } catch {
     throw fail('BAD_INPUT', 'raw is not valid base64');
   }
+  if (text.length > MAX_EDIT_BYTES) throw fail('BAD_INPUT', 'raw is larger than 16 MiB');
   const line =
     kind === 'REQUEST' ? /^[A-Za-z]+ \S+ HTTP\/1\.[01]\r\n/ : /^HTTP\/1\.[01] \d{3}[ \r]/;
   if (!line.test(text)) throw fail('BAD_INPUT', `malformed ${kind.toLowerCase()} line`);
@@ -109,6 +113,9 @@ export function createInterceptMock(
   const pending = new Map<string, MockResponse | null>();
   const listeners = new Set<(e: Record<string, unknown>) => void>();
   const emit = (e: Record<string, unknown>) => listeners.forEach((l) => l(e));
+  // Events resolve after later mutations (forward, drop), so they carry a copy of the item as it was.
+  const queueEvent = (kind: 'ADDED' | 'REMOVED', item: MockInterceptItem) =>
+    emit({ interceptQueueChanged: { kind, item: { ...item, request: { ...item.request } } } });
   let nextItem = 1;
 
   // Turns a record into a held one: a held request has no response yet, a held response has one.
@@ -135,7 +142,7 @@ export function createInterceptMock(
       heldAt: new Date().toISOString(),
     };
     queue.push(item);
-    emit({ interceptQueueChanged: { kind: 'ADDED', item } });
+    queueEvent('ADDED', item);
     return item;
   };
 
@@ -143,7 +150,7 @@ export function createInterceptMock(
     const k = queue.findIndex((i) => i.id === String(id));
     if (k < 0) throw fail('NOT_FOUND', `intercept item ${String(id)} not found`);
     const [item] = queue.splice(k, 1);
-    emit({ interceptQueueChanged: { kind: 'REMOVED', item } });
+    queueEvent('REMOVED', item!);
     return item!;
   };
 
