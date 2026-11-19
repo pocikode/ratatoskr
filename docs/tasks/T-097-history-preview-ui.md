@@ -3,7 +3,7 @@ id: T-097
 title: History response Preview tab + "Open in browser" (follow-up of T-017, unblocks T-021)
 milestone: M1
 role: frontend
-status: in_review
+status: done
 depends_on: [T-017]
 owner: Codex
 branch: task/T-097-history-preview-ui
