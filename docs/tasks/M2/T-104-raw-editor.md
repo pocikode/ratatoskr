@@ -3,7 +3,7 @@ id: T-104
 title: RawEditor - byte-preserving editable HTTP editor with {{var}} highlighting
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: []
 owner: "claude-sonnet-5.5"
 branch: task/T-104-raw-editor
@@ -69,15 +69,14 @@ changes bytes the user did not edit.
 - Verification: `make check` passed Go lint, race tests, and frontend static checks after retrying with cache access. Vitest failed with the editor geometry error above and `Error: Test timed out in 5000ms.` in `SitemapPage.test.ts:33` and `sitemap.svelte.test.ts:132`. The targeted rerun passed all 17 assertions and reproduced the editor geometry error.
 - Browser E2E and 5 MB interaction timings were outside the checks run for this review.
 
-### Re-review of the working tree
+### Re-review of `78e42bb`
 
-- Reviewed `2a79b47` against `main` with the uncommitted editor changes in place. The reviewed blobs for `RawEditor.svelte`, `RawEditor.test.ts`, and `http.ts` were `c96b717`, `b391674`, and `1814c22`, respectively. Assumed one operator editing messages up to 5 MB.
+- Reviewed the current branch against `main`, including the follow-up that landed during review. Assumed one operator editing messages up to 5 MB.
 - Verdict: changes_requested
 - The follow-up fixes blocked undo after loading different bytes and cleared the jsdom geometry error. The mixed-ending component test passed. Chromium confirmed that both LF and CRLF blank lines end header highlighting.
 - [ ] [major] web/src/lib/editor/RawEditor.svelte:78 — Chromium's End key lands between CR and LF. From the first line of `a\r\nb`, End then Delete emits `a\rb`, and End then typing `x` emits `a\rx\nb`. Keep the cursor out of the middle of CRLF, make deletion consume it as one boundary, and test editing from the visual end of the line.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:148 — A byte-identical replacement keeps the previous message's undo stack. In Chromium, editing `a` to `ax`, loading a different message with bytes `ax`, then undoing emits `a` for the newly selected message. Tie the editor's lifetime or history reset to message identity and test both same-byte selection changes and ordinary parent echoes.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:119 — CodeMirror's default Mod+Enter binding inserts a blank line and consumes the app's Send and Forward shortcut. Chromium on macOS emitted changed bytes and the window received a prevented event, which `ShortcutManager` ignores. Filter the Mod+Enter binding out of the editor keymap.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:86 — Prettier rejects the new dispatch statement, so `make check` stops before its web test step. Format the file and rerun `make check`.
-- [ ] [minor] web/src/lib/editor/http.ts:49 — The LF separator fix works in Chromium but has no regression test. Add a parameterized syntax test proving that a body line containing a colon gets no header highlight with either LF or CRLF, using RawEditor's explicit LF separator in both cases.
-- Verification: Go lint and race tests passed. Svelte reported zero errors and warnings, and ESLint passed. `make check` stopped at `[warn] src/lib/editor/RawEditor.svelte` and `[warn] Code style issues found in the above file. Run Prettier with --write to fix.` All 16 editor tests passed. The separate `make web-test` run passed 246 of 247 tests and reported `Error: Test timed out in 5000ms.` at `src/pages/sitemap/sitemap.svelte.test.ts:132`. A rerun with `bun run test --maxWorkers=2` passed all 247 tests.
+- [ ] [major] web/src/lib/editor/RawEditor.svelte:152 — A byte-identical replacement keeps the previous message's undo stack. In Chromium, editing `a` to `ax`, loading a different message with bytes `ax`, then undoing emits `a` for the newly selected message. Tie the editor's lifetime or history reset to message identity and test both same-byte selection changes and ordinary parent echoes.
+- [ ] [major] web/src/lib/editor/RawEditor.svelte:123 — CodeMirror's default Mod+Enter binding inserts a blank line and consumes the app's Send and Forward shortcut. Chromium on macOS emitted changed bytes and the window received a prevented event, which `ShortcutManager` ignores. Filter the Mod+Enter binding out of the editor keymap.
+- [ ] [minor] web/src/lib/editor/http.test.ts:7 — The lexer test uses CodeMirror's default newline handling, so both cases reach the parser as LF. Set `EditorState.lineSeparator.of('\n')`, as RawEditor does, to exercise the CRLF path with its retained CR.
+- Verification: The final `make check` passed, including all 248 web tests. The earlier run stopped at Prettier's `[warn] src/lib/editor/RawEditor.svelte`, and a separate web test run reported `Error: Test timed out in 5000ms.` at `src/pages/sitemap/sitemap.svelte.test.ts:132`. The format fix and the final gate cleared both failures.
 - Browser checks mounted the component in Chromium. The app's Playwright suite and 5 MB interaction timing were outside this review.
