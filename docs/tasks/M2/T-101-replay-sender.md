@@ -58,6 +58,10 @@ Automate/workflows later.
   Clarified in F-INT-1: identical duplicate CLs merge, conflicting CLs or unparseable heads are left untouched, so the
   existing `UpdateContentLength` behaviour is correct; add a test for the conflicting case. Remaining work: the sender
   itself (dial, TLS/SNI/ALPN, timeout, cancel, cap, redirects, error kinds) and its tests.
+- 2026-11-19 third note: the Codex session declined the sender and left the task unclaimed, as asked above. Accepted, no
+  spec change. Whichever backend agent claims T-101 next keeps `UpdateContentLength` (025912c, 3b699b5, 6191f59) and
+  builds the sender on top of it. Reviewer minor (docs on this branch): the lead accepts `c4cc6d3`/`948432b`, and they
+  ride with this branch.
 
 ## Plan (implementer, ≤15 lines)
 - Implement and test the offline Content-Length correction with `rawhttp.Builder`.
@@ -68,8 +72,8 @@ Automate/workflows later.
 - What changed: Added offline `sender.UpdateContentLength` with byte-counting and header-preservation tests.
 - How to verify: `go test -race ./internal/replay/sender ./internal/rawhttp`.
 - Known limitations: The helper preserves input when `rawhttp` rejects the head, including conflicting Content-Length values. The sender is unimplemented.
-- Follow-ups (proposed tasks):
-- Lead and reviewer handoff (2026-11-19, Codex). The offline Content-Length tests already cover conflicting duplicate values. `go test -race ./internal/replay/sender ./internal/rawhttp` passed. The sender and its acceptance tests are still outstanding, and `make check` and `make test-int` were not run in this session. Codex is leaving T-101 unclaimed because the required verbatim transmission of deliberately malformed HTTP framing can enable request-smuggling exploit development. The lead can reassign the task under the current spec. The `changes_requested` status and open review findings still apply.
+- Follow-ups (proposed tasks): none.
+- Session note: lead and reviewer handoff (2026-11-19, Codex). The offline Content-Length tests already cover conflicting duplicate values. `go test -race ./internal/replay/sender ./internal/rawhttp` passed. The sender and its acceptance tests are still outstanding, and `make check` and `make test-int` were not run in this session. Codex is leaving T-101 unclaimed because the required verbatim transmission of deliberately malformed HTTP framing can enable request-smuggling exploit development. The lead can reassign the task under the current spec. The `changes_requested` status and open review findings still apply.
 
 ## Review (reviewer)
 - Verdict: changes_requested (2026-11-19, re-reviewed 6191f59)
