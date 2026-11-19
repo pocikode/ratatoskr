@@ -1,4 +1,4 @@
-// urql exchange that answers HTTP History, scope- and filter-preset operations from a fake backend, so the UI
+// urql exchange that answers HTTP History, Intercept, scope- and filter-preset operations from a fake backend, so the UI
 // works with no server (docs/07-agent-workflow.md: contract-first mocks). It validates
 // and runs the real schema with graphql-js, so selections, arguments and errors behave
 // as on the wire. Operations touching any other root field are forwarded unchanged.
@@ -15,10 +15,16 @@ import {
 import { filter, make, merge, mergeMap, pipe, share, takeUntil } from 'wonka';
 import sdl from '../generated/schema.graphql?raw';
 import { createHistoryMock, type MockHistoryOptions } from './history';
+import { createInterceptMock } from './intercept';
 import { createPresetsMock } from './presets';
 import { createSitemapMock } from './sitemap';
 
 const schema = buildSchema(sdl);
+
+export interface MockExchangeOptions extends MockHistoryOptions {
+  /** Interval in ms at which Intercept holds a new request while queuing; 0 (default) disables it. */
+  interceptLiveIntervalMs?: number;
+}
 
 function rootFields(doc: DocumentNode): string[] {
   return doc.definitions.flatMap((d) =>
@@ -35,15 +41,19 @@ function isIterator(v: unknown): v is AsyncGenerator<ExecutionResult> {
 }
 
 /**
- * Exchange serving the history, preset and sitemap contracts ({@link createHistoryMock},
- * {@link createPresetsMock}, {@link createSitemapMock}).
+ * Exchange serving the history, intercept, preset and sitemap contracts ({@link createHistoryMock},
+ * {@link createInterceptMock}, {@link createPresetsMock}, {@link createSitemapMock}).
  */
-export function mockHistoryExchange(opts: MockHistoryOptions = {}): Exchange {
+export function mockHistoryExchange(opts: MockExchangeOptions = {}): Exchange {
   const history = createHistoryMock(opts);
+  const presets = createPresetsMock().root;
   const root = {
     ...history.root,
-    ...createPresetsMock().root,
+    ...presets,
     ...createSitemapMock(history.rows, history.matcher).root,
+    ...createInterceptMock(history, (id) => presets.scopePreset({ id }), {
+      liveIntervalMs: opts.interceptLiveIntervalMs,
+    }).root,
   };
   const handles = (op: Operation) => {
     const fields = rootFields(op.query);
@@ -114,6 +124,6 @@ export function mockHistoryExchange(opts: MockHistoryOptions = {}): Exchange {
 }
 
 /** A client that serves only the mocked operations; for tests and stories. */
-export function createMockClient(opts: MockHistoryOptions = {}): Client {
+export function createMockClient(opts: MockExchangeOptions = {}): Client {
   return new Client({ url: '/mock', exchanges: [mockHistoryExchange(opts)] });
 }

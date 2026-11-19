@@ -32,6 +32,8 @@ type Deps struct {
 	Scopes ScopeService
 	// Filters serves the filter preset operations; nil reports NOT_IMPLEMENTED.
 	Filters FilterService
+	// Intercept serves the intercept operations; until T-031 every intercept field reports NOT_IMPLEMENTED.
+	Intercept InterceptService
 }
 
 // Resolver is the root resolver.

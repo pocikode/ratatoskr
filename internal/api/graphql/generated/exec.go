@@ -60,6 +60,7 @@ type ComplexityRoot struct {
 		BodyLength  func(childComplexity int) int
 		Color       func(childComplexity int) int
 		CreatedAt   func(childComplexity int) int
+		EditedBy    func(childComplexity int) int
 		EditedFrom  func(childComplexity int) int
 		Ext         func(childComplexity int) int
 		Head        func(childComplexity int) int
@@ -99,26 +100,53 @@ type ComplexityRoot struct {
 		RoundtripMs func(childComplexity int) int
 	}
 
+	InterceptItem struct {
+		HeldAt  func(childComplexity int) int
+		ID      func(childComplexity int) int
+		Kind    func(childComplexity int) int
+		Raw     func(childComplexity int) int
+		Request func(childComplexity int) int
+	}
+
+	InterceptQueueChange struct {
+		Item func(childComplexity int) int
+		Kind func(childComplexity int) int
+	}
+
+	InterceptSettings struct {
+		DropStatusCode func(childComplexity int) int
+		Query          func(childComplexity int) int
+		Queuing        func(childComplexity int) int
+		Requests       func(childComplexity int) int
+		Responses      func(childComplexity int) int
+		ScopeID        func(childComplexity int) int
+	}
+
 	Mutation struct {
-		CreateFilterPreset   func(childComplexity int, name string, alias *string, query string) int
-		CreateProject        func(childComplexity int, name string, selectArg bool) int
-		CreateScopePreset    func(childComplexity int, name string, allow []string, deny []string) int
-		DeleteFilterPreset   func(childComplexity int, id string) int
-		DeleteProject        func(childComplexity int, id string) int
-		DeleteRequests       func(childComplexity int, ids []string, query *string, scopeID *string) int
-		DeleteScopePreset    func(childComplexity int, id string) int
-		DuplicateProject     func(childComplexity int, id string, name *string) int
-		DuplicateScopePreset func(childComplexity int, id string) int
-		ImportFilterPresets  func(childComplexity int, json string) int
-		RenameProject        func(childComplexity int, id string, name string) int
-		ReorderFilterPresets func(childComplexity int, ids []string) int
-		ReorderScopePresets  func(childComplexity int, ids []string) int
-		SelectProject        func(childComplexity int, id string) int
-		SetDefaultProject    func(childComplexity int, id *string) int
-		SetRequestColor      func(childComplexity int, ids []string, color *RequestColor) int
-		SetRequestNote       func(childComplexity int, id string, note *string) int
-		UpdateFilterPreset   func(childComplexity int, id string, name string, alias *string, query string) int
-		UpdateScopePreset    func(childComplexity int, id string, name string, allow []string, deny []string) int
+		CreateFilterPreset       func(childComplexity int, name string, alias *string, query string) int
+		CreateProject            func(childComplexity int, name string, selectArg bool) int
+		CreateScopePreset        func(childComplexity int, name string, allow []string, deny []string) int
+		DeleteFilterPreset       func(childComplexity int, id string) int
+		DeleteProject            func(childComplexity int, id string) int
+		DeleteRequests           func(childComplexity int, ids []string, query *string, scopeID *string) int
+		DeleteScopePreset        func(childComplexity int, id string) int
+		DropAllInterceptItems    func(childComplexity int, kind *InterceptItemKind) int
+		DropInterceptItem        func(childComplexity int, id string) int
+		DuplicateProject         func(childComplexity int, id string, name *string) int
+		DuplicateScopePreset     func(childComplexity int, id string) int
+		ForwardAllInterceptItems func(childComplexity int, kind *InterceptItemKind) int
+		ForwardInterceptItem     func(childComplexity int, id string, raw []byte, updateContentLength bool) int
+		ImportFilterPresets      func(childComplexity int, json string) int
+		RenameProject            func(childComplexity int, id string, name string) int
+		ReorderFilterPresets     func(childComplexity int, ids []string) int
+		ReorderScopePresets      func(childComplexity int, ids []string) int
+		SelectProject            func(childComplexity int, id string) int
+		SetDefaultProject        func(childComplexity int, id *string) int
+		SetRequestColor          func(childComplexity int, ids []string, color *RequestColor) int
+		SetRequestNote           func(childComplexity int, id string, note *string) int
+		UpdateFilterPreset       func(childComplexity int, id string, name string, alias *string, query string) int
+		UpdateInterceptSettings  func(childComplexity int, input InterceptSettingsInput) int
+		UpdateScopePreset        func(childComplexity int, id string, name string, allow []string, deny []string) int
 	}
 
 	PageInfo struct {
@@ -155,6 +183,8 @@ type ComplexityRoot struct {
 		ExportFilterPresets func(childComplexity int) int
 		FilterPreset        func(childComplexity int, id string) int
 		FilterPresets       func(childComplexity int) int
+		InterceptQueue      func(childComplexity int, kind *InterceptItemKind) int
+		InterceptSettings   func(childComplexity int) int
 		Project             func(childComplexity int, id string) int
 		Projects            func(childComplexity int) int
 		QueryCompletions    func(childComplexity int, language QueryLanguage, text string, cursor int) int
@@ -211,11 +241,13 @@ type ComplexityRoot struct {
 	}
 
 	Subscription struct {
-		Ping            func(childComplexity int) int
-		ProjectChanged  func(childComplexity int) int
-		RequestAdded    func(childComplexity int, query *string, scopeID *string) int
-		RequestUpdated  func(childComplexity int, query *string, scopeID *string) int
-		RequestsDeleted func(childComplexity int) int
+		InterceptQueueChanged    func(childComplexity int) int
+		InterceptSettingsChanged func(childComplexity int) int
+		Ping                     func(childComplexity int) int
+		ProjectChanged           func(childComplexity int) int
+		RequestAdded             func(childComplexity int, query *string, scopeID *string) int
+		RequestUpdated           func(childComplexity int, query *string, scopeID *string) int
+		RequestsDeleted          func(childComplexity int) int
 	}
 }
 
@@ -225,6 +257,7 @@ type ComplexityRoot struct {
 
 type HttpRequestResolver interface {
 	EditedFrom(ctx context.Context, obj *HTTPRequest) (*HTTPRequest, error)
+	EditedBy(ctx context.Context, obj *HTTPRequest) (*HTTPRequest, error)
 
 	Head(ctx context.Context, obj *HTTPRequest) ([]byte, error)
 
@@ -250,6 +283,11 @@ type MutationResolver interface {
 	SetRequestColor(ctx context.Context, ids []string, color *RequestColor) ([]HTTPRequest, error)
 	SetRequestNote(ctx context.Context, id string, note *string) (*HTTPRequest, error)
 	DeleteRequests(ctx context.Context, ids []string, query *string, scopeID *string) (int64, error)
+	UpdateInterceptSettings(ctx context.Context, input InterceptSettingsInput) (*InterceptSettings, error)
+	ForwardInterceptItem(ctx context.Context, id string, raw []byte, updateContentLength bool) (string, error)
+	DropInterceptItem(ctx context.Context, id string) (string, error)
+	ForwardAllInterceptItems(ctx context.Context, kind *InterceptItemKind) (int, error)
+	DropAllInterceptItems(ctx context.Context, kind *InterceptItemKind) (int, error)
 	CreateScopePreset(ctx context.Context, name string, allow []string, deny []string) (*ScopePreset, error)
 	UpdateScopePreset(ctx context.Context, id string, name string, allow []string, deny []string) (*ScopePreset, error)
 	DuplicateScopePreset(ctx context.Context, id string) (*ScopePreset, error)
@@ -264,6 +302,8 @@ type QueryResolver interface {
 	Requests(ctx context.Context, first *int, after *string, last *int, before *string, query *string, scopeID *string, sort *RequestSort) (*HTTPRequestConnection, error)
 	Request(ctx context.Context, id string) (*HTTPRequest, error)
 	QueryCompletions(ctx context.Context, language QueryLanguage, text string, cursor int) (*QueryCompletions, error)
+	InterceptSettings(ctx context.Context) (*InterceptSettings, error)
+	InterceptQueue(ctx context.Context, kind *InterceptItemKind) ([]InterceptItem, error)
 	Projects(ctx context.Context) ([]Project, error)
 	Project(ctx context.Context, id string) (*Project, error)
 	CurrentProject(ctx context.Context) (*Project, error)
@@ -276,6 +316,8 @@ type SubscriptionResolver interface {
 	RequestAdded(ctx context.Context, query *string, scopeID *string) (<-chan *HTTPRequest, error)
 	RequestUpdated(ctx context.Context, query *string, scopeID *string) (<-chan *RequestUpdate, error)
 	RequestsDeleted(ctx context.Context) (<-chan *RequestsDeleted, error)
+	InterceptQueueChanged(ctx context.Context) (<-chan *InterceptQueueChange, error)
+	InterceptSettingsChanged(ctx context.Context) (<-chan *InterceptSettings, error)
 	ProjectChanged(ctx context.Context) (<-chan *ProjectChange, error)
 }
 
@@ -382,6 +424,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.HttpRequest.CreatedAt(childComplexity), true
+	case "HttpRequest.editedBy":
+		if e.ComplexityRoot.HttpRequest.EditedBy == nil {
+			break
+		}
+
+		return e.ComplexityRoot.HttpRequest.EditedBy(childComplexity), true
 	case "HttpRequest.editedFrom":
 		if e.ComplexityRoot.HttpRequest.EditedFrom == nil {
 			break
@@ -559,6 +607,87 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.HttpResponse.RoundtripMs(childComplexity), true
 
+	case "InterceptItem.heldAt":
+		if e.ComplexityRoot.InterceptItem.HeldAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptItem.HeldAt(childComplexity), true
+	case "InterceptItem.id":
+		if e.ComplexityRoot.InterceptItem.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptItem.ID(childComplexity), true
+	case "InterceptItem.kind":
+		if e.ComplexityRoot.InterceptItem.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptItem.Kind(childComplexity), true
+	case "InterceptItem.raw":
+		if e.ComplexityRoot.InterceptItem.Raw == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptItem.Raw(childComplexity), true
+	case "InterceptItem.request":
+		if e.ComplexityRoot.InterceptItem.Request == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptItem.Request(childComplexity), true
+
+	case "InterceptQueueChange.item":
+		if e.ComplexityRoot.InterceptQueueChange.Item == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptQueueChange.Item(childComplexity), true
+	case "InterceptQueueChange.kind":
+		if e.ComplexityRoot.InterceptQueueChange.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptQueueChange.Kind(childComplexity), true
+
+	case "InterceptSettings.dropStatusCode":
+		if e.ComplexityRoot.InterceptSettings.DropStatusCode == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptSettings.DropStatusCode(childComplexity), true
+	case "InterceptSettings.query":
+		if e.ComplexityRoot.InterceptSettings.Query == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptSettings.Query(childComplexity), true
+	case "InterceptSettings.queuing":
+		if e.ComplexityRoot.InterceptSettings.Queuing == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptSettings.Queuing(childComplexity), true
+	case "InterceptSettings.requests":
+		if e.ComplexityRoot.InterceptSettings.Requests == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptSettings.Requests(childComplexity), true
+	case "InterceptSettings.responses":
+		if e.ComplexityRoot.InterceptSettings.Responses == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptSettings.Responses(childComplexity), true
+	case "InterceptSettings.scopeId":
+		if e.ComplexityRoot.InterceptSettings.ScopeID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.InterceptSettings.ScopeID(childComplexity), true
+
 	case "Mutation.createFilterPreset":
 		if e.ComplexityRoot.Mutation.CreateFilterPreset == nil {
 			break
@@ -636,6 +765,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DeleteScopePreset(childComplexity, args["id"].(string)), true
+	case "Mutation.dropAllInterceptItems":
+		if e.ComplexityRoot.Mutation.DropAllInterceptItems == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_dropAllInterceptItems_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DropAllInterceptItems(childComplexity, args["kind"].(*InterceptItemKind)), true
+	case "Mutation.dropInterceptItem":
+		if e.ComplexityRoot.Mutation.DropInterceptItem == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_dropInterceptItem_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DropInterceptItem(childComplexity, args["id"].(string)), true
 	case "Mutation.duplicateProject":
 		if e.ComplexityRoot.Mutation.DuplicateProject == nil {
 			break
@@ -658,6 +809,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DuplicateScopePreset(childComplexity, args["id"].(string)), true
+	case "Mutation.forwardAllInterceptItems":
+		if e.ComplexityRoot.Mutation.ForwardAllInterceptItems == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_forwardAllInterceptItems_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ForwardAllInterceptItems(childComplexity, args["kind"].(*InterceptItemKind)), true
+	case "Mutation.forwardInterceptItem":
+		if e.ComplexityRoot.Mutation.ForwardInterceptItem == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_forwardInterceptItem_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ForwardInterceptItem(childComplexity, args["id"].(string), args["raw"].([]byte), args["updateContentLength"].(bool)), true
 	case "Mutation.importFilterPresets":
 		if e.ComplexityRoot.Mutation.ImportFilterPresets == nil {
 			break
@@ -757,6 +930,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.UpdateFilterPreset(childComplexity, args["id"].(string), args["name"].(string), args["alias"].(*string), args["query"].(string)), true
+	case "Mutation.updateInterceptSettings":
+		if e.ComplexityRoot.Mutation.UpdateInterceptSettings == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateInterceptSettings_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UpdateInterceptSettings(childComplexity, args["input"].(InterceptSettingsInput)), true
 	case "Mutation.updateScopePreset":
 		if e.ComplexityRoot.Mutation.UpdateScopePreset == nil {
 			break
@@ -904,6 +1088,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.FilterPresets(childComplexity), true
+	case "Query.interceptQueue":
+		if e.ComplexityRoot.Query.InterceptQueue == nil {
+			break
+		}
+
+		args, err := ec.field_Query_interceptQueue_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.InterceptQueue(childComplexity, args["kind"].(*InterceptItemKind)), true
+	case "Query.interceptSettings":
+		if e.ComplexityRoot.Query.InterceptSettings == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.InterceptSettings(childComplexity), true
 
 	case "Query.project":
 		if e.ComplexityRoot.Query.Project == nil {
@@ -1152,6 +1353,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SitemapNode.URL(childComplexity), true
 
+	case "Subscription.interceptQueueChanged":
+		if e.ComplexityRoot.Subscription.InterceptQueueChanged == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.InterceptQueueChanged(childComplexity), true
+	case "Subscription.interceptSettingsChanged":
+		if e.ComplexityRoot.Subscription.InterceptSettingsChanged == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.InterceptSettingsChanged(childComplexity), true
 	case "Subscription.ping":
 		if e.ComplexityRoot.Subscription.Ping == nil {
 			break
@@ -1202,6 +1415,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	ec := newExecutionContext(opCtx, e, make(chan graphql.DeferredResult))
 	inputUnmarshalers := func() *graphql.InputUnmarshalerIndex {
 		return graphql.NewInputUnmarshalerIndex(
+			graphql.NewInputUnmarshaler("InterceptSettingsInput", ec.unmarshalInputInterceptSettingsInput),
 			graphql.NewInputUnmarshaler("RequestSort", ec.unmarshalInputRequestSort),
 		)
 	}
@@ -1497,7 +1711,10 @@ enum RequestColor {
 enum RequestSource {
   "Captured by the proxy."
   PROXY
-  "Captured by the proxy and edited in Intercept before forwarding."
+  """
+  The edited record of a proxied exchange the user changed in Intercept
+  (F-HIST-4). The original record of the pair keeps ` + "`" + `PROXY` + "`" + `.
+  """
   INTERCEPT
   "Sent from a Replay session."
   REPLAY
@@ -1551,10 +1768,15 @@ input RequestSort {
 }
 
 """
-A captured or sent HTTP request with its response, if any. Edited records
-(F-HIST-4): when Intercept or Match & Replace changes a request or its response,
-the changed exchange is stored as a new record whose ` + "`" + `editedFrom` + "`" + ` is the
-original record; both appear in history.
+A captured or sent HTTP request with its response, if any.
+
+Edited pairs (F-HIST-4): an exchange changed by Match & Replace or Intercept is
+stored as two records, both listed in history. The original holds the request
+as the client sent it and the response as the server sent it. The edited record
+(` + "`" + `editedFrom` + "`" + ` = original, ` + "`" + `original.editedBy` + "`" + ` = edited) holds the request as the
+server received it and the response as the client received it; when only the
+response changed, both carry the same request bytes. Replay and Automate store
+only what they sent and never create a pair.
 """
 type HttpRequest implements Node {
   "Row ID; also the HTTPQL ` + "`" + `row.id` + "`" + `. Numeric, increasing in capture order."
@@ -1584,11 +1806,20 @@ type HttpRequest implements Node {
   "Free-text note; null when there is none."
   note: String
   """
-  The original record this one was edited from; null for unedited records.
-  Lets the viewer toggle Original / Modified.
+  On an edited record, the original it was edited from; null otherwise or when
+  the original was deleted. With ` + "`" + `editedBy` + "`" + `, lets the viewer toggle Original /
+  Modified.
   """
   editedFrom: HttpRequest
-  "Whether Intercept dropped the request; such a record has no response."
+  """
+  On an original record, its edited record (at most one); null otherwise or
+  when the edited record was deleted.
+  """
+  editedBy: HttpRequest
+  """
+  Whether Intercept dropped the request or its response. A dropped request has
+  no response; a dropped response keeps the server's response.
+  """
   isDropped: Boolean!
   """
   Whether the stored bytes were cut at the capture size limit. ` + "`" + `length` + "`" + ` is the
@@ -1611,7 +1842,12 @@ type HttpRequest implements Node {
   F-HIST-2); undecodable bodies are returned as stored.
   """
   body(offset: Int64! = 0, limit: Int! = 1048576, decode: Boolean! = false): Bytes!
-  "The response; null while waiting, or when the request failed or was dropped."
+  """
+  The response; null while the request is pending (also while the request is
+  held in Intercept), or when it failed or the request was dropped. A response
+  held or dropped in Intercept is the server's response and stays available
+  here (F-INT-1).
+  """
   response: HttpResponse
 }
 
@@ -1795,6 +2031,198 @@ extend type Subscription {
   requestUpdated(query: String, scopeId: ID): RequestUpdate!
   "Requests deleted by any client. Same lag rule as ` + "`" + `requestAdded` + "`" + `."
   requestsDeleted: RequestsDeleted!
+}
+`, BuiltIn: false},
+	{Name: "../schema/intercept.graphqls", Input: `# Intercept (docs/01-feature-spec.md F-INT-1, "Contract (lead, 2026-11-19, M2)").
+# Owned by the lead; contract task T-030, resolvers: T-031, proxy hooks: T-100.
+# Settings live in the selected project's database, except ` + "`" + `queuing` + "`" + `. The queue
+# is in memory, FIFO and not persisted. WebSocket messages arrive in M4 (T-053).
+
+"Which side of an exchange a held item is."
+enum InterceptItemKind {
+  "A request held before it is sent upstream."
+  REQUEST
+  "A response held before it is sent to the client."
+  RESPONSE
+}
+
+"""
+Intercept settings of the selected project. A request is held iff ` + "`" + `queuing` + "`" + ` and
+` + "`" + `requests` + "`" + ` are on and it matches ` + "`" + `query` + "`" + ` and the ` + "`" + `scopeId` + "`" + ` preset; a response
+iff ` + "`" + `queuing` + "`" + ` and ` + "`" + `responses` + "`" + ` are on and the exchange matches. ` + "`" + `query` + "`" + ` is
+evaluated on the message after Match & Replace; ` + "`" + `resp.*` + "`" + ` clauses are false for
+a request. Changing the condition does not release items already held. Only
+messages whose body fits the capture cap (64 MiB) are held; larger ones pass
+through.
+"""
+type InterceptSettings {
+  """
+  Queuing (true) or Forwarding (false). Not persisted: every start and every
+  project switch begins in Forwarding.
+  """
+  queuing: Boolean!
+  "Whether requests are held while queuing. Default true."
+  requests: Boolean!
+  "Whether responses are held while queuing. Default false."
+  responses: Boolean!
+  "HTTPQL condition deciding which traffic is held; empty (the default) holds everything."
+  query: String!
+  "Scope preset deciding which traffic is held; null (the default) holds everything."
+  scopeId: ID
+  "Status code the client gets for a dropped item, 100-599. Default 502."
+  dropStatusCode: Int!
+}
+
+"""
+Changes to ` + "`" + `InterceptSettings` + "`" + `. Omitted fields keep their value; ` + "`" + `scopeId:
+null` + "`" + ` clears the scope. Nothing changes when any field is invalid.
+"""
+input InterceptSettingsInput {
+  """
+  Turning queuing off forwards every held item unchanged, in FIFO order.
+  ` + "`" + `null` + "`" + ` is the same as omitting the field.
+  """
+  queuing: Boolean
+  """
+  Turning it off forwards the held requests unchanged, in FIFO order. ` + "`" + `null` + "`" + ` is
+  the same as omitting the field.
+  """
+  requests: Boolean
+  """
+  Turning it off forwards the held responses unchanged, in FIFO order. ` + "`" + `null` + "`" + `
+  is the same as omitting the field.
+  """
+  responses: Boolean
+  "HTTPQL condition; ` + "`" + `\"\"` + "`" + ` holds everything. ` + "`" + `null` + "`" + ` is the same as omitting the field."
+  query: String
+  "Scope preset ID; ` + "`" + `null` + "`" + ` clears it (everything is in scope)."
+  scopeId: ID
+  "Status code for dropped items, 100-599. ` + "`" + `null` + "`" + ` is the same as omitting the field."
+  dropStatusCode: Int
+}
+
+"""
+A request or response held in the intercept queue. It stays until it is
+forwarded or dropped, queuing or its side is turned off, the project is
+switched, or the client disconnects (a held request then leaves the queue and
+its record stays without a response). Turning queuing or a side off, and a
+project switch, forward the affected items unchanged in arrival (FIFO) order;
+on a project switch this happens before the new project's settings load.
+"""
+type InterceptItem implements Node {
+  "Opaque ID, valid while the item is held."
+  id: ID!
+  "Whether a request or a response is held."
+  kind: InterceptItemKind!
+  """
+  The history record of the exchange. A held request already has its record
+  (pending, no response yet), so it shows in HTTP History.
+  """
+  request: HttpRequest!
+  """
+  The held message exactly as it would be sent now (after Match & Replace): the
+  request for ` + "`" + `REQUEST` + "`" + ` items, the response for ` + "`" + `RESPONSE` + "`" + ` items: start line,
+  headers and the body, whose size is bounded by the 64 MiB capture cap. Only
+  messages up to 16 MiB in total can be edited (see ` + "`" + `forwardInterceptItem` + "`" + `).
+  """
+  raw: Bytes!
+  "When the item entered the queue."
+  heldAt: Time!
+}
+
+"How the intercept queue changed."
+enum InterceptQueueChangeKind {
+  "An item entered the queue."
+  ADDED
+  "An item left the queue (forwarded, dropped, released or client gone)."
+  REMOVED
+}
+
+"One change to the intercept queue, from ` + "`" + `interceptQueueChanged` + "`" + `."
+type InterceptQueueChange {
+  "Whether the item entered or left the queue."
+  kind: InterceptQueueChangeKind!
+  "The item; for ` + "`" + `REMOVED` + "`" + `, as it was when it left."
+  item: InterceptItem!
+}
+
+extend type Query {
+  "Intercept settings of the selected project."
+  interceptSettings: InterceptSettings!
+  """
+  Held items in FIFO order (oldest first), of one ` + "`" + `kind` + "`" + ` or, with ` + "`" + `kind: null` + "`" + `,
+  both. The sidebar badge is the number of held items.
+  """
+  interceptQueue(kind: InterceptItemKind): [InterceptItem!]!
+}
+
+extend type Mutation {
+  """
+  Updates the settings and returns them; emits ` + "`" + `interceptSettingsChanged` + "`" + `.
+  Turning ` + "`" + `queuing` + "`" + `, ` + "`" + `requests` + "`" + ` or ` + "`" + `responses` + "`" + ` off forwards the affected held
+  items unchanged in FIFO order.
+
+  Errors:
+  - ` + "`" + `BAD_QUERY` + "`" + ` (with span): ` + "`" + `query` + "`" + ` does not parse or type-check.
+  - ` + "`" + `NOT_FOUND` + "`" + `: unknown ` + "`" + `scopeId` + "`" + `.
+  - ` + "`" + `BAD_INPUT` + "`" + `: ` + "`" + `dropStatusCode` + "`" + ` outside 100-599.
+  """
+  updateInterceptSettings(input: InterceptSettingsInput!): InterceptSettings!
+  """
+  Releases a held item and returns its ID; emits ` + "`" + `interceptQueueChanged` + "`" + `
+  (` + "`" + `REMOVED` + "`" + `).
+
+  ` + "`" + `raw` + "`" + `, when given, replaces the held message and must parse as an HTTP/1.x
+  request (or response for ` + "`" + `RESPONSE` + "`" + ` items) and be at most 16 MiB (16777216
+  bytes) once decoded, so its base64 form fits the 32 MiB API request cap. A
+  held message over 16 MiB can only be forwarded unchanged (` + "`" + `raw` + "`" + ` omitted) or
+  dropped. An edited exchange is stored as
+  an edited record linked to the original (F-HIST-4). With
+  ` + "`" + `updateContentLength` + "`" + `, ` + "`" + `Content-Length` + "`" + ` is set to the body size when the
+  message has no ` + "`" + `Transfer-Encoding` + "`" + ` and has a body or a ` + "`" + `Content-Length` + "`" + `
+  header; otherwise the bytes go out exactly as given. Editing ` + "`" + `Host` + "`" + ` or the
+  request target never changes the destination: the request goes to the
+  original connection's host, port and TLS.
+
+  Errors:
+  - ` + "`" + `NOT_FOUND` + "`" + `: unknown ID or item already released.
+  - ` + "`" + `BAD_INPUT` + "`" + `: ` + "`" + `raw` + "`" + ` does not parse (the message quotes the parse error), is
+    over 16 MiB, or is given for a held message over 16 MiB; the item stays
+    held. An API request whose declared ` + "`" + `Content-Length` + "`" + ` exceeds the cap gets
+    HTTP 413 before this mutation runs; a longer body without one (chunked)
+    fails as a GraphQL error.
+  """
+  forwardInterceptItem(id: ID!, raw: Bytes, updateContentLength: Boolean! = true): ID!
+  """
+  Drops a held item and returns its ID; emits ` + "`" + `interceptQueueChanged` + "`" + `
+  (` + "`" + `REMOVED` + "`" + `). The client gets ` + "`" + `dropStatusCode` + "`" + ` with a short HTML body and the
+  record gets ` + "`" + `isDropped` + "`" + `. A dropped request is never sent upstream and the
+  record has no response; a dropped response keeps the server's response on
+  the record. No edited record is stored. ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID or an
+  item already released.
+  """
+  dropInterceptItem(id: ID!): ID!
+  """
+  Forwards every held item of ` + "`" + `kind` + "`" + ` (both kinds when null) unchanged, in FIFO
+  order. Returns how many were forwarded; emits one ` + "`" + `REMOVED` + "`" + ` per item.
+  """
+  forwardAllInterceptItems(kind: InterceptItemKind): Int!
+  """
+  Drops every held item of ` + "`" + `kind` + "`" + ` (both kinds when null), as
+  ` + "`" + `dropInterceptItem` + "`" + `. Returns how many were dropped; emits one ` + "`" + `REMOVED` + "`" + ` per
+  item.
+  """
+  dropAllInterceptItems(kind: InterceptItemKind): Int!
+}
+
+extend type Subscription {
+  "Each item entering or leaving the intercept queue of the selected project."
+  interceptQueueChanged: InterceptQueueChange!
+  """
+  The settings after every change, by any client, including the reset to
+  Forwarding on a project switch.
+  """
+  interceptSettingsChanged: InterceptSettings!
 }
 `, BuiltIn: false},
 	{Name: "../schema/project.graphqls", Input: `# Projects (docs/01-feature-spec.md F-WSP-1). Owned by the lead; resolvers: T-006.
@@ -2137,6 +2565,8 @@ func (ec *executionContext) childFields_HttpRequest(ctx context.Context, field g
 		return ec.fieldContext_HttpRequest_note(ctx, field)
 	case "editedFrom":
 		return ec.fieldContext_HttpRequest_editedFrom(ctx, field)
+	case "editedBy":
+		return ec.fieldContext_HttpRequest_editedBy(ctx, field)
 	case "isDropped":
 		return ec.fieldContext_HttpRequest_isDropped(ctx, field)
 	case "isTruncated":
@@ -2193,6 +2623,50 @@ func (ec *executionContext) childFields_HttpResponse(ctx context.Context, field 
 		return ec.fieldContext_HttpResponse_body(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type HttpResponse", field.Name)
+}
+
+func (ec *executionContext) childFields_InterceptItem(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_InterceptItem_id(ctx, field)
+	case "kind":
+		return ec.fieldContext_InterceptItem_kind(ctx, field)
+	case "request":
+		return ec.fieldContext_InterceptItem_request(ctx, field)
+	case "raw":
+		return ec.fieldContext_InterceptItem_raw(ctx, field)
+	case "heldAt":
+		return ec.fieldContext_InterceptItem_heldAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type InterceptItem", field.Name)
+}
+
+func (ec *executionContext) childFields_InterceptQueueChange(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "kind":
+		return ec.fieldContext_InterceptQueueChange_kind(ctx, field)
+	case "item":
+		return ec.fieldContext_InterceptQueueChange_item(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type InterceptQueueChange", field.Name)
+}
+
+func (ec *executionContext) childFields_InterceptSettings(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "queuing":
+		return ec.fieldContext_InterceptSettings_queuing(ctx, field)
+	case "requests":
+		return ec.fieldContext_InterceptSettings_requests(ctx, field)
+	case "responses":
+		return ec.fieldContext_InterceptSettings_responses(ctx, field)
+	case "query":
+		return ec.fieldContext_InterceptSettings_query(ctx, field)
+	case "scopeId":
+		return ec.fieldContext_InterceptSettings_scopeId(ctx, field)
+	case "dropStatusCode":
+		return ec.fieldContext_InterceptSettings_dropStatusCode(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type InterceptSettings", field.Name)
 }
 
 func (ec *executionContext) childFields_PageInfo(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -2671,6 +3145,34 @@ func (ec *executionContext) field_Mutation_deleteScopePreset_args(ctx context.Co
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_dropAllInterceptItems_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "kind",
+		func(ctx context.Context, v any) (*InterceptItemKind, error) {
+			return ec.unmarshalOInterceptItemKind2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemKind(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["kind"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_dropInterceptItem_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_duplicateProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -2704,6 +3206,50 @@ func (ec *executionContext) field_Mutation_duplicateScopePreset_args(ctx context
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_forwardAllInterceptItems_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "kind",
+		func(ctx context.Context, v any) (*InterceptItemKind, error) {
+			return ec.unmarshalOInterceptItemKind2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemKind(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["kind"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_forwardInterceptItem_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "raw",
+		func(ctx context.Context, v any) ([]byte, error) {
+			return ec.unmarshalOBytes2ᚕbyte(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["raw"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "updateContentLength",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["updateContentLength"] = arg2
 	return args, nil
 }
 
@@ -2881,6 +3427,20 @@ func (ec *executionContext) field_Mutation_updateFilterPreset_args(ctx context.C
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_updateInterceptSettings_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (InterceptSettingsInput, error) {
+			return ec.unmarshalNInterceptSettingsInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptSettingsInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_updateScopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -2944,6 +3504,20 @@ func (ec *executionContext) field_Query_filterPreset_args(ctx context.Context, r
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_interceptQueue_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "kind",
+		func(ctx context.Context, v any) (*InterceptItemKind, error) {
+			return ec.unmarshalOInterceptItemKind2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemKind(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["kind"] = arg0
 	return args, nil
 }
 
@@ -3775,6 +4349,38 @@ func (ec *executionContext) fieldContext_HttpRequest_editedFrom(_ context.Contex
 	return fc, nil
 }
 
+func (ec *executionContext) _HttpRequest_editedBy(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_HttpRequest_editedBy(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.HttpRequest().EditedBy(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalOHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_HttpRequest_editedBy(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "HttpRequest",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _HttpRequest_isDropped(ctx context.Context, field graphql.CollectedField, obj *HTTPRequest) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -4265,6 +4871,323 @@ func (ec *executionContext) fieldContext_HttpResponse_body(ctx context.Context, 
 		return fc, err
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _InterceptItem_id(ctx context.Context, field graphql.CollectedField, obj *InterceptItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptItem_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptItem_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptItem", field, false, false, "ID")
+}
+
+func (ec *executionContext) _InterceptItem_kind(ctx context.Context, field graphql.CollectedField, obj *InterceptItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptItem_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v InterceptItemKind) graphql.Marshaler {
+			return ec.marshalNInterceptItemKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptItem_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptItem", field, false, false, "InterceptItemKind")
+}
+
+func (ec *executionContext) _InterceptItem_request(ctx context.Context, field graphql.CollectedField, obj *InterceptItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptItem_request(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Request, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalNHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptItem_request(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "InterceptItem",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _InterceptItem_raw(ctx context.Context, field graphql.CollectedField, obj *InterceptItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptItem_raw(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Raw, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []byte) graphql.Marshaler {
+			return ec.marshalNBytes2ᚕbyte(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptItem_raw(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptItem", field, false, false, "Bytes")
+}
+
+func (ec *executionContext) _InterceptItem_heldAt(ctx context.Context, field graphql.CollectedField, obj *InterceptItem) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptItem_heldAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.HeldAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptItem_heldAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptItem", field, false, false, "Time")
+}
+
+func (ec *executionContext) _InterceptQueueChange_kind(ctx context.Context, field graphql.CollectedField, obj *InterceptQueueChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptQueueChange_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v InterceptQueueChangeKind) graphql.Marshaler {
+			return ec.marshalNInterceptQueueChangeKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptQueueChangeKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptQueueChange_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptQueueChange", field, false, false, "InterceptQueueChangeKind")
+}
+
+func (ec *executionContext) _InterceptQueueChange_item(ctx context.Context, field graphql.CollectedField, obj *InterceptQueueChange) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptQueueChange_item(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Item, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *InterceptItem) graphql.Marshaler {
+			return ec.marshalNInterceptItem2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItem(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptQueueChange_item(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "InterceptQueueChange",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InterceptItem(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _InterceptSettings_queuing(ctx context.Context, field graphql.CollectedField, obj *InterceptSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptSettings_queuing(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Queuing, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptSettings_queuing(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptSettings", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _InterceptSettings_requests(ctx context.Context, field graphql.CollectedField, obj *InterceptSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptSettings_requests(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Requests, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptSettings_requests(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptSettings", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _InterceptSettings_responses(ctx context.Context, field graphql.CollectedField, obj *InterceptSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptSettings_responses(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Responses, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptSettings_responses(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptSettings", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _InterceptSettings_query(ctx context.Context, field graphql.CollectedField, obj *InterceptSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptSettings_query(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Query, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptSettings_query(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptSettings", field, false, false, "String")
+}
+
+func (ec *executionContext) _InterceptSettings_scopeId(ctx context.Context, field graphql.CollectedField, obj *InterceptSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptSettings_scopeId(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ScopeID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOID2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptSettings_scopeId(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptSettings", field, false, false, "ID")
+}
+
+func (ec *executionContext) _InterceptSettings_dropStatusCode(ctx context.Context, field graphql.CollectedField, obj *InterceptSettings) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_InterceptSettings_dropStatusCode(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DropStatusCode, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_InterceptSettings_dropStatusCode(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("InterceptSettings", field, false, false, "Int")
 }
 
 func (ec *executionContext) _Mutation_createProject(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
@@ -4877,6 +5800,226 @@ func (ec *executionContext) fieldContext_Mutation_deleteRequests(ctx context.Con
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_deleteRequests_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateInterceptSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_updateInterceptSettings(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UpdateInterceptSettings(ctx, fc.Args["input"].(InterceptSettingsInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *InterceptSettings) graphql.Marshaler {
+			return ec.marshalNInterceptSettings2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptSettings(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_updateInterceptSettings(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InterceptSettings(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateInterceptSettings_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_forwardInterceptItem(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_forwardInterceptItem(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ForwardInterceptItem(ctx, fc.Args["id"].(string), fc.Args["raw"].([]byte), fc.Args["updateContentLength"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_forwardInterceptItem(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_forwardInterceptItem_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_dropInterceptItem(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_dropInterceptItem(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DropInterceptItem(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_dropInterceptItem(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_dropInterceptItem_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_forwardAllInterceptItems(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_forwardAllInterceptItems(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ForwardAllInterceptItems(ctx, fc.Args["kind"].(*InterceptItemKind))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_forwardAllInterceptItems(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_forwardAllInterceptItems_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_dropAllInterceptItems(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_dropAllInterceptItems(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DropAllInterceptItems(ctx, fc.Args["kind"].(*InterceptItemKind))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_dropAllInterceptItems(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Int does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_dropAllInterceptItems_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -5760,6 +6903,82 @@ func (ec *executionContext) fieldContext_Query_queryCompletions(ctx context.Cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Query_queryCompletions_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_interceptSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_interceptSettings(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().InterceptSettings(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *InterceptSettings) graphql.Marshaler {
+			return ec.marshalNInterceptSettings2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptSettings(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_interceptSettings(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InterceptSettings(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_interceptQueue(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_interceptQueue(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().InterceptQueue(ctx, fc.Args["kind"].(*InterceptItemKind))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []InterceptItem) graphql.Marshaler {
+			return ec.marshalNInterceptItem2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_interceptQueue(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InterceptItem(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_interceptQueue_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -6833,6 +8052,70 @@ func (ec *executionContext) fieldContext_Subscription_requestsDeleted(_ context.
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_RequestsDeleted(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_interceptQueueChanged(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_interceptQueueChanged(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().InterceptQueueChanged(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *InterceptQueueChange) graphql.Marshaler {
+			return ec.marshalNInterceptQueueChange2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptQueueChange(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_interceptQueueChanged(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InterceptQueueChange(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_interceptSettingsChanged(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_interceptSettingsChanged(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().InterceptSettingsChanged(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *InterceptSettings) graphql.Marshaler {
+			return ec.marshalNInterceptSettings2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptSettings(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_interceptSettingsChanged(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_InterceptSettings(ctx, field)
 		},
 	}
 	return fc, nil
@@ -7943,6 +9226,83 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputInterceptSettingsInput(ctx context.Context, obj any) (InterceptSettingsInput, error) {
+	var it InterceptSettingsInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"queuing", "requests", "responses", "query", "scopeId", "dropStatusCode"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "queuing":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("queuing"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Queuing = data
+		case "requests":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("requests"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Requests = data
+		case "responses":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("responses"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Responses = data
+		case "query":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("query"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Query = data
+		case "scopeId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("scopeId"))
+			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ScopeID = graphql.OmittableOf(data)
+		case "dropStatusCode":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("dropStatusCode"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.DropStatusCode = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalInterceptSettingsInput unmarshals raw into the InterceptSettingsInput input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalInterceptSettingsInput(ctx context.Context, raw any) (InterceptSettingsInput, error) {
+	var out InterceptSettingsInput
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "InterceptSettingsInput", raw, &out)
+	return out, err
+}
+
 func (ec *executionContext) unmarshalInputRequestSort(ctx context.Context, obj any) (RequestSort, error) {
 	var it RequestSort
 	if obj == nil {
@@ -8018,6 +9378,13 @@ func (ec *executionContext) _Node(ctx context.Context, sel ast.SelectionSet, obj
 			return graphql.Null
 		}
 		return ec._Project(ctx, sel, obj)
+	case InterceptItem:
+		return ec._InterceptItem(ctx, sel, &obj)
+	case *InterceptItem:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._InterceptItem(ctx, sel, obj)
 	case HTTPRequest:
 		return ec._HttpRequest(ctx, sel, &obj)
 	case *HTTPRequest:
@@ -8228,6 +9595,12 @@ func (ec *executionContext) _HttpRequest(ctx context.Context, sel ast.SelectionS
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._HttpRequest_editedFrom(ctx, field, obj)
 				})
+		case "editedBy":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._HttpRequest_editedBy(ctx, field, obj)
+				})
 		case "isDropped":
 			out.Values[i] = ec._HttpRequest_isDropped(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -8423,6 +9796,155 @@ func (ec *executionContext) _HttpResponse(ctx context.Context, sel ast.Selection
 	return out
 }
 
+var interceptItemImplementors = []string{"InterceptItem", "Node"}
+
+func (ec *executionContext) _InterceptItem(ctx context.Context, sel ast.SelectionSet, obj *InterceptItem) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, interceptItemImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("InterceptItem")
+		case "id":
+			out.Values[i] = ec._InterceptItem_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "kind":
+			out.Values[i] = ec._InterceptItem_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "request":
+			out.Values[i] = ec._InterceptItem_request(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "raw":
+			out.Values[i] = ec._InterceptItem_raw(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "heldAt":
+			out.Values[i] = ec._InterceptItem_heldAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var interceptQueueChangeImplementors = []string{"InterceptQueueChange"}
+
+func (ec *executionContext) _InterceptQueueChange(ctx context.Context, sel ast.SelectionSet, obj *InterceptQueueChange) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, interceptQueueChangeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("InterceptQueueChange")
+		case "kind":
+			out.Values[i] = ec._InterceptQueueChange_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "item":
+			out.Values[i] = ec._InterceptQueueChange_item(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var interceptSettingsImplementors = []string{"InterceptSettings"}
+
+func (ec *executionContext) _InterceptSettings(ctx context.Context, sel ast.SelectionSet, obj *InterceptSettings) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, interceptSettingsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("InterceptSettings")
+		case "queuing":
+			out.Values[i] = ec._InterceptSettings_queuing(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "requests":
+			out.Values[i] = ec._InterceptSettings_requests(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "responses":
+			out.Values[i] = ec._InterceptSettings_responses(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "query":
+			out.Values[i] = ec._InterceptSettings_query(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "scopeId":
+			out.Values[i] = ec._InterceptSettings_scopeId(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "dropStatusCode":
+			out.Values[i] = ec._InterceptSettings_dropStatusCode(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
 var mutationImplementors = []string{"Mutation"}
 
 func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet) graphql.Marshaler {
@@ -8536,6 +10058,41 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "deleteRequests":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_deleteRequests(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateInterceptSettings":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateInterceptSettings(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "forwardInterceptItem":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_forwardInterceptItem(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "dropInterceptItem":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_dropInterceptItem(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "forwardAllInterceptItems":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_forwardAllInterceptItems(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "dropAllInterceptItems":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_dropAllInterceptItems(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -8849,6 +10406,18 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_queryCompletions(ctx, field)
+				})
+		case "interceptSettings":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_interceptSettings(ctx, field)
+				})
+		case "interceptQueue":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_interceptQueue(ctx, field)
 				})
 		case "projects":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
@@ -9236,6 +10805,10 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_requestUpdated(ctx, fields[0])
 	case "requestsDeleted":
 		return ec._Subscription_requestsDeleted(ctx, fields[0])
+	case "interceptQueueChanged":
+		return ec._Subscription_interceptQueueChanged(ctx, fields[0])
+	case "interceptSettingsChanged":
+		return ec._Subscription_interceptSettingsChanged(ctx, fields[0])
 	case "projectChanged":
 		return ec._Subscription_projectChanged(ctx, fields[0])
 	default:
@@ -9822,6 +11395,75 @@ func (ec *executionContext) marshalNInt642int64(ctx context.Context, sel ast.Sel
 	return res
 }
 
+func (ec *executionContext) marshalNInterceptItem2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItem(ctx context.Context, sel ast.SelectionSet, v InterceptItem) graphql.Marshaler {
+	return ec._InterceptItem(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNInterceptItem2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemᚄ(ctx context.Context, sel ast.SelectionSet, v []InterceptItem) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNInterceptItem2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItem(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNInterceptItem2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItem(ctx context.Context, sel ast.SelectionSet, v *InterceptItem) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "InterceptItem!")
+		return graphql.Null
+	}
+	return ec._InterceptItem(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNInterceptItemKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemKind(ctx context.Context, v any) (InterceptItemKind, error) {
+	var res InterceptItemKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNInterceptItemKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemKind(ctx context.Context, sel ast.SelectionSet, v InterceptItemKind) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNInterceptQueueChange2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptQueueChange(ctx context.Context, sel ast.SelectionSet, v *InterceptQueueChange) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "InterceptQueueChange!")
+		return graphql.Null
+	}
+	return ec._InterceptQueueChange(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNInterceptQueueChangeKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptQueueChangeKind(ctx context.Context, v any) (InterceptQueueChangeKind, error) {
+	var res InterceptQueueChangeKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNInterceptQueueChangeKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptQueueChangeKind(ctx context.Context, sel ast.SelectionSet, v InterceptQueueChangeKind) graphql.Marshaler {
+	return v
+}
+
+func (ec *executionContext) marshalNInterceptSettings2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptSettings(ctx context.Context, sel ast.SelectionSet, v *InterceptSettings) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "InterceptSettings!")
+		return graphql.Null
+	}
+	return ec._InterceptSettings(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNInterceptSettingsInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptSettingsInput(ctx context.Context, v any) (InterceptSettingsInput, error) {
+	res, err := ec.unmarshalInputInterceptSettingsInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNPageInfo2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐPageInfo(ctx context.Context, sel ast.SelectionSet, v *PageInfo) graphql.Marshaler {
 	if v == nil {
 		graphql.AddInvalidNullError(ctx, "PageInfo!")
@@ -10243,6 +11885,24 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
+func (ec *executionContext) unmarshalOBytes2ᚕbyte(ctx context.Context, v any) ([]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := scalars.UnmarshalBytes(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOBytes2ᚕbyte(ctx context.Context, sel ast.SelectionSet, v []byte) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := scalars.MarshalBytes(v)
+	return res
+}
+
 func (ec *executionContext) marshalOFilterPreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx context.Context, sel ast.SelectionSet, v *FilterPreset) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -10333,6 +11993,22 @@ func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.Sele
 	_ = ctx
 	res := graphql.MarshalInt(*v)
 	return res
+}
+
+func (ec *executionContext) unmarshalOInterceptItemKind2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemKind(ctx context.Context, v any) (*InterceptItemKind, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(InterceptItemKind)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOInterceptItemKind2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐInterceptItemKind(ctx context.Context, sel ast.SelectionSet, v *InterceptItemKind) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) marshalOProject2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐProject(ctx context.Context, sel ast.SelectionSet, v *Project) graphql.Marshaler {

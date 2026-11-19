@@ -21,7 +21,10 @@ enum RequestColor {
 enum RequestSource {
   "Captured by the proxy."
   PROXY
-  "Captured by the proxy and edited in Intercept before forwarding."
+  """
+  The edited record of a proxied exchange the user changed in Intercept
+  (F-HIST-4). The original record of the pair keeps `PROXY`.
+  """
   INTERCEPT
   "Sent from a Replay session."
   REPLAY
@@ -75,10 +78,15 @@ input RequestSort {
 }
 
 """
-A captured or sent HTTP request with its response, if any. Edited records
-(F-HIST-4): when Intercept or Match & Replace changes a request or its response,
-the changed exchange is stored as a new record whose `editedFrom` is the
-original record; both appear in history.
+A captured or sent HTTP request with its response, if any.
+
+Edited pairs (F-HIST-4): an exchange changed by Match & Replace or Intercept is
+stored as two records, both listed in history. The original holds the request
+as the client sent it and the response as the server sent it. The edited record
+(`editedFrom` = original, `original.editedBy` = edited) holds the request as the
+server received it and the response as the client received it; when only the
+response changed, both carry the same request bytes. Replay and Automate store
+only what they sent and never create a pair.
 """
 type HttpRequest implements Node {
   "Row ID; also the HTTPQL `row.id`. Numeric, increasing in capture order."
@@ -108,11 +116,20 @@ type HttpRequest implements Node {
   "Free-text note; null when there is none."
   note: String
   """
-  The original record this one was edited from; null for unedited records.
-  Lets the viewer toggle Original / Modified.
+  On an edited record, the original it was edited from; null otherwise or when
+  the original was deleted. With `editedBy`, lets the viewer toggle Original /
+  Modified.
   """
   editedFrom: HttpRequest
-  "Whether Intercept dropped the request; such a record has no response."
+  """
+  On an original record, its edited record (at most one); null otherwise or
+  when the edited record was deleted.
+  """
+  editedBy: HttpRequest
+  """
+  Whether Intercept dropped the request or its response. A dropped request has
+  no response; a dropped response keeps the server's response.
+  """
   isDropped: Boolean!
   """
   Whether the stored bytes were cut at the capture size limit. `length` is the
@@ -135,7 +152,12 @@ type HttpRequest implements Node {
   F-HIST-2); undecodable bodies are returned as stored.
   """
   body(offset: Int64! = 0, limit: Int! = 1048576, decode: Boolean! = false): Bytes!
-  "The response; null while waiting, or when the request failed or was dropped."
+  """
+  The response; null while the request is pending (also while the request is
+  held in Intercept), or when it failed or the request was dropped. A response
+  held or dropped in Intercept is the server's response and stays available
+  here (F-INT-1).
+  """
   response: HttpResponse
 }
 

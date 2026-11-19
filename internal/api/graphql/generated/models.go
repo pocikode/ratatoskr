@@ -8,6 +8,8 @@ import (
 	"io"
 	"strconv"
 	"time"
+
+	"github.com/99designs/gqlgen/graphql"
 )
 
 // An object with a stable identifier. IDs are opaque strings, unique per type;
@@ -47,10 +49,15 @@ type FilterPreset struct {
 
 func (FilterPreset) IsNode() {}
 
-// A captured or sent HTTP request with its response, if any. Edited records
-// (F-HIST-4): when Intercept or Match & Replace changes a request or its response,
-// the changed exchange is stored as a new record whose `editedFrom` is the
-// original record; both appear in history.
+// A captured or sent HTTP request with its response, if any.
+//
+// Edited pairs (F-HIST-4): an exchange changed by Match & Replace or Intercept is
+// stored as two records, both listed in history. The original holds the request
+// as the client sent it and the response as the server sent it. The edited record
+// (`editedFrom` = original, `original.editedBy` = edited) holds the request as the
+// server received it and the response as the client received it; when only the
+// response changed, both carry the same request bytes. Replay and Automate store
+// only what they sent and never create a pair.
 type HTTPRequest struct {
 	// Row ID; also the HTTPQL `row.id`. Numeric, increasing in capture order.
 	ID string `json:"id"`
@@ -78,10 +85,15 @@ type HTTPRequest struct {
 	Color *RequestColor `json:"color,omitempty"`
 	// Free-text note; null when there is none.
 	Note *string `json:"note,omitempty"`
-	// The original record this one was edited from; null for unedited records.
-	// Lets the viewer toggle Original / Modified.
+	// On an edited record, the original it was edited from; null otherwise or when
+	// the original was deleted. With `editedBy`, lets the viewer toggle Original /
+	// Modified.
 	EditedFrom *HTTPRequest `json:"editedFrom,omitempty"`
-	// Whether Intercept dropped the request; such a record has no response.
+	// On an original record, its edited record (at most one); null otherwise or
+	// when the edited record was deleted.
+	EditedBy *HTTPRequest `json:"editedBy,omitempty"`
+	// Whether Intercept dropped the request or its response. A dropped request has
+	// no response; a dropped response keeps the server's response.
 	IsDropped bool `json:"isDropped"`
 	// Whether the stored bytes were cut at the capture size limit. `length` is the
 	// real size; `head`, `bodyLength` and `body` describe what was stored.
@@ -98,7 +110,10 @@ type HTTPRequest struct {
 	// removed first and `offset`/`limit` apply to the decoded bytes (display only,
 	// F-HIST-2); undecodable bodies are returned as stored.
 	Body []byte `json:"body"`
-	// The response; null while waiting, or when the request failed or was dropped.
+	// The response; null while the request is pending (also while the request is
+	// held in Intercept), or when it failed or the request was dropped. A response
+	// held or dropped in Intercept is the server's response and stays available
+	// here (F-INT-1).
 	Response *HTTPResponse `json:"response,omitempty"`
 }
 
@@ -141,6 +156,82 @@ type HTTPResponse struct {
 	Body []byte `json:"body"`
 	// ID of the request this response belongs to; not exposed in the schema.
 	RequestID int64 `json:"-"`
+}
+
+// A request or response held in the intercept queue. It stays until it is
+// forwarded or dropped, queuing or its side is turned off, the project is
+// switched, or the client disconnects (a held request then leaves the queue and
+// its record stays without a response). Turning queuing or a side off, and a
+// project switch, forward the affected items unchanged in arrival (FIFO) order;
+// on a project switch this happens before the new project's settings load.
+type InterceptItem struct {
+	// Opaque ID, valid while the item is held.
+	ID string `json:"id"`
+	// Whether a request or a response is held.
+	Kind InterceptItemKind `json:"kind"`
+	// The history record of the exchange. A held request already has its record
+	// (pending, no response yet), so it shows in HTTP History.
+	Request *HTTPRequest `json:"request"`
+	// The held message exactly as it would be sent now (after Match & Replace): the
+	// request for `REQUEST` items, the response for `RESPONSE` items: start line,
+	// headers and the body, whose size is bounded by the 64 MiB capture cap. Only
+	// messages up to 16 MiB in total can be edited (see `forwardInterceptItem`).
+	Raw []byte `json:"raw"`
+	// When the item entered the queue.
+	HeldAt time.Time `json:"heldAt"`
+}
+
+func (InterceptItem) IsNode() {}
+
+// One change to the intercept queue, from `interceptQueueChanged`.
+type InterceptQueueChange struct {
+	// Whether the item entered or left the queue.
+	Kind InterceptQueueChangeKind `json:"kind"`
+	// The item; for `REMOVED`, as it was when it left.
+	Item *InterceptItem `json:"item"`
+}
+
+// Intercept settings of the selected project. A request is held iff `queuing` and
+// `requests` are on and it matches `query` and the `scopeId` preset; a response
+// iff `queuing` and `responses` are on and the exchange matches. `query` is
+// evaluated on the message after Match & Replace; `resp.*` clauses are false for
+// a request. Changing the condition does not release items already held. Only
+// messages whose body fits the capture cap (64 MiB) are held; larger ones pass
+// through.
+type InterceptSettings struct {
+	// Queuing (true) or Forwarding (false). Not persisted: every start and every
+	// project switch begins in Forwarding.
+	Queuing bool `json:"queuing"`
+	// Whether requests are held while queuing. Default true.
+	Requests bool `json:"requests"`
+	// Whether responses are held while queuing. Default false.
+	Responses bool `json:"responses"`
+	// HTTPQL condition deciding which traffic is held; empty (the default) holds everything.
+	Query string `json:"query"`
+	// Scope preset deciding which traffic is held; null (the default) holds everything.
+	ScopeID *string `json:"scopeId,omitempty"`
+	// Status code the client gets for a dropped item, 100-599. Default 502.
+	DropStatusCode int `json:"dropStatusCode"`
+}
+
+// Changes to `InterceptSettings`. Omitted fields keep their value; `scopeId:
+// null` clears the scope. Nothing changes when any field is invalid.
+type InterceptSettingsInput struct {
+	// Turning queuing off forwards every held item unchanged, in FIFO order.
+	// `null` is the same as omitting the field.
+	Queuing *bool `json:"queuing,omitempty"`
+	// Turning it off forwards the held requests unchanged, in FIFO order. `null` is
+	// the same as omitting the field.
+	Requests *bool `json:"requests,omitempty"`
+	// Turning it off forwards the held responses unchanged, in FIFO order. `null`
+	// is the same as omitting the field.
+	Responses *bool `json:"responses,omitempty"`
+	// HTTPQL condition; `""` holds everything. `null` is the same as omitting the field.
+	Query *string `json:"query,omitempty"`
+	// Scope preset ID; `null` clears it (everything is in scope).
+	ScopeID graphql.Omittable[*string] `json:"scopeId,omitempty"`
+	// Status code for dropped items, 100-599. `null` is the same as omitting the field.
+	DropStatusCode *int `json:"dropStatusCode,omitempty"`
 }
 
 // Mutations. Other schema files extend this type.
@@ -462,6 +553,122 @@ func (e ErrorCode) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Which side of an exchange a held item is.
+type InterceptItemKind string
+
+const (
+	// A request held before it is sent upstream.
+	InterceptItemKindRequest InterceptItemKind = "REQUEST"
+	// A response held before it is sent to the client.
+	InterceptItemKindResponse InterceptItemKind = "RESPONSE"
+)
+
+var AllInterceptItemKind = []InterceptItemKind{
+	InterceptItemKindRequest,
+	InterceptItemKindResponse,
+}
+
+func (e InterceptItemKind) IsValid() bool {
+	switch e {
+	case InterceptItemKindRequest, InterceptItemKindResponse:
+		return true
+	}
+	return false
+}
+
+func (e InterceptItemKind) String() string {
+	return string(e)
+}
+
+func (e *InterceptItemKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = InterceptItemKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid InterceptItemKind", str)
+	}
+	return nil
+}
+
+func (e InterceptItemKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *InterceptItemKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e InterceptItemKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// How the intercept queue changed.
+type InterceptQueueChangeKind string
+
+const (
+	// An item entered the queue.
+	InterceptQueueChangeKindAdded InterceptQueueChangeKind = "ADDED"
+	// An item left the queue (forwarded, dropped, released or client gone).
+	InterceptQueueChangeKindRemoved InterceptQueueChangeKind = "REMOVED"
+)
+
+var AllInterceptQueueChangeKind = []InterceptQueueChangeKind{
+	InterceptQueueChangeKindAdded,
+	InterceptQueueChangeKindRemoved,
+}
+
+func (e InterceptQueueChangeKind) IsValid() bool {
+	switch e {
+	case InterceptQueueChangeKindAdded, InterceptQueueChangeKindRemoved:
+		return true
+	}
+	return false
+}
+
+func (e InterceptQueueChangeKind) String() string {
+	return string(e)
+}
+
+func (e *InterceptQueueChangeKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = InterceptQueueChangeKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid InterceptQueueChangeKind", str)
+	}
+	return nil
+}
+
+func (e InterceptQueueChangeKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *InterceptQueueChangeKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e InterceptQueueChangeKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
 // What happened to a project in a `projectChanged` event.
 type ProjectChangeKind string
 
@@ -750,7 +957,8 @@ type RequestSource string
 const (
 	// Captured by the proxy.
 	RequestSourceProxy RequestSource = "PROXY"
-	// Captured by the proxy and edited in Intercept before forwarding.
+	// The edited record of a proxied exchange the user changed in Intercept
+	// (F-HIST-4). The original record of the pair keeps `PROXY`.
 	RequestSourceIntercept RequestSource = "INTERCEPT"
 	// Sent from a Replay session.
 	RequestSourceReplay RequestSource = "REPLAY"

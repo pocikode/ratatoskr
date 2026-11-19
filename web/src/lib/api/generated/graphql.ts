@@ -83,7 +83,10 @@ export type RequestSortField =
 export type RequestSource =
   /** Sent by an Automate attack. */
   | 'AUTOMATE'
-  /** Captured by the proxy and edited in Intercept before forwarding. */
+  /**
+   * The edited record of a proxied exchange the user changed in Intercept
+   * (F-HIST-4). The original record of the pair keeps `PROXY`.
+   */
   | 'INTERCEPT'
   /** Sent by a plugin. */
   | 'PLUGIN'
