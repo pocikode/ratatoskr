@@ -3,7 +3,7 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: blocked
+status: changes_requested
 depends_on: [T-030]
 owner: "Codex"
 branch: task/T-031-intercept-service
@@ -11,6 +11,7 @@ paths:
   - internal/intercept/**
   - internal/api/graphql/resolvers/intercept*.go
   - internal/api/graphql/resolvers/stubs_intercept.go
+  - internal/replay/sender/content_length*.go
 spec:
   - docs/01-feature-spec.md#F-INT-1 (incl. M2 contract)
   - docs/03-architecture.md §4, §7
@@ -50,7 +51,13 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
       100–599 → `BAD_INPUT`; bad `query` → `BAD_QUERY` with span; unknown `scopeId` → `NOT_FOUND`.
 - [x] Resolver tests: unknown/released item → `NOT_FOUND`; forwardAll/dropAll counts; `interceptQueueChanged` and
       `interceptSettingsChanged` deliver events; `InterceptItem.request` loads the record through `Deps.History`.
-- [x] `make check` green.
+- [ ] Queue limit: a hold that would exceed 1 000 items or 256 MiB of held bytes returns forward-unchanged at once,
+      logs at info and emits no event; held items stay. Test fails without the cap (both limits).
+- [ ] Response replacement is parsed with the exchange's request method; table cases: response to `HEAD` with
+      `Content-Length: 1234` and no body, 204, 304 keep their `Content-Length`; a 200 still gets the rule.
+- [ ] A deleted active scope preset or an eval error holds nothing and logs at warn (test asserts not held).
+- [ ] One Content-Length helper in `internal/replay/sender` used by both Replay and Intercept; Replay tests still pass.
+- [ ] `make check` green.
 
 ## Notes from lead
 - Item ID = opaque string derived from the history request ID and kind (e.g. `req:12`); never parse it in the UI.
@@ -104,6 +111,17 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
   the Content-Length helper itself (shared with Replay, which sends unparsed bytes); keep that behaviour in the helper
   (unparseable input → returned unchanged) but Intercept never calls it on such bytes. Without `raw`, the held bytes go
   out unchanged and `updateContentLength` is ignored. F-INT-1 and the `forwardInterceptItem` description updated.
+
+- **Resolved (lead, 2026-11-19, review questions):**
+  - Queue limit: 1 000 items and 256 MiB of held `raw` bytes, both kinds together. Past either limit the message passes
+    through unheld (info log); nothing already held is released. F-INT-1 and the `InterceptSettings` description updated.
+  - Content-Length: parse a replacement response with the exchange's request method; responses to `HEAD` and status
+    1xx/204/304 keep their `Content-Length`. F-INT-1 and `forwardInterceptItem` updated.
+  - Deleted scope preset: holds nothing, logs at warn per failed check; same for eval errors. `scopeId` description updated.
+  - Helper duplication: `internal/replay/sender/content_length*.go` added to this task's paths (T-101 is done, T-033 does
+    not own it). Extract one helper there and call it from both sides.
+  - Sitemap test timeout: belongs to T-020, not this task; ignore a flaky rerun here.
+  - `persisted` nit: implementer's call.
 
 ## Handoff (implementer)
 - Implemented per-project settings, HTTPQL and scope matching, FIFO release decisions, replacement validation, and queue

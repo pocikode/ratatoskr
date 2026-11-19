@@ -161,6 +161,11 @@ unlimited projects/plugins) are **free and unlimited** here.
   - The queue is in memory, FIFO, not persisted. Item IDs are opaque. A held request already has its history record (a
     pending row without response, docs/03 §4), so it shows in HTTP History.
   - Only fully buffered messages are held: a body over the capture cap (64 MiB) passes through unheld (logged at info).
+  - Queue limit (lead, 2026-11-19, T-031 review): at most 1 000 held items and 256 MiB of held message bytes (the sum of
+    `raw` sizes) across both kinds. A message that would exceed either limit passes through unheld, logged at info, like
+    the capture cap. Items already held are never released to make room.
+  - A scope preset that no longer exists matches nothing: while `scopeId` points to a deleted preset nothing is held,
+    and each failed check is logged at warn. A query evaluation error is treated the same way.
   - Forward takes optional replacement bytes, which must parse as an HTTP/1.x request (or response) — else `BAD_INPUT`
     with the parse error. `updateContentLength` (default true) sets `Content-Length` to the body size when the message has
     no `Transfer-Encoding` and has a body or a `Content-Length` header; otherwise the bytes go out exactly as given.
@@ -170,6 +175,9 @@ unlimited projects/plugins) are **free and unlimited** here.
     replacement bytes that fail to parse, conflicting lengths included, get `BAD_INPUT` and the item stays held
     (clarified 2026-11-19, T-031). Forward without replacement bytes sends the held message unchanged and ignores
     `updateContentLength`.
+    A replacement response is parsed with the exchange's request method. The rule leaves `Content-Length` alone on a
+    response that has no body by definition (to `HEAD`, or status 1xx, 204 or 304); it still counts as parsed bytes and
+    goes out exactly as given (clarified 2026-11-19, T-031 review).
     Editing `Host` or the target never changes the destination (the original connection's host, port and TLS).
   - Replacement bytes are at most 16 MiB (else `BAD_INPUT`), so their base64 fits the 32 MiB API request cap (docs/03
     §6). A held message over 16 MiB can only be forwarded unchanged or dropped; the UI shows it read-only and says why.

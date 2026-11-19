@@ -260,7 +260,8 @@ type InterceptQueueChange struct {
 // evaluated on the message after Match & Replace; `resp.*` clauses are false for
 // a request. Changing the condition does not release items already held. Only
 // messages whose body fits the capture cap (64 MiB) are held; larger ones pass
-// through.
+// through. The queue holds at most 1000 items and 256 MiB of message bytes; a
+// message past either limit passes through unheld.
 type InterceptSettings struct {
 	// Queuing (true) or Forwarding (false). Not persisted: every start and every
 	// project switch begins in Forwarding.
@@ -271,7 +272,8 @@ type InterceptSettings struct {
 	Responses bool `json:"responses"`
 	// HTTPQL condition deciding which traffic is held; empty (the default) holds everything.
 	Query string `json:"query"`
-	// Scope preset deciding which traffic is held; null (the default) holds everything.
+	// Scope preset deciding which traffic is held; null (the default) holds
+	// everything. If the preset is deleted, nothing is held until this changes.
 	ScopeID *string `json:"scopeId,omitempty"`
 	// Status code the client gets for a dropped item, 100-599. Default 502.
 	DropStatusCode int `json:"dropStatusCode"`
