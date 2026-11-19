@@ -3,7 +3,7 @@ id: T-037
 title: Environment backend - Global and project environments, sealed secrets, interpolation, resolvers
 milestone: M2
 role: backend
-status: blocked
+status: in_progress
 depends_on: [T-098]
 owner: "Codex (GPT-6)"
 branch: task/T-037-environment-backend
@@ -51,15 +51,26 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
 - `internal/secret` is new in docs/03 §2 (lead, 2026-11-19). Keep its API to `Open(root *os.Root) (*Box, loose bool, err)`,
   `Seal`, `Open` (names may differ); both CA and environment may open it, so first-start key creation must be race-free
   (create with `O_EXCL`, reread on `EEXIST`).
+- **Lead (2026-11-19), app wiring:** not in T-037. Constructing `environment.Service` in `app.New` and passing it as
+  `resolvers.Deps.Environment` is T-109's scope (the only M2 task that edits `internal/app`, roadmap §M2). Until T-109
+  lands, the running binary answering `NOT_IMPLEMENTED` for environment fields is expected and not a defect of T-037.
+  Constraints so T-109 stays a pure wiring task:
+  - Keep `ca.Open(ctx, ca.Deps{...})` and `ca.Deps` unchanged; `ca` opens the box itself via `secret.Open(deps.Root)`.
+  - Export a constructor T-109 can call with what `app` already has, e.g.
+    `environment.New(environment.Deps{Instance: <instance db>, Project: <project db accessor>, Secrets: *secret.Box})`.
+  - Cover the acceptance criteria with package tests and resolver tests using a hand-built `resolvers.Deps`
+    (plus `internal/api/graphql/resolvers/environment*_test.go`, already inside `paths`).
+  - Note the constructor shape in Handoff so T-109 can wire it.
 
 ## Plan (implementer, ≤15 lines)
 1. Extract the shared secret box while preserving existing CA ciphertext and key-file compatibility.
 2. Add environment storage, validation, atomic variable replacement, selection and byte-preserving interpolation.
 3. Replace GraphQL stubs with thin service adapters; test services, secret storage and GraphQL behavior.
-4. Wire the service into the running app, run `make check`, and complete the handoff.
+4. Run `make check` and complete the handoff (app wiring is T-109).
 
 ## Out-of-scope change needed (if any)
-- Blocked: add `internal/app/app.go` to `paths` so the environment service can be constructed with the instance
+- ~~Blocked: add `internal/app/app.go` to `paths`~~ → declined by lead, see Notes from lead.
+  Original request: add `internal/app/app.go` to `paths` so the environment service can be constructed with the instance
   database, selected-project database accessor and secret box, then passed as `resolvers.Deps.Environment`.
   Service construction currently lives at `internal/app/app.go:140`; GraphQL dependencies are assembled at
   `internal/app/app.go:306` without `Environment`. Implementing only the allowed files would leave the running
