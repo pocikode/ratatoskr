@@ -3,7 +3,7 @@ id: T-103
 title: Environment page and status-bar environment switcher
 milestone: M2
 role: frontend
-status: in_progress
+status: in_review
 depends_on: [T-098]
 owner: "opencode (deepseek-v4.1-flash-1017)"
 branch: task/T-103-environment-page
@@ -30,12 +30,12 @@ Replay (T-107) reads variables from the same store.
 - Out: variables set by workflows/plugins (M5/M6).
 
 ## Acceptance criteria
-- [ ] Global listed first and cannot be renamed/deleted (no actions shown).
-- [ ] Grid edits are saved together; `BAD_INPUT` for a variable highlights that row with the message.
-- [ ] Secret values render masked until revealed; the reveal is per row and resets on navigation.
-- [ ] Status bar shows the selected environment and switches it (mock assertion on `selectEnvironment`), including "none".
-- [ ] Store test: `variables` resolves selected over Global and updates after selection change.
-- [ ] Component tests; `make check` green.
+- [x] Global listed first and cannot be renamed/deleted (no actions shown).
+- [x] Grid edits are saved together; `BAD_INPUT` for a variable highlights that row with the message.
+- [x] Secret values render masked until revealed; the reveal is per row and resets on navigation.
+- [x] Status bar shows the selected environment and switches it (mock assertion on `selectEnvironment`), including "none".
+- [x] Store test: `variables` resolves selected over Global and updates after selection change.
+- [x] Component tests; `make check` green.
 
 ## Notes from lead
 - Re-read docs/00 §4 before writing copy.
@@ -53,10 +53,17 @@ Replay (T-107) reads variables from the same store.
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `EnvironmentStore` (`web/src/lib/stores/environment.svelte.ts`) with the list, `selected`,
+  `variables` (selected over Global) and create/rename/delete/setVariables/select that refetch after each mutation and
+  after a project switch (`projects.onReset`); operations in `pages/environment/environment.graphql` (codegen run);
+  `EnvironmentPage.svelte` (env list with Global pinned and no actions, inline create/rename, delete, variables grid with
+  per-row secret mask/reveal and `BAD_INPUT` row highlight); status bar `env: <name>` dropdown that selects an
+  environment or none.
+- How to verify: `cd web && bun run test` (store, page and status-bar tests) and `make check`. Without T-037 the real
+  server answers `NOT_IMPLEMENTED`; the component tests run against `$lib/api/mocks` (T-098 contract).
+- Known limitations: no E2E spec — the page needs the T-037 resolvers first. Duplicate-name `BAD_INPUT` highlights every
+  row with the quoted name (the message only carries the name). `variables` is a plain `Map` rebuilt by `$derived`.
+- Follow-ups (proposed tasks): E2E for F-ENV-1 once T-037 lands; a dev `?mock=environment` hook if wanted before then.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
