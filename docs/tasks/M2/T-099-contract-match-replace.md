@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -137,3 +137,30 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   up to 1000 rules per project. All three findings were reproduced through the GraphQL executor.
   `make check` passed with 349 web tests.
 - Browser E2E and `make test-int` were skipped for this contract review.
+
+### Review of `3ff8e51`
+
+- Verdict is `changes_requested`.
+- [ ] [major] `internal/api/graphql/schema/matchreplace.graphqls:309` — A valid project export can exceed
+  the 32 MiB GraphQL POST limit in `internal/api/server.go:20`. An export with 32 rules and a 1 MiB term
+  per rule produces a 33,560,983-byte import request, above the 33,554,432-byte cap. The server returns
+  413 before the import resolver runs. Define a size limit that guarantees every valid export fits on
+  import, or use a bounded upload that supports the full export and preserves all-or-nothing behavior.
+- [ ] [major] `internal/api/graphql/schema/matchreplace.graphqls:327` — Base64 for a 24 MiB history
+  message already fills the 32 MiB GraphQL POST limit. The GraphQL document and draft rule push it over
+  the cap. The tester cannot return a result for some messages below the documented 64 MiB capture cap.
+  Define a tester input budget and surface it in T-108, or pass a history ID for picked messages if the
+  tester must support the full capture range.
+- [ ] [minor] `web/src/lib/api/mocks/matchreplace.ts:77` — The quote counter rejects a valid HTTPQL
+  clause such as `req.path.eq:"a\"b"`. The GraphQL executor returns `BAD_QUERY` and points to the
+  closing quote. Skip escaped characters when scanning quoted literals. Test both a valid escaped quote
+  and an escaped final quote without a closing delimiter.
+- [ ] [minor] `web/src/lib/api/mocks/matchreplace.ts:129` — A non-ADD `FULL` matcher created with
+  `value: "unused"` returns and exports that value, although the output field documents an empty
+  string for `FULL`. Canonicalize the value when storing a non-ADD `FULL` matcher, or document that
+  the contract preserves ignored values.
+- Verification assumed one desktop process and up to 1000 rules per project. `make check` passed
+  (43 Vitest files, 351 tests), `make gen` left the tree clean, and all changed files matched the task's
+  paths. The mock findings were reproduced through the generated schema with graphql-js. The transport
+  findings were checked against the serialized size and the server's existing HTTP 413 test.
+- Browser E2E and `make test-int` were skipped. This branch adds a contract, stubs and a mock.
