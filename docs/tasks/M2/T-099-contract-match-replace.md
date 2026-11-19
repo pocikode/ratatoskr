@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -402,3 +402,17 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   `make check` passed (43 Vitest files, 353 tests). `make gen` left the tree clean.
   Browser E2E and Go integration were skipped because no browser UI, proxy, store, or
   raw HTTP implementation changed.
+
+### Review of `fc2102f`
+
+- Verdict is `changes_requested`. Escalate to the lead under the review round limit.
+- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:522 — Duplicate lengths are compared as
+  JavaScript numbers. An empty 200 response with lengths 9007199254740992 and 9007199254740993
+  succeeds with `changed: false` through the generated GraphQL schema. Both strings round to
+  the same number, so the empty-response exception then admits the message. Compare the decimal
+  strings exactly after removing leading zeroes. Add this pair to the existing rejection cases
+  and preserve acceptance of numerically equal values such as 04 and 4.
+- The earlier findings are resolved by the existing regression tests. `make check` passed
+  (43 Vitest files, 353 tests), and `make gen` left the tree unchanged. Review assumed one
+  desktop user within the documented tester size limits.
+- Browser E2E and Go integration were skipped. This task changes the contract, stubs and mock.
