@@ -3475,8 +3475,10 @@ input MatchReplaceMatcherInput {
   "How to match."
   kind: MatchReplaceMatcherKind!
   """
-  The string, pattern or name; must not be empty for ` + "`" + `STRING` + "`" + `, ` + "`" + `REGEX` + "`" + `, ` + "`" + `NAME` + "`" + `;
-  at most 1 MiB. Dropped (stored empty) for ` + "`" + `FULL` + "`" + ` unless the operation is ` + "`" + `ADD` + "`" + `.
+  The string, pattern or name; must not be empty for ` + "`" + `STRING` + "`" + `, ` + "`" + `REGEX` + "`" + `, ` + "`" + `NAME` + "`" + `
+  except with ` + "`" + `ADD` + "`" + `, which ignores the matcher (any kind and value, stored as
+  given); at most 1 MiB. Dropped (stored empty) for ` + "`" + `FULL` + "`" + ` unless the operation
+  is ` + "`" + `ADD` + "`" + `.
   """
   value: String! = ""
 }
@@ -3485,7 +3487,8 @@ input MatchReplaceMatcherInput {
 A whole rule. Validation (` + "`" + `BAD_INPUT` + "`" + ` unless noted, nothing changes on error):
 name 1-200 characters after trimming without control characters; ` + "`" + `sources` + "`" + `
 empty; section x operation not valid; matcher kind not allowed for the
-operation; empty matcher value for ` + "`" + `STRING` + "`" + `/` + "`" + `REGEX` + "`" + `/` + "`" + `NAME` + "`" + `; invalid regex (the
+operation; empty matcher value for ` + "`" + `STRING` + "`" + `/` + "`" + `REGEX` + "`" + `/` + "`" + `NAME` + "`" + ` (not checked for
+` + "`" + `ADD` + "`" + `, which ignores the matcher); invalid regex (the
 message carries the RE2 error); ` + "`" + `ADD` + "`" + ` header term not ` + "`" + `Name: value` + "`" + `; term or
 matcher value over 1 MiB; condition over 64 KiB. An invalid ` + "`" + `condition` + "`" + ` is
 ` + "`" + `BAD_QUERY` + "`" + ` with ` + "`" + `extensions.span` + "`" + `. Saving (not testing) also checks the
@@ -3601,7 +3604,9 @@ extend type Mutation {
 
   Errors: ` + "`" + `BAD_INPUT` + "`" + ` for an invalid rule, a rule section for the other ` + "`" + `kind` + "`" + `,
   ` + "`" + `raw` + "`" + ` over 12 MiB (so the request fits the 32 MiB API cap; larger messages
-  cannot be tested), ` + "`" + `raw` + "`" + ` that is not an HTTP/1.x message of ` + "`" + `kind` + "`" + `, or an
+  cannot be tested), ` + "`" + `raw` + "`" + ` that is not an HTTP/1.x message of ` + "`" + `kind` + "`" + ` (including
+a body whose length differs from ` + "`" + `Content-Length` + "`" + ` without ` + "`" + `Transfer-Encoding` + "`" + `;
+a response with no body may declare any length, as a reply to ` + "`" + `HEAD` + "`" + `), or an
   ` + "`" + `output` + "`" + ` that would exceed 16 MiB (checked while replacing, before the result
   is built; no partial output is returned);
   ` + "`" + `BAD_QUERY` + "`" + ` with span for

@@ -505,6 +505,18 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
             : /^HTTP\/1\.[01] \d{3}(?: [^\r\n]*)?\r\n/;
         if (!line.test(text) || !text.includes('\r\n\r\n'))
           throw fail('BAD_INPUT', `raw is not an HTTP/1.x ${String(kind).toLowerCase()}`);
+        // A fixed-length body must be complete; a response with no body may keep any length (HEAD, 304).
+        const sep = text.indexOf('\r\n\r\n');
+        const fields = text.slice(0, sep).split('\r\n');
+        const bodyLen = text.length - sep - 4;
+        if (
+          !fields.some((h) => /^transfer-encoding:/i.test(h)) &&
+          (kind === 'REQUEST' || bodyLen > 0) &&
+          fields
+            .filter((h) => /^content-length:/i.test(h))
+            .some((h) => !/^\d+$/.test(h.slice(15).trim()) || Number(h.slice(15)) !== bodyLen)
+        )
+          throw fail('BAD_INPUT', 'raw body length does not match Content-Length');
         const out = applyRule(draft, text);
         return { output: btoa(out), conditionMatched: true, changed: out !== text };
       },

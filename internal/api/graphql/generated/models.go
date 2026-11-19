@@ -323,8 +323,10 @@ type MatchReplaceMatcher struct {
 type MatchReplaceMatcherInput struct {
 	// How to match.
 	Kind MatchReplaceMatcherKind `json:"kind"`
-	// The string, pattern or name; must not be empty for `STRING`, `REGEX`, `NAME`;
-	// at most 1 MiB. Dropped (stored empty) for `FULL` unless the operation is `ADD`.
+	// The string, pattern or name; must not be empty for `STRING`, `REGEX`, `NAME`
+	// except with `ADD`, which ignores the matcher (any kind and value, stored as
+	// given); at most 1 MiB. Dropped (stored empty) for `FULL` unless the operation
+	// is `ADD`.
 	Value string `json:"value"`
 }
 
@@ -368,7 +370,8 @@ func (MatchReplaceRule) IsNode() {}
 // A whole rule. Validation (`BAD_INPUT` unless noted, nothing changes on error):
 // name 1-200 characters after trimming without control characters; `sources`
 // empty; section x operation not valid; matcher kind not allowed for the
-// operation; empty matcher value for `STRING`/`REGEX`/`NAME`; invalid regex (the
+// operation; empty matcher value for `STRING`/`REGEX`/`NAME` (not checked for
+// `ADD`, which ignores the matcher); invalid regex (the
 // message carries the RE2 error); `ADD` header term not `Name: value`; term or
 // matcher value over 1 MiB; condition over 64 KiB. An invalid `condition` is
 // `BAD_QUERY` with `extensions.span`. Saving (not testing) also checks the

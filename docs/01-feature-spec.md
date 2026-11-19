@@ -285,10 +285,12 @@ Open in browser · Filter by this host/path/status · Delete · Export.
   - Export/import JSON `{"version":1,"collections":[{"name":…,"rules":[…]}]}`; import appends collections, all or nothing.
   - Limits: names 1–200 characters, ≤ 1000 rules per project, term ≤ 1 MiB. Rules reload on every change and on project switch.
   - API details (lead, 2026-11-19, T-099; schema `matchreplace.graphqls`): there is no default collection (the list may
-    be empty); new collections and rules go last. `STRING`, `REGEX` and `NAME` need a non-empty value; `FULL` ignores it.
+    be empty); new collections and rules go last. `STRING`, `REGEX` and `NAME` need a non-empty value; `FULL` ignores it; `ADD` ignores the matcher
+    (any kind and value).
     An `ADD` header term must be `Name: value` with a token name (`BAD_INPUT`); a param term is appended as written.
     Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester ignores name, enabled and sources, rejects
-    a section for the other message kind (`BAD_INPUT`), and evaluates the condition on the given message only (clauses
+    a section for the other message kind and a body whose length differs from `Content-Length` (a response
+    with no body may declare any length, as for `HEAD`) (`BAD_INPUT`), and evaluates the condition on the given message only (clauses
     about the other message are false). Import rejects unknown fields; an unparsable condition there is `BAD_INPUT` naming
     the rule. Export rule fields are those of `MatchReplaceRuleInput`, enum values as strings, no IDs. A non-`ADD` `FULL`
     matcher is stored with an empty value.

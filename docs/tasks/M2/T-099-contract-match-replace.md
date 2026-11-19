@@ -86,7 +86,8 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   values, `ADD` header term format, tester and import specifics); spec added to this task's paths for that.
 - How to verify: `make gen` (no diff), `make check`; `cd web && bunx --bun vitest run src/lib/api/mocks/matchreplace.test.ts`.
 - Known limitations: mock tester only does STRING/FULL `UPDATE_RAW` on headers/bodies plus header `ADD`, and treats
-  every condition as matched, and leaves chunked, content-coded and bodyless (1xx/204/304) response bodies unchanged (`shortcut:` comment); mock HTTPQL check only flags unterminated strings; mock regex check
+  every condition as matched, and leaves chunked, content-coded and bodyless (1xx/204/304) response bodies unchanged (`shortcut:` comment);
+  the tester rejects a body whose length differs from `Content-Length` (also in the contract); mock HTTPQL check only flags unterminated strings; mock regex check
   is JS `RegExp` plus a look-around/backref reject, not RE2.
 - Follow-ups (proposed tasks): none; T-035/T-102/T-036/T-108 can start.
 
@@ -355,3 +356,23 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - Reproduced through the mock resolver with synthetic bytes. All 24 focused
   Vitest tests passed. Review assumed a single desktop user and the documented
   tester size caps. Full checks, browser E2E, and Go integration were skipped.
+
+### Review of `e0742c3`
+
+- Verdict is `changes_requested`. Review assumed one desktop user within the documented tester limits.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:506` — The tester accepts a truncated request
+  whose Content-Length is 4 but whose body contains one byte. Through the generated GraphQL schema,
+  a FULL body replacement returned `changed: true` and rewrote the length to 2. Validate fixed-length
+  body completeness before applying the draft, and cover the `BAD_INPUT` result in the mock test.
+  → Fixed: without `Transfer-Encoding`, every `Content-Length` must be digits equal to the body length
+  (`BAD_INPUT`); a response with an empty body may declare any length (HEAD reply, 304). In the schema
+  (`testMatchReplace`) and F-MR-1 tester details. Tests: lengths 4/`a`, 1/`ab`, `x`/`a` rejected; an
+  empty-body response with `Content-Length: 4` accepted.
+- [x] [minor] `internal/api/graphql/schema/matchreplace.graphqls:209` — Matcher input documentation
+  says a STRING value is always required, while ADD ignores the matcher. A header ADD with
+  `matcher: {kind: STRING}` succeeds in the mock. Document the ADD exception in the matcher and
+  rule input descriptions so downstream implementations agree.
+  → Fixed: `MatchReplaceMatcherInput.value`, `MatchReplaceRuleInput` and F-MR-1 API details say `ADD`
+  ignores the matcher (any kind and value, stored as given).
+- All 24 focused Vitest tests passed. Full `make check`, generation, browser E2E and Go integration
+  were skipped.

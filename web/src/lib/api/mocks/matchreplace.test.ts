@@ -330,6 +330,16 @@ describe('match & replace mock', () => {
       expect(r).toMatchObject({ output: btoa(bodyless), changed: false });
     }
 
+    // A body that does not match Content-Length is not a complete message.
+    for (const partial of [
+      'POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\na',
+      'POST / HTTP/1.1\r\nContent-Length: 1\r\n\r\nab',
+      'POST / HTTP/1.1\r\nContent-Length: x\r\n\r\na',
+    ])
+      expect(code(await m(TEST, { r: reqBB, k: 'REQUEST', raw: btoa(partial) }))).toBe('BAD_INPUT');
+    // A response with no body keeps its length (reply to HEAD).
+    const head = btoa('HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n');
+    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: head })).error).toBeUndefined();
     expect(code(await m(TEST, { r: body, k: 'REQUEST', raw: req }))).toBe('BAD_INPUT');
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe('BAD_INPUT');
     // A bare CR inside the status line is malformed, not a line end.
