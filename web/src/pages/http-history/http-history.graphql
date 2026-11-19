@@ -20,6 +20,9 @@ fragment HistoryRow on HttpRequest {
   editedFrom {
     id
   }
+  editedBy {
+    id
+  }
   response {
     code
     length
@@ -29,9 +32,16 @@ fragment HistoryRow on HttpRequest {
 }
 
 # Bodies are capped at the 4 MiB per-call limit; `bodyLength` tells whether the
-# viewer shows a truncated body.
+# viewer shows a truncated body. The pair ids let the viewer switch Original /
+# Modified (F-HIST-4).
 fragment HistoryMessage on HttpRequest {
   id
+  editedFrom {
+    id
+  }
+  editedBy {
+    id
+  }
   head
   bodyLength
   body(limit: 4194304, decode: true)
