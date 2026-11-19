@@ -159,6 +159,54 @@ describe('intercept mock', () => {
     unsubscribe();
   });
 
+  it('turning both sides off releases a mixed queue in FIFO order', async () => {
+    const c = createMockClient({ count: 10, liveIntervalMs: 0, interceptLiveIntervalMs: 5 });
+    const ch = changes(c);
+    await vi.waitFor(() => expect(ch.out.length).toBeGreaterThanOrEqual(4));
+    expect((await queue(c)).map((i) => i.kind).slice(0, 4)).toEqual([
+      'REQUEST',
+      'REQUEST',
+      'RESPONSE',
+      'REQUEST',
+    ]);
+    const seeded = (await queue(c)).slice(0, 3).map((i) => i.id);
+    await update(c, { requests: false, responses: false });
+    // Nothing is held once both sides are off, so every item comes back out in arrival order
+    // (the seed is held before the subscription starts).
+    const ids = (kind: string) => ch.out.filter((e) => e.kind === kind).map((e) => e.id);
+    await vi.waitFor(() => expect(ids('REMOVED')).toEqual([...seeded, ...ids('ADDED')]));
+    expect(await queue(c)).toEqual([]);
+    ch.unsubscribe();
+  });
+
+  it('the timer holds only requests matching the query and scope', async () => {
+    const c = createMockClient({ count: 10, liveIntervalMs: 0, interceptLiveIntervalMs: 5 });
+    await update(c, { query: '"never-matches.invalid"' });
+    const ch = changes(c); // the timer runs while someone watches the queue
+    const before = (await queue(c)).length;
+    const added: string[] = [];
+    const sub = pipe(
+      c.subscription(`subscription { requestAdded { id } }`, {}),
+      subscribe((r) => added.push(r.data.requestAdded.id)),
+    );
+    await vi.waitFor(() => expect(added.length).toBeGreaterThanOrEqual(3));
+    // Excluded traffic passes through; the condition change keeps already held items.
+    expect((await queue(c)).length).toBe(before);
+    expect(before).toBe(3);
+
+    // A scope with an empty allowlist that denies every reserved host holds nothing either.
+    const created = await c
+      .mutation(`mutation { createScopePreset(name: "none", deny: ["*"]) { id } }`, {})
+      .toPromise();
+    await update(c, { query: '', scopeId: created.data.createScopePreset.id });
+    const n = added.length;
+    await vi.waitFor(() => expect(added.length).toBeGreaterThanOrEqual(n + 3));
+    expect((await queue(c)).length).toBe(before);
+    expect(ch.out.filter((e) => e.kind === 'ADDED')).toEqual([]);
+    sub.unsubscribe();
+    ch.unsubscribe();
+  });
+
   it('turning responses off releases only responses', async () => {
     const c = client();
     await queue(c);
@@ -193,5 +241,19 @@ describe('history mock edited pairs', () => {
     expect(await get30('24')).toEqual({ id: '24', editedFrom: null, editedBy: { id: '25' } });
     expect(await get30('25')).toEqual({ id: '25', editedFrom: { id: '24' }, editedBy: null });
     expect(await get('3')).toMatchObject({ editedFrom: null, editedBy: null });
+  });
+
+  it('pairs one exchange: request edited, response bytes unchanged', async () => {
+    const c = createMockClient({ count: 30, liveIntervalMs: 0 });
+    const q = `query ($id: ID!) { request(id: $id) {
+      host port tls method path query source head response { head body(limit: 4194304) }
+    } }`;
+    const get = async (id: string) => (await c.query(q, { id }).toPromise()).data.request;
+    const [orig, edited] = [await get('24'), await get('25')];
+    for (const k of ['host', 'port', 'tls', 'method', 'path', 'query'])
+      expect(edited[k]).toEqual(orig[k]);
+    expect(edited.source).toBe('INTERCEPT');
+    expect(atob(edited.head)).toBe(atob(orig.head).replace(/\r\n\r\n$/, '\r\nX-Edited: 1\r\n\r\n'));
+    expect(edited.response).toEqual(orig.response);
   });
 });

@@ -51,7 +51,7 @@ export function mockHistoryExchange(opts: MockExchangeOptions = {}): Exchange {
     ...history.root,
     ...presets,
     ...createSitemapMock(history.rows, history.matcher).root,
-    ...createInterceptMock(history, (id) => presets.scopePreset({ id }) !== null, {
+    ...createInterceptMock(history, (id) => presets.scopePreset({ id }), {
       liveIntervalMs: opts.interceptLiveIntervalMs,
     }).root,
   };

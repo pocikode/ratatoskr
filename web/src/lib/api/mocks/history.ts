@@ -282,10 +282,24 @@ export interface MockHistoryOptions {
  */
 export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHistoryOptions = {}) {
   const rows: MockRequest[] = Array.from({ length: count }, (_, k) => makeRequest(k + 1));
-  // Every 25th row is an edited copy of the row before it (F-HIST-4).
+  // Every 25th row is the edited record of the row before it (F-HIST-4): same exchange,
+  // request changed in Intercept (one extra header), response as the server sent it.
   for (let k = 24; k < rows.length; k += 25) {
-    rows[k]!.editedFrom = rows[k - 1]!;
-    rows[k - 1]!.editedBy = rows[k]!;
+    const orig = rows[k - 1]!;
+    orig.isDropped = false; // dropping discards edits, so a pair is never dropped
+    const head = atob(orig.head).replace(/\r\n\r\n$/, '\r\nX-Edited: 1\r\n\r\n');
+    rows[k] = {
+      ...orig,
+      id: rows[k]!.id,
+      createdAt: rows[k]!.createdAt,
+      source: 'INTERCEPT',
+      color: null,
+      note: null,
+      head: btoa(head),
+      length: String(head.length + Number(orig.bodyLength)),
+      editedFrom: orig,
+    };
+    orig.editedBy = rows[k]!;
   }
   const byId = new Map(rows.map((r) => [r.id, r]));
   let nextId = count + 1;

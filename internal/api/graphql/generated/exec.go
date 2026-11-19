@@ -2103,7 +2103,9 @@ input InterceptSettingsInput {
 A request or response held in the intercept queue. It stays until it is
 forwarded or dropped, queuing or its side is turned off, the project is
 switched, or the client disconnects (a held request then leaves the queue and
-its record stays without a response).
+its record stays without a response). Turning queuing or a side off, and a
+project switch, forward the affected items unchanged in arrival (FIFO) order;
+on a project switch this happens before the new project's settings load.
 """
 type InterceptItem implements Node {
   "Opaque ID, valid while the item is held."

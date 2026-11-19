@@ -3,7 +3,7 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: []
 owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
@@ -95,24 +95,33 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
     fail there until then.
   - `make check` passed; on the first run `src/pages/sitemap/*` failed once under heavy parallel load (158 s run),
     and it passed on both reruns. That test is not touched here.
+- Round 2 (review fixes):
+  - Settings updates release every affected item in one pass in queue order, so a mixed release stays FIFO across kinds.
+  - The demo timer now models arriving traffic: a new request is held only if queuing ∧ `requests` ∧ it matches the
+    mock query matcher and the selected scope preset (new `inScope`, shortcut glob matcher); otherwise it passes
+    through into history. Changing the condition keeps already held items.
+  - Seeded edited pairs are one exchange: the edited record copies the original, adds `X-Edited: 1` to the request
+    head, keeps the response bytes, source `INTERCEPT`.
+  - `InterceptItem` docs state that releases forward unchanged in FIFO order, before the new project's settings load.
+  - Tests: mixed-queue FIFO release, timer query/scope filtering, pair byte fidelity. `make check` green (243 web tests).
 - Follow-ups (proposed tasks): none. T-031 replaces `stubs_intercept.go`; T-100 replaces `stubs_history_edited.go`.
 
 ## Review (reviewer)
 - Verdict: changes_requested
 - Findings:
-  - [ ] [major] web/src/lib/api/mocks/intercept.ts:218 — Turning both traffic sides off in one update releases requests
+  - [x] [major] web/src/lib/api/mocks/intercept.ts:218 — Turning both traffic sides off in one update releases requests
     before responses. With `ii1`, `ii2`, `ii3` (response), and `ii4` (request) queued in that order, `REMOVED` arrives
     as `ii1`, `ii2`, `ii4`, `ii3`. → Drain all items in queue order when both sides are off and assert the removal order
     with a mixed queue.
-  - [ ] [major] web/src/lib/api/mocks/intercept.ts:184 — The demo timer checks the toggles alone. A filter for
+  - [x] [major] web/src/lib/api/mocks/intercept.ts:184 — The demo timer checks the toggles alone. A filter for
     `never-matches.invalid` still held `shop.example.org`, and the selected scope is used only to validate the preset ID.
     → Apply the mock's history query matcher and the selected scope before holding new records. Test that an excluded
     request leaves the badge count unchanged and that changing the filter leaves previously held items in place.
-  - [ ] [major] web/src/lib/api/mocks/history.ts:286 — The edit links connect separately generated exchanges. In the
+  - [x] [major] web/src/lib/api/mocks/history.ts:286 — The edit links connect separately generated exchanges. In the
     tested seed, Original / Modified switches from an Automate `GET /` on `api.example.com` to a proxy `POST` on
     `cdn.example.net`. → Derive the edited fixture from one proxied exchange, change one message, and assert that the
     untouched message retains the same bytes.
-  - [ ] [minor] internal/api/graphql/schema/intercept.graphqls:70 — The item docs say a project switch ends the hold, but
+  - [x] [minor] internal/api/graphql/schema/intercept.graphqls:70 — The item docs say a project switch ends the hold, but
     leave callers guessing what happens to the traffic. → State the F-INT-1 rule that the old project's queue is forwarded
     unchanged in arrival order before the new settings load.
 - Verification: `make check` passed with 240 web tests when run outside the sandbox. The first run stopped at lint with

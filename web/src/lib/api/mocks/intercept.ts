@@ -4,6 +4,7 @@
 
 import { GraphQLError } from 'graphql';
 import { makeRequest, type MockRequest, type MockResponse } from './history';
+import type { MockScopePreset } from './presets';
 
 type Args = Record<string, unknown>;
 type Kind = 'REQUEST' | 'RESPONSE';
@@ -34,6 +35,23 @@ export interface MockInterceptOptions {
 export interface InterceptHistory {
   addRecord: (build: (id: number) => MockRequest) => MockRequest;
   updateRecord: (r: MockRequest) => void;
+  matcher: (query: unknown) => (r: MockRequest) => boolean;
+}
+
+// shortcut: host globs with `*` only, exact port, path prefix; the real backend uses
+// internal/scope. Enough to show held vs passed-through traffic in the UI.
+function ruleMatches(rule: string, r: MockRequest): boolean {
+  const m = /^\s*([^:/\s]+)(?::(\d+))?(\/\S*)?\s*$/.exec(rule);
+  if (!m) return false;
+  const host = m[1]!.replace(/[.+?^$()|[\]\\{}]/g, '\\$&').replace(/\*/g, '.*');
+  const glob = new RegExp(`^${host}$`, 'i');
+  return glob.test(r.host) && (!m[2] || Number(m[2]) === r.port) && r.path.startsWith(m[3] ?? '');
+}
+
+/** Scope rule from F-SCOPE-1: deny wins over allow, an empty allowlist allows everything. */
+export function inScope(p: MockScopePreset, r: MockRequest): boolean {
+  if (p.deny.some((d) => ruleMatches(d, r))) return false;
+  return !p.allow.length || p.allow.some((a) => ruleMatches(a, r));
 }
 
 const fail = (code: string, message: string, span?: { start: number; end: number }) =>
@@ -70,11 +88,12 @@ function checkQuery(q: string): void {
 
 /**
  * A fake intercept backend: root resolvers for graphql-js. Starts queuing (requests and
- * responses), with two requests and one response held from the first intercept operation on. `scopeExists` answers whether a scope preset ID is known.
+ * responses), with two requests and one response held from the first intercept operation on.
+ * `scopeOf` looks up a scope preset by ID (null when unknown).
  */
 export function createInterceptMock(
   history: InterceptHistory,
-  scopeExists: (id: string) => boolean,
+  scopeOf: (id: string) => MockScopePreset | null,
   { liveIntervalMs = 0 }: MockInterceptOptions = {},
 ) {
   const settings: MockInterceptSettings = {
@@ -106,9 +125,8 @@ export function createInterceptMock(
     return r;
   };
 
-  /** Stores a new history record and holds its request or response. */
-  const hold = (kind: Kind) => {
-    const request = history.addRecord((id) => prepare(kind, makeRequest(id, Date.now())));
+  /** Puts an already stored, prepared record in the queue. */
+  const hold = (kind: Kind, request: MockRequest) => {
     const item: MockInterceptItem = {
       id: `ii${nextItem++}`,
       kind,
@@ -160,9 +178,29 @@ export function createInterceptMock(
   const seed = () => {
     if (seeded) return;
     seeded = true;
-    hold('REQUEST');
-    hold('REQUEST');
-    hold('RESPONSE');
+    for (const kind of ['REQUEST', 'REQUEST', 'RESPONSE'] as const)
+      hold(
+        kind,
+        history.addRecord((id) => prepare(kind, makeRequest(id, Date.now()))),
+      );
+  };
+
+  // A new proxied request: held iff queuing, requests on, and it matches the query and scope
+  // (F-INT-1); otherwise it passes through and only lands in history.
+  const arrive = () => {
+    let held = false;
+    const request = history.addRecord((id) => {
+      const r = makeRequest(id, Date.now());
+      const scope = settings.scopeId ? scopeOf(settings.scopeId) : null;
+      held =
+        settings.queuing &&
+        settings.requests &&
+        history.matcher(settings.query)(r) &&
+        (!scope || inScope(scope, r));
+      r.source = 'PROXY';
+      return held ? prepare('REQUEST', r) : r;
+    });
+    if (held) hold('REQUEST', request);
   };
 
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -180,9 +218,7 @@ export function createInterceptMock(
     };
     listeners.add(listener);
     if (liveIntervalMs > 0 && subscribers++ === 0) {
-      timer = setInterval(() => {
-        if (settings.queuing && settings.requests) hold('REQUEST');
-      }, liveIntervalMs);
+      timer = setInterval(arrive, liveIntervalMs);
     }
     return {
       [Symbol.asyncIterator]() {
@@ -210,14 +246,15 @@ export function createInterceptMock(
       if (p.dropStatusCode != null && (p.dropStatusCode < 100 || p.dropStatusCode > 599))
         throw fail('BAD_INPUT', 'dropStatusCode must be 100-599');
       if (p.query != null) checkQuery(p.query);
-      if (p.scopeId != null && !scopeExists(p.scopeId))
+      if (p.scopeId != null && !scopeOf(p.scopeId))
         throw fail('NOT_FOUND', `scope preset ${p.scopeId} not found`);
       for (const k of ['queuing', 'requests', 'responses', 'query', 'dropStatusCode'] as const)
         if (p[k] != null) (settings as unknown as Record<string, unknown>)[k] = p[k];
       if ('scopeId' in p) settings.scopeId = p.scopeId ?? null;
-      if (!settings.queuing) releaseAll(null, forward);
-      if (!settings.requests) releaseAll('REQUEST', forward);
-      if (!settings.responses) releaseAll('RESPONSE', forward);
+      // One pass in queue order, so a mixed release stays FIFO across kinds.
+      const off = (i: MockInterceptItem) =>
+        !settings.queuing || !(i.kind === 'REQUEST' ? settings.requests : settings.responses);
+      for (const i of queue.filter(off)) forward(take(i.id));
       emit({ interceptSettingsChanged: { ...settings } });
       return settings;
     },
