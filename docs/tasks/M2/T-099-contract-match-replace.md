@@ -86,7 +86,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   values, `ADD` header term format, tester and import specifics); spec added to this task's paths for that.
 - How to verify: `make gen` (no diff), `make check`; `cd web && bunx --bun vitest run src/lib/api/mocks/matchreplace.test.ts`.
 - Known limitations: mock tester only does STRING/FULL `UPDATE_RAW` on headers/bodies plus header `ADD`, and treats
-  every condition as matched (`shortcut:` comment); mock HTTPQL check only flags unterminated strings; mock regex check
+  every condition as matched, and leaves chunked or content-coded bodies unchanged (`shortcut:` comment); mock HTTPQL check only flags unterminated strings; mock regex check
   is JS `RegExp` plus a look-around/backref reject, not RE2.
 - Follow-ups (proposed tasks): none; T-035/T-102/T-036/T-108 can start.
 
@@ -298,3 +298,26 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   passed (43 Vitest files, 353 tests). `make gen` left the tree clean before this review note.
   `git diff --check` flagged four whitespace-only lines emitted in the generated web schema.
   Browser E2E and Go integration tests were skipped.
+
+### Review of `f99c64c`
+
+- Verdict is `changes_requested`.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:209` applies body rules to chunk
+  framing. Replacing the one-byte body `a` with `bb` in a chunked response returns
+  a chunk prefixed with size `1`. Apply body replacements to the payload and rebuild
+  the framing, or document and enforce a mock limit that leaves chunked bodies unchanged.
+  Add a regression case for a replacement that changes the payload length.
+  → Fixed (documented mock limit): body rules skip messages with `Transfer-Encoding` or
+  `Content-Encoding` (output unchanged, `changed: false`), stated in the `applyRule` `shortcut:` comment and
+  the Handoff. Real re-framing is T-102. Chunked `a`→`bb` and a gzip-coded case are tested.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:205` keeps a tuple and builder
+  closure for each header. A 12,000,019-byte response with 2 million short headers,
+  changing each value from `1` to `2`, returned successfully in Node v26.12.0 but took
+  979 ms and peaked at 756 MiB RSS (93 MiB before the call). Count growth in one pass
+  and build the result in bounded batches in a second pass without retaining per-header plans.
+  → Fixed: pass one counts growth per header with `measure` (no tuples/closures), pass two builds
+  in 8192-line joined batches. Same 2M-header case in Node v26: 588 ms, max RSS +257 MiB (was 979 ms, +663 MiB);
+  the rest is the split line array and base64 strings.
+- All 24 focused Vitest tests passed. Both findings were reproduced through the generated
+  schema with graphql-js on Node. Review assumed one desktop user and the tester's
+  documented input and output caps. Full checks, browser E2E, and Go integration were skipped.

@@ -287,6 +287,15 @@ describe('match & replace mock', () => {
       })
     ).data!.testMatchReplace;
     expect(same).toMatchObject({ output: resp, changed: false });
+    // Mock shortcut: chunked or content-coded bodies are left alone, never re-framed wrongly.
+    const ab = { ...body, matcher: { kind: 'STRING', value: 'a' }, term: 'bb' };
+    for (const framed of [
+      'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n0\r\n\r\n',
+      'HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 1\r\n\r\na',
+    ]) {
+      const r = (await m(TEST, { r: ab, k: 'RESPONSE', raw: btoa(framed) })).data!.testMatchReplace;
+      expect(r).toMatchObject({ output: btoa(framed), changed: false });
+    }
 
     expect(code(await m(TEST, { r: body, k: 'REQUEST', raw: req }))).toBe('BAD_INPUT');
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe('BAD_INPUT');

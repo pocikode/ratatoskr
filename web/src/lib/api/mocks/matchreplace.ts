@@ -171,7 +171,9 @@ function replaceBytes(text: string, v: string, term: string): string {
 /**
  * Applies a rule to one message as byte strings.
  * shortcut: only STRING/FULL `UPDATE_RAW` on headers and bodies, plus header `ADD`; every other
- * rule leaves the message unchanged and conditions always match. The real tester is T-102 (on the T-035 engine).
+ * rule leaves the message unchanged and conditions always match. Body rules skip messages with a
+ * `Transfer-Encoding` or `Content-Encoding` header instead of rebuilding chunk framing or codings.
+ * The real tester is T-102 (on the T-035 engine).
  */
 function applyRule(rule: MockRuleInput, raw: string): string {
   const cut = raw.indexOf('\r\n\r\n');
@@ -188,36 +190,47 @@ function applyRule(rule: MockRuleInput, raw: string): string {
     size += n;
     if (size > MAX_TEST_OUTPUT) throw fail('BAD_INPUT', 'tester output must be at most 16 MiB');
   };
-  // Returns the replaced length and a builder, so growth is counted before allocating.
-  const plan = (text: string): [number, () => string] => {
-    if (kind === 'FULL') return [term.length, () => term];
-    if (kind !== 'STRING') return [text.length, () => text];
-    // Matches are counted, not stored: split() on a 12 MiB body allocates ~100 MiB before the cap check.
+  // Replaced length without building it; matches are counted, not stored (split() on 12 MiB is ~100 MiB).
+  const measure = (text: string): number => {
+    if (kind === 'FULL') return term.length;
+    if (kind !== 'STRING') return text.length;
     let n = 0;
     for (let i = text.indexOf(v); i >= 0; i = text.indexOf(v, i + v.length)) n++;
-    return [text.length + n * (term.length - v.length), () => replaceBytes(text, v, term)];
+    return text.length + n * (term.length - v.length);
   };
+  const build = (text: string): string =>
+    kind === 'FULL' ? term : kind === 'STRING' ? replaceBytes(text, v, term) : text;
   const isHeader = rule.section.endsWith('_HEADER');
   if (isHeader && rule.operation === 'ADD') {
     grow(term.length + 2);
     headers.push(term);
   } else if (isHeader && rule.operation === 'UPDATE_RAW') {
-    const plans = headers.map(plan);
-    grow(plans.reduce((n, [len], i) => n + len - headers[i]!.length, 0));
-    // Index assignment, not a spread: V8 caps function arguments well below large header lists.
-    plans.forEach(([, build], i) => (headers[i] = build()));
+    // Two passes with no per-header plan objects: count, then replace in place.
+    for (const h of headers) grow(measure(h) - h.length);
+    // Joined in batches so replaced lines do not all stay alive as separate strings.
+    const done: string[] = [];
+    for (let i = 0; i < headers.length; i += 8192)
+      done.push(
+        headers
+          .slice(i, i + 8192)
+          .map(build)
+          .join('\r\n'),
+      );
+    headers.splice(0, headers.length, ...done);
   } else if (rule.section.endsWith('_BODY') && rule.operation === 'UPDATE_RAW') {
-    const [len, build] = plan(body);
+    if (headers.some((h) => /^(transfer|content)-encoding:/i.test(h))) return raw;
+    const len = measure(body);
     const i = headers.findIndex((h) => /^content-length:/i.test(h));
     const cl = `Content-Length: ${len}`;
     // Body and rewritten framing are counted together: a shorter length header offsets body growth.
     grow(len - body.length + (i >= 0 ? cl.length - headers[i]!.length : 0));
-    const next = build();
+    const next = build(body);
     if (next === body) return raw;
     body = next;
     if (i >= 0) headers[i] = cl;
   } else return raw;
-  return [start, ...headers].join('\r\n') + '\r\n\r\n' + body;
+  const head = headers.length ? `${start}\r\n${headers.join('\r\n')}` : start;
+  return `${head}\r\n\r\n${body}`;
 }
 
 /**
