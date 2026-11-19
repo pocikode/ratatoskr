@@ -3,7 +3,7 @@ id: T-096
 title: Serve sandboxed response preview at GET /api/rest/preview/{id} (follow-up of T-017, unblocks T-021)
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: [T-016]
 owner: Codex (GPT-6)
 branch: task/T-096-response-preview-route
