@@ -3,7 +3,7 @@ id: T-100
 title: History pending records, edited pairs and editedBy
 milestone: M2
 role: backend
-status: in_review
+status: done
 depends_on: [T-030]
 owner: Codex
 branch: task/T-100-history-pending-edited
