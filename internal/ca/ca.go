@@ -24,6 +24,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/pocikode/ratatoskr/internal/secret"
 	"github.com/pocikode/ratatoskr/internal/store"
 )
 
@@ -69,7 +70,7 @@ type Deps struct {
 // It is safe for concurrent use.
 type Service struct {
 	inst *store.DB
-	seal *sealer
+	seal *secret.Box
 	log  *slog.Logger
 	now  func() time.Time
 
@@ -103,14 +104,14 @@ func Open(ctx context.Context, deps Deps) (*Service, error) {
 		now = time.Now
 	}
 
-	seal, loose, err := openSealer(deps.Root)
+	seal, loose, err := secret.Open(deps.Root)
 	if err != nil {
 		return nil, err
 	}
 
 	if loose {
 		logger.Warn("secret.key was readable by other users; permissions restored to 0600",
-			"file", secretFile)
+			"file", secret.File)
 	}
 
 	cache, err := lru.New[string, *tls.Certificate](cacheSize)
@@ -152,7 +153,7 @@ func (s *Service) loadOrCreate(ctx context.Context) (*rootCA, error) {
 		return nil, err
 	}
 
-	keyDER, err := s.seal.open(keyEnc, []byte(keyAAD))
+	keyDER, err := s.seal.Open(keyEnc, []byte(keyAAD))
 	if err != nil {
 		return nil, fmt.Errorf("ca: cannot open the stored root CA key: secret.key no longer matches instance.db; "+
 			"restore the original secret.key, or remove the ca row from instance.db to generate a new root CA "+
@@ -191,7 +192,7 @@ func (s *Service) save(ctx context.Context, root *rootCA) error {
 		return err
 	}
 
-	sealed := s.seal.seal(keyDER, []byte(keyAAD))
+	sealed := s.seal.Seal(keyDER, []byte(keyAAD))
 
 	if err := saveRow(ctx, s.inst, root.pem, sealed); err != nil {
 		return err
