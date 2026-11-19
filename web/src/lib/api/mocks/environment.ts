@@ -87,8 +87,14 @@ export function createEnvironmentMock() {
 
   return {
     /** `{{name}}` interpolation: selected environment, then Global; unknown names stay verbatim; one pass. */
+    /** `text` and the result are byte strings (one char per byte); values are inserted as UTF-8. */
     interpolate: (text: string): string =>
-      text.replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}/g, (m, n: string) => lookup(n) ?? m),
+      text.replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}/g, (m, n: string) => {
+        const v = lookup(n);
+        return v == null
+          ? m
+          : Array.from(new TextEncoder().encode(v), (b) => String.fromCharCode(b)).join('');
+      }),
     root: {
       environments: list,
       environment: ({ id }: Args) => envs.find((e) => e.id === String(id)) ?? null,

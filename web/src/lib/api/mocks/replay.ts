@@ -3,7 +3,7 @@
 // Request records go into the history mock, so they use reserved hosts only.
 
 import { GraphQLError } from 'graphql';
-import { makeRequest, type MockRequest } from './history';
+import { extOf, makeRequest, slicer, type MockRequest } from './history';
 
 type Args = Record<string, unknown>;
 
@@ -119,7 +119,7 @@ function defaultName(b64: string): string {
   return m ? `${m[1]} ${m[2]}`.slice(0, 60) : 'Untitled';
 }
 
-const body = (s: string) => () => btoa(s);
+const body = (s: string) => slicer(Uint8Array.from(s, (ch) => ch.charCodeAt(0)));
 
 /** A REPLAY record carrying exactly `raw` (latin1 text), with a canned 200 unless `failed`. */
 function record(id: number, raw: string, c: Connection, failed: boolean): MockRequest {
@@ -139,6 +139,7 @@ function record(id: number, raw: string, c: Connection, failed: boolean): MockRe
     tls: c.tls,
     method: line?.[1] ?? 'GET',
     path,
+    ext: extOf(path),
     query,
     color: null,
     note: null,
@@ -161,9 +162,13 @@ function record(id: number, raw: string, c: Connection, failed: boolean): MockRe
   };
 }
 
-/** Full request bytes of a history record as latin1 text. */
-const rawOf = (r: MockRequest) =>
-  atob(r.head) + atob(r.body({ offset: 0, limit: 4194304, decode: false }));
+/** Full request bytes of a history record as latin1 text, read in 4 MiB chunks. */
+function rawOf(r: MockRequest): string {
+  let raw = atob(r.head);
+  for (let off = 0; off < Number(r.bodyLength); off += 4194304)
+    raw += atob(r.body({ offset: off, limit: 4194304, decode: false }));
+  return raw;
+}
 
 /**
  * A fake Replay backend: root resolvers for graphql-js. Seeded on the first Replay operation
@@ -236,10 +241,15 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
     return s;
   };
 
-  const addEntry = (s: MockReplaySession, raw: string, error: string | null): MockReplayEntry => {
+  const addEntry = (
+    s: MockReplaySession,
+    raw: string,
+    error: string | null,
+    connection = s.connection,
+  ): MockReplayEntry => {
     const e: MockReplayEntry = {
       id: `re${next++}`,
-      request: deps.addRecord((id) => record(id, raw, s.connection, error != null)),
+      request: deps.addRecord((id) => record(id, raw, connection, error != null)),
       error,
       createdAt: new Date().toISOString(),
     };
@@ -422,7 +432,7 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
       });
       cancels.delete(s.id);
       s.sending = false;
-      return addEntry(s, raw, cancelled ? 'cancelled' : null);
+      return addEntry(s, raw, cancelled ? 'cancelled' : null, connection);
     },
     cancelReplaySend({ id }: Args) {
       const cancel = cancels.get(String(session(id).id));

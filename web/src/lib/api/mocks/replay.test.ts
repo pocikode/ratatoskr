@@ -132,6 +132,61 @@ describe('replay mock', () => {
     );
   });
 
+  it('keeps the starting connection when the session changes during a send', async () => {
+    const { m } = run(client());
+    const pending = m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { request { host port } } }`,
+      { c: CONN, raw: RAW },
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    await m(
+      `mutation { updateReplaySession(id: "rs9", input: { connection: { host: "other.test", port: 9999, tls: true } }) { id } }`,
+    );
+    expect((await pending).data!.sendReplaySession.request).toEqual({
+      host: 'example.test',
+      port: 8080,
+    });
+  });
+
+  it('interpolates non-ASCII values as UTF-8 and keeps other bytes', async () => {
+    const { m } = run(client());
+    await m(
+      `mutation { setEnvironmentVariables(id: "env1", variables: [{ name: "v", value: "é東京" }]) { id } }`,
+    );
+    const raw = 'POST /x HTTP/1.1\r\nHost: example.test\r\n\r\n\xff{{v}}';
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { request { body } } }`,
+      { c: CONN, raw: btoa(raw) },
+    );
+    const want = [0xff, ...new TextEncoder().encode('é東京')];
+    const got = Array.from(atob(res.data!.sendReplaySession.request.body), (ch) =>
+      ch.charCodeAt(0),
+    );
+    expect(got).toEqual(want);
+  });
+
+  it('slices large bodies and copies them whole into a new session', async () => {
+    const { q, m } = run(client());
+    const head = 'POST /up HTTP/1.1\r\nHost: example.test\r\n\r\n';
+    const raw = head + 'a'.repeat(4 * 1024 * 1024) + 'z';
+    const sent = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { request { id ext body(offset: 4194304, limit: 1) } } }`,
+      { c: CONN, raw: btoa(raw) },
+    );
+    const r = sent.data!.sendReplaySession.request;
+    expect(atob(r.body)).toBe('z');
+    expect(r.ext).toBe('');
+    const copy = await m(
+      `mutation ($id: ID!) { createReplaySession(input: { fromRequestId: $id }) { draft } }`,
+      { id: r.id },
+    );
+    expect(atob(copy.data!.createReplaySession.draft)).toBe(raw);
+    const seeded = await q(
+      `{ replaySession(id: "rs3") { entries(first: 1) { edges { node { request { ext } } } } } }`,
+    );
+    expect(seeded.data!.replaySession.entries.edges[0].node.request.ext).toBe('');
+  });
+
   it('reports BAD_INPUT, CONFLICT and NOT_FOUND', async () => {
     const { m } = run(client());
     const create = (input: string, v = {}) =>

@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -98,6 +98,9 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
   `stubs_environment.go` (T-037); `Deps.Replay`, `Deps.ReplaySend`, `Deps.Environment` placeholder interfaces.
   Mocks: `mocks/replay.ts`, `mocks/environment.ts` merged into the mock exchange (`replaySendDelayMs` option,
   default 300 ms); send runs `{{var}}` interpolation from the environment mock; `mocks/replay.test.ts`.
+  Review fixes: sends record the connection captured before the wait; `interpolate` works on byte strings and
+  inserts values as UTF-8; Replay records use the History `slicer` (offset/limit honoured) and `extOf(path)`;
+  `rawOf` reads every 4 MiB chunk. Tests cover each case in `mocks/replay.test.ts`.
 - How to verify: `make gen` (no diff), `make check`, `cd web && bun run test -- src/lib/api/mocks`.
 - Known limitations: the replay mock skips Match & Replace, Content-Length update and redirects, and checks only the
   request line (marked `shortcut:`). The generated models keep the lazy fields (e.g. `ReplayEntry.Request`) as plain
@@ -107,8 +110,8 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 ## Review (reviewer)
 - Verdict: changes_requested
 - Findings:
-  - [ ] [major] `web/src/lib/api/mocks/replay.ts:425` — Updating the session connection during a send makes the completed entry report the new host and port. The send contract keeps the starting values. Pass the connection captured before the wait to the record builder and test an update during a pending send.
-  - [ ] [major] `web/src/lib/api/mocks/replay.ts:412` — Interpolation inserts JavaScript text into a byte string. A variable set to `é` produces `6Q==`. UTF-8 encodes it as `w6k=`. Reading the body with `東京` returns a GraphQL error. Encode the replacement values as UTF-8 bytes while preserving the untouched draft bytes. Test a non-ASCII value and compare the recorded bytes.
-  - [ ] [major] `web/src/lib/api/mocks/replay.ts:122` — The request and response body resolvers ignore `offset` and `limit`. A one-byte read at the end of a 4 MiB + 1 byte request returns the entire body. Reuse the History mock's body slicer, and update `rawOf` at line 165 to read all chunks so creating a Replay session from that record preserves its draft. Test both the last-byte read and the full copy.
-  - [ ] [minor] `web/src/lib/api/mocks/replay.ts:135` — Replay records inherit a file extension from an unrelated History fixture. A seeded `/api/v1/users` record reports `.js`, which gives the wrong result when sorting by extension. Derive `ext` from the recorded path using the same rule as History.
+  - [x] [major] `web/src/lib/api/mocks/replay.ts:425` — Updating the session connection during a send makes the completed entry report the new host and port. The send contract keeps the starting values. Pass the connection captured before the wait to the record builder and test an update during a pending send.
+  - [x] [major] `web/src/lib/api/mocks/replay.ts:412` — Interpolation inserts JavaScript text into a byte string. A variable set to `é` produces `6Q==`. UTF-8 encodes it as `w6k=`. Reading the body with `東京` returns a GraphQL error. Encode the replacement values as UTF-8 bytes while preserving the untouched draft bytes. Test a non-ASCII value and compare the recorded bytes.
+  - [x] [major] `web/src/lib/api/mocks/replay.ts:122` — The request and response body resolvers ignore `offset` and `limit`. A one-byte read at the end of a 4 MiB + 1 byte request returns the entire body. Reuse the History mock's body slicer, and update `rawOf` at line 165 to read all chunks so creating a Replay session from that record preserves its draft. Test both the last-byte read and the full copy.
+  - [x] [minor] `web/src/lib/api/mocks/replay.ts:135` — Replay records inherit a file extension from an unrelated History fixture. A seeded `/api/v1/users` record reports `.js`, which gives the wrong result when sorting by extension. Derive `ext` from the recorded path using the same rule as History.
 - `make check` passed, including all 303 web tests. `make gen` reproduced the committed output in a temporary checkout. GraphQL spot checks reproduced all four findings using the in-memory mocks. Review assumes one local frontend developer using the mock exchange. Live traffic and persistence belong to the backend follow-up tasks.
