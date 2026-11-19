@@ -894,12 +894,14 @@ func TestInterceptDropPages(t *testing.T) {
 	}
 }
 
-// An edited response whose body does not end where its framing says closes
-// the client connection after the bytes as given.
+// An edited response whose body does not end where its framing says, or a
+// standalone informational response, closes the client connection after the
+// bytes as given.
 func TestInterceptEditedResponseBadLengthClosesClient(t *testing.T) {
 	for name, edited := range map[string]string{
 		"short": "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc",
 		"long":  "HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nabc",
+		"103":   "HTTP/1.1 103 Early Hints\r\nLink: </s.css>; rel=preload\r\n\r\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHookRig(t, []intercept.Kind{intercept.Response}, nil, rawhttp.Limits{})

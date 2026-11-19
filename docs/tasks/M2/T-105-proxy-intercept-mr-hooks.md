@@ -150,3 +150,15 @@ Verification: `make check` and the cached `make test-int` passed. Fresh proxy an
   - Fixed: `rewrite` takes the request as a func, called only after `Active` says a rule runs; the hold view uses `req.Raw()`, or `x.upRaw` already built by a request edit.
 
 Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git diff --check main...HEAD` passed. This round used the existing 200-client load test and did not repeat the nil-hook benchmark comparison recorded above.
+
+### Round 3
+
+- Verdict: changes_requested
+- [x] [major] internal/proxy/hooks.go:608 — Forwarding a response edited to a standalone 103 can leave a keep-alive client waiting for a final response that will never arrive. Treat a standalone informational response as incompatible with connection reuse, preserve the edited bytes, and add an integration case.
+  - Fixed: a delivered response whose status is below 200 (and not an entered upgrade) closes the client after its bytes, sent as given. Case `103` in `TestInterceptEditedResponseBadLengthClosesClient`, mutation-checked (times out without the fix).
+- [x] [minor] internal/proxy/hooks.go:540 — Response holds copy the captured request again even though the pending history entry already has the same bytes. At 200 simultaneous holds after 8 MiB uploads, this adds about 1.6 GiB of allocations that the response queue's byte limit does not account for. Reuse the pending entry's request bytes when the request was unedited.
+  - Fixed: an unedited request's hold view aliases `entry.Req.Raw` (the pending record's copy) instead of `req.Raw()`.
+
+Verification: `go test -count=1 -race -tags integration -run 'Intercept|OverCap|Rewriter|ResponseRules|MethodEdit' ./internal/proxy` passed. The full repository checks and benchmark were not rerun.
+
+Round 3 fixes verified with `make check` and `GOFLAGS='-count=1 -p=2' make test-int` (green); benchmark not rerun (nil-hook path untouched).

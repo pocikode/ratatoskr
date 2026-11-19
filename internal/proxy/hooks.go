@@ -537,7 +537,7 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 		if r, _, err := c.s.parseResponse(delivered, x.sent.Method()); err != nil {
 			c.s.log.Info("proxy: rewritten response does not parse; not holding", "component", "proxy", "error", err)
 		} else {
-			heldReq, heldHead := req.Raw(), req
+			heldReq, heldHead := entry.Req.Raw, req // the pending record's copy: no second one per hold
 			if x.changed {
 				heldReq, heldHead = x.upRaw, x.sent
 			}
@@ -604,8 +604,9 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 	_, copyErr := c.conn.Write(delivered)
 
 	// An edit whose bytes do not end where its framing says (a short or
-	// overlong body) leaves the client unable to find the next response.
-	return copyErr == nil && !upgrade && final != nil && whole && !req.Close() && !final.Close() &&
+	// overlong body), or a lone informational head, leaves the client unable
+	// to find the next (or its final) response.
+	return copyErr == nil && !upgrade && final != nil && whole && edited.Code >= 200 && !req.Close() && !final.Close() &&
 		final.Framing() != rawhttp.FramingClose && !x.headChanged(req)
 }
 
