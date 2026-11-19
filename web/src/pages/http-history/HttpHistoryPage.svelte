@@ -138,6 +138,15 @@
     void history.showDetail(history.selection.anchor);
   });
 
+  // A switch belongs to the row it was made in: a new selection starts on the record it shows,
+  // and an in-flight sibling fetch for the previous row is dropped.
+  $effect(() => {
+    void history.selection.anchor;
+    chosen = null;
+    sibling = null;
+    siblingToken++;
+  });
+
   async function complete(text: string, cursor: number) {
     const result = await history.client
       .query(HistoryCompletionsDocument, { text, cursor }, { requestPolicy: 'network-only' })
