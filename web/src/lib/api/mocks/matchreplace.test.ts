@@ -287,6 +287,28 @@ describe('match & replace mock', () => {
       })
     ).data!.testMatchReplace;
     expect(same).toMatchObject({ output: resp, changed: false });
+    // A changed body gets exactly one correct Content-Length; a request gaining a body gets one too.
+    const reqBody = { ...body, section: 'REQUEST_BODY', matcher: { kind: 'FULL', value: '' } };
+    const reqBB = { ...reqBody, term: 'bb' };
+    for (const [input, want] of [
+      [
+        'POST / HTTP/1.1\r\nContent-Length: 1\r\nHost: a.test\r\nContent-Length: 1\r\n\r\na',
+        'POST / HTTP/1.1\r\nContent-Length: 2\r\nHost: a.test\r\n\r\nbb',
+      ],
+      [
+        'POST / HTTP/1.1\r\nHost: a.test\r\n\r\n',
+        'POST / HTTP/1.1\r\nHost: a.test\r\nContent-Length: 2\r\n\r\nbb',
+      ],
+    ] as const) {
+      const r = (await m(TEST, { r: reqBB, k: 'REQUEST', raw: btoa(input) })).data!
+        .testMatchReplace;
+      expect(atob(r.output)).toBe(want);
+    }
+    // No-op keeps the original bytes, duplicate lengths included.
+    const dup = btoa('POST / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\na');
+    const noop = (await m(TEST, { r: { ...reqBody, term: 'a' }, k: 'REQUEST', raw: dup })).data!
+      .testMatchReplace;
+    expect(noop).toMatchObject({ output: dup, changed: false });
     // Mock shortcut: chunked or content-coded bodies are left alone, never re-framed wrongly.
     const ab = { ...body, matcher: { kind: 'STRING', value: 'a' }, term: 'bb' };
     for (const framed of [

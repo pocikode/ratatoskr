@@ -321,3 +321,22 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - All 24 focused Vitest tests passed. Both findings were reproduced through the generated
   schema with graphql-js on Node. Review assumed one desktop user and the tester's
   documented input and output caps. Full checks, browser E2E, and Go integration were skipped.
+
+### Review of `506f0d5`
+
+- Verdict is `changes_requested`. The chunked and content-coded body shortcut is covered by the
+  focused tests. The following finding goes to the lead under the review round limit.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:221` — Body replacement can create invalid
+  request framing. A valid POST with two identical `Content-Length: 1` fields and body `a`
+  becomes a POST with lengths `2` and `1` after a FULL replacement with `bb`. The project
+  parser accepts the input and rejects the output. A header-only POST given the same rule gains
+  bytes without a length field, so the parser sees an empty body. When the body changes, emit
+  one correct `Content-Length` if one was present or a request gains a body. Include that exact
+  header change in the output budget, preserve original bytes on a no-op, and test both cases.
+  → Fixed: a changed body drops every `Content-Length` and emits one correct field (at the first one's
+  position, or appended when a request gains a body); the removed and added header bytes are counted in
+  the same pre-build output check. Tests: duplicate lengths → one `Content-Length: 2`, header-only POST
+  gains `Content-Length: 2`, a no-op on duplicate lengths returns the original bytes.
+- All 24 focused Vitest tests passed. Both framing cases were reproduced directly through the
+  mock resolver using synthetic request bytes. Review assumed one desktop user within the
+  documented tester limits. Full `make check`, browser E2E and Go integration were skipped.

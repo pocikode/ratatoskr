@@ -220,14 +220,24 @@ function applyRule(rule: MockRuleInput, raw: string): string {
   } else if (rule.section.endsWith('_BODY') && rule.operation === 'UPDATE_RAW') {
     if (headers.some((h) => /^(transfer|content)-encoding:/i.test(h))) return raw;
     const len = measure(body);
-    const i = headers.findIndex((h) => /^content-length:/i.test(h));
+    const isCL = (h: string) => /^content-length:/i.test(h);
+    const i = headers.findIndex(isCL);
+    // One correct length replaces every Content-Length; a request gaining a body needs one too.
+    const emit = i >= 0 || (!start!.startsWith('HTTP/') && len > 0);
     const cl = `Content-Length: ${len}`;
     // Body and rewritten framing are counted together: a shorter length header offsets body growth.
-    grow(len - body.length + (i >= 0 ? cl.length - headers[i]!.length : 0));
+    let framing = emit ? cl.length + 2 : 0;
+    for (const h of headers) if (isCL(h)) framing -= h.length + 2;
+    grow(len - body.length + framing);
     const next = build(body);
     if (next === body) return raw;
     body = next;
-    if (i >= 0) headers[i] = cl;
+    if (emit) {
+      const kept = headers.filter((h) => !isCL(h));
+      kept.splice(i >= 0 ? i : kept.length, 0, cl);
+      headers.splice(0, headers.length);
+      for (const h of kept) headers.push(h);
+    }
   } else return raw;
   const head = headers.length ? `${start}\r\n${headers.join('\r\n')}` : start;
   return `${head}\r\n\r\n${body}`;
