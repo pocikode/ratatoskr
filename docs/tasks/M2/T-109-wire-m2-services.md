@@ -36,6 +36,8 @@ M2 GraphQL field answers `NOT_IMPLEMENTED`.
 - [ ] `make check` and `make test-int` green.
 
 ## Notes from lead
+- Intercept on project switch (F-INT-1): release, then reload settings. The release emits no `REMOVED` events; the UI
+  resets on `projectChanged` `SELECTED`.
 - This is the only M2 task that edits `internal/app`; parallel backend tasks stay testable through their own packages and
   resolver tests with hand-built `resolvers.Deps`.
 

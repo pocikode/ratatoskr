@@ -102,6 +102,8 @@ M1 (T-011) has no pending row: the exchange is inserted once complete and `reque
 `MAX(id)+1` when the project opens, so the proxy never waits for a flush), the row is written with the next batch
 (`requestAdded`), and `history.Complete` queues the response on the same writer (`requestUpdated`). When M&R or
 Intercept changed the request or response, the proxy also stores the edited record of the pair (F-HIST-4).
+Before holding a message, the proxy waits for `Capture.Written(ctx, id)` so the intercept queue never shows a record that
+history cannot read yet (F-INT-1). That wait is at most one flush interval and applies only to held messages.
 Messages are buffered in full (≤ capture cap) only when Intercept may hold them or an enabled M&R rule for that side and
 source exists; everything else keeps streaming. A body over the cap is neither held nor rewritten. Hook order is fixed: M&R `proxy` rules → hold → (after a Forward with edits) M&R
 `intercept` rules → forward.
