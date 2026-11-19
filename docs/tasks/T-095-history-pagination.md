@@ -3,7 +3,7 @@ id: T-095
 title: HTTP History paging via TrafficTable near-end hook (follow-up of T-017, unblocks T-021)
 milestone: M1
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-017]
 owner: "Codex"
 branch: task/T-095-history-pagination
@@ -81,5 +81,30 @@ pages with the existing `requests(first, after)` cursor when the table nears its
 - T-021 owns the 100,000-row browser test.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
+- Checks: `make check` green (Go tests ok, svelte-check 0 errors, eslint/prettier clean, Vitest 36 files / 229 tests).
+  `make test-int` not run (no proxy/store/rawhttp change). All changed files are inside `paths`.
+- AC coverage: all eight AC have tests (3,050-row paging + no request after the last page, in-flight cancel on
+  reload and project reset, paging error, deleted-during-page, prepend keeps `activeKey`, bounded DOM rows).
+  The `compareRows` tie-break change (ties by ID in the sort direction) now matches `internal/history/list.go:82,210`.
 - Findings:
+- [ ] [major] web/src/pages/http-history/HttpHistoryPage.svelte:193 + history.svelte.ts:237 — `{#key history.tableVersion}`
+      remounts the whole `TrafficTable` after every successful reload. That includes a header sort (`setSort` → `reload`),
+      the reload command and `addHostToScope`. Case: a keyboard user tabs to the "Host" header and presses Enter. The
+      focused header button is destroyed, focus falls to `<body>`, and the user loses their place. The grid's
+      `activeKey` is also reset, so the next ArrowDown starts at row 0, not at the still-selected row. This breaks
+      docs/02 §203 "Full keyboard navigation" and worked before this branch. → Remove `tableVersion` and the `{#key}`.
+      In `TableView.svelte:86-92`, re-arm when the last row changes, not only the count:
+      `const last = rows.at(-1); if (count !== previousCount || last !== previousLast) notified = false;`.
+      A reload creates new row objects, so a same-count reload re-arms. A prepended live row leaves the last row
+      unchanged, so it does not. AC 1 says "row count". Note in Handoff that it is "row count or last row" (or ask
+      lead). Add a test: sort by header with keyboard focus → `document.activeElement` is still the header button.
+- [ ] [minor] web/src/pages/http-history/history.svelte.ts:259-263 — after a paging error, a later page can succeed.
+      For example, a live row changes the count, `onNearEnd` fires again, and the page loads. `message` still shows
+      "Page unavailable" because only `reload` clears it (line 241). → After `page.info = connection.pageInfo`, add
+      `if (this.message === pagingError) this.message = null`, keeping the failed text in a local or field. Or clear
+      it only when the last message came from paging. Extend the existing error test with a second, successful call.
+- [ ] [nit] web/src/pages/http-history/history.svelte.ts:259 — after a paging error, `TableView` stays `notified`
+      until the row count changes. With no live traffic, scrolling never retries, and the only way out is a full
+      reload. The Handoff documents this. Fine for now. Optional follow-up: re-arm when `message` is cleared, or show
+      a "Retry" action in the message.
