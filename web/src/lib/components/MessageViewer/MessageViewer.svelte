@@ -17,7 +17,7 @@
     title?: string;
     /** Defaults to Raw/Pretty/Hex/Table, plus Preview when `previewUrl` is set. */
     modes?: ViewerMode[];
-    /** Sandboxed preview source served by the proxy (`/preview/{id}`). */
+    /** Sandboxed preview source served by the proxy (`/api/rest/preview/{id}`). */
     previewUrl?: string;
   }
 
@@ -205,6 +205,15 @@
       >
         <CopyIcon size={13} aria-hidden="true" />
       </button>
+      {#if previewUrl}
+        <a
+          href={previewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="rounded-token px-2 py-1 text-xs text-fg underline hover:bg-hover"
+          >Open in browser</a
+        >
+      {/if}
     </div>
 
     <div bind:this={body} class="min-h-0 flex-1 overflow-auto">

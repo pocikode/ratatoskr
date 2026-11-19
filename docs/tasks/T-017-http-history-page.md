@@ -101,7 +101,7 @@ HTTP History page per layout §3.1 using TrafficTable + MessageViewer, a QueryBa
 - Column layout is persisted in `localStorage` (`ui-state.ts`) until the backend `ui_state` contract exists; pane sizes are
   not persisted (the layout toggle remounts the split and resets them).
 - Bodies are fetched with `limit: 4194304` (the per-call max); a longer body stops at 4 MiB and the viewer title says
-  "first 4 MiB". "Open in browser"/Preview mode is not wired: `/preview/{id}` does not exist yet.
+  "first 4 MiB".
 - Copy as cURL has the method and URL only: rows do not load `head`/`body`, so headers/body are not included.
 - Delete has no confirmation dialog (v1; see the follow-ups). Deleting any selected row clears the whole selection because
   `Selection` has no `remove`.
