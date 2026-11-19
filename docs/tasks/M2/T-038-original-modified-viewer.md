@@ -3,12 +3,15 @@ id: T-038
 title: Original/Modified viewer toggle and edited markers in HTTP History
 milestone: M2
 role: frontend
-status: in_progress
+status: in_review
 depends_on: [T-030]
 owner: "DeepSeek V4.1 Flash (opencode)"
 branch: task/T-038-original-modified-viewer
 paths:
   - web/src/lib/components/MessageViewer/**
+  - web/src/lib/components/TrafficTable/types.ts
+  - web/src/lib/components/TrafficTable/TableView.svelte
+  - web/src/lib/components/TrafficTable/TrafficTable.test.ts
   - web/src/pages/http-history/HttpHistoryPage.svelte
   - web/src/pages/http-history/HttpHistoryPage.test.ts
   - web/src/pages/http-history/detail.ts
@@ -32,14 +35,16 @@ Both records of an edited pair are marked in history, and the viewer switches bo
 - Out: Intercept/Replay pages, `http-history/commands.ts` (T-107).
 
 ## Acceptance criteria
-- [ ] Rows with `editedFrom` or `editedBy` show the edited marker (icon + tooltip, not colour only); others do not.
-- [ ] Selecting either record of the seeded mock pair shows the switch; switching loads the other record into both panes.
-- [ ] The switch is keyboard operable and announces the current state (ARIA).
-- [ ] Existing `MessageViewer` tests pass unchanged.
-- [ ] Component tests; `make check` green.
+- [x] Rows with `editedFrom` or `editedBy` show the edited marker (icon + tooltip, not colour only); others do not.
+- [x] Selecting either record of the seeded mock pair shows the switch; switching loads the other record into both panes.
+- [x] The switch is keyboard operable and announces the current state (ARIA).
+- [x] Existing `MessageViewer` tests pass unchanged.
+- [x] Component tests; `make check` green.
 
 ## Notes from lead
 - Runs in parallel with T-107, which only edits `http-history/commands.ts`.
+- AC 1 tooltip = native `title` + `aria-label` on the gridcell via the optional `TrafficColumn.hint`; no custom tooltip
+  component.
 
 ## Plan (implementer, ≤15 lines)
 1. `MessageViewer`: optional `toolbar` snippet prop, rendered at the left of the toolbar row (additive).
@@ -54,16 +59,26 @@ Both records of an edited pair are marked in history, and the viewer switches bo
 7. Tests: detail ids, column markers + sort key, page switch (both directions, keyboard, ARIA), existing viewer tests.
 
 ## Out-of-scope change needed (if any)
-- `web/src/lib/components/TrafficTable/{types.ts,TableView.svelte}`: `TrafficColumn.value` is text-only, so a row cell
-  cannot carry an icon + tooltip (`title`). AC 1 asks for "icon + tooltip". Smallest fix: an optional
-  `hint?: (row: Row) => string | null` on `TrafficColumn`, rendered as `title` on the gridcell (native tooltip, same as
-  T-104). Widen `paths` or confirm the plain-text marker.
+- Resolved by lead 2026-11-19: `TrafficTable` paths widened per option (a) — `TrafficColumn.hint` (native `title` +
+  `aria-label` on the gridcell).
 
 ## Handoff (implementer)
 - What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+  - `MessageViewer`: additive `toolbar?: Snippet` prop, rendered in the toolbar row after the view-mode tabs.
+  - `TrafficTable`: `TrafficColumn.hint?` — the gridcell renders it as native `title` and as `aria-label`.
+  - `HistoryRow`/`HistoryMessage` fragments now select `editedBy { id }`; `HistoryDetail` exposes `editedFromId` /
+    `editedById`.
+  - Edited column: `✎` on both halves of a pair, tooltip saying which half it is; `EDITED` sort key still `editedFrom`.
+  - History page: an Original / Modified switch (`role=group`, `aria-pressed` buttons) from either record, loading the
+    sibling via `HistoryRequestDocument`; both panes plus the preview URL follow the shown record. The switch flips only
+    once the other record's bytes have arrived, so the pressed state never disagrees with the panes.
+- How to verify: `cd web && bun run test`; or `bun run dev`, open `/?mock=history` (or `localStorage['history.mock']=1`),
+  and pick a row whose Edited column shows `✎` (ids 24/25 with the 500-row mock). `make check` green.
+- Known limitations: the sibling is fetched on click, so the swap waits for one round trip; the switch is a pair of
+  `aria-pressed` buttons (Tab + Enter/Space) rather than a radiogroup with arrow-key semantics; the tooltip is a native
+  `title` (no styled popover, ~1 s hover delay); no Playwright spec — `web/tests/e2e/**` is outside this task's paths.
+- Follow-ups (proposed tasks): E2E spec for the pair marker + switch on the seeded mock; preload both records with the
+  detail query if the switch latency is noticeable on large bodies.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
