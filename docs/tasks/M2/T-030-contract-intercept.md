@@ -3,7 +3,7 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: []
 owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
@@ -153,3 +153,30 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
   the committed files. Confirmed mixed release order, timer matching and project-switch documentation. Every changed
   file is in scope. `git diff --check main...HEAD` reported trailing whitespace on lines 514, 523 and 605 of the
   generated `web/src/lib/api/generated/schema.graphql`. No proxy, store or raw HTTP code changed.
+
+### Round 3 (`9c15b12`)
+
+- [ ] [major] internal/api/graphql/schema/intercept.graphqls:138 — A held message with a 25 MiB body can be read in
+  the editor, but sending the replacement takes 34,952,536 base64 bytes for the body alone. The 32 MiB GraphQL POST
+  cap returns HTTP 413 before the resolver runs. → Define the supported edit size and oversized-edit behavior in
+  the contract, or provide a bounded way to submit replacements for the full range of held messages. Align T-031
+  and T-032 with that decision.
+- [ ] [major] internal/api/graphql/schema/history.graphqls:156 — The response field promises null when an exchange
+  is held or dropped, while the same type and the Intercept contract retain the upstream response when that response
+  is held or dropped. → Describe null for a pending, failed, or dropped request and state that a held or dropped
+  response remains available.
+- [ ] [major] web/src/lib/api/mocks/intercept.ts:146 — The removal event queues a reference to the live history
+  object. Forwarding the first seeded request makes its `REMOVED` payload show response code 500, although the
+  request had no response when it left the queue. Dropping similarly changes the event's `isDropped` flag after
+  enqueue. → Snapshot the item and request when publishing queue events, and test those fields on the emitted
+  payload separately from the completed history row.
+- [ ] [minor] web/src/lib/api/mocks/history.ts:15 — Ordinary generated rows can still have source `INTERCEPT`
+  without an original row. With 30 seeded rows, IDs 3, 8, 18 and 27 all return `editedFrom: null`. → Assign
+  `INTERCEPT` when building the edited half of a pair and assert the invariant across a set of seeded rows.
+- Verification covered the single-user local proxy and its development mock. `make check` passed with 244 web
+  tests. Two `make gen` runs in an isolated snapshot left the generated outputs byte-for-byte identical to the
+  branch. A local probe confirmed the removal payload and unpaired source values. All changed files are in scope.
+  `git diff --check main...HEAD` still reports generated whitespace at `schema.graphql:514`, `:523` and `:605`.
+  No proxy, store, or raw HTTP code changed, so `make test-int` was outside the required checks.
+- Verdict: `changes_requested`. Escalate to the lead under the three-round review limit in
+  `docs/07-agent-workflow.md` §7.
