@@ -250,6 +250,8 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
       entries: ({ first, after }: Args) => {
         const n = Number(first ?? 100);
         if (n < 1 || n > 1000) throw fail('BAD_INPUT', 'first must be 1..1000');
+        // Deleting a History request cascades to its Replay entry, as in SQLite (project 0001_init.sql).
+        s.list = s.list.filter((e) => deps.request(e.request.id));
         const start = after ? s.list.findIndex((e) => e.id === after) + 1 : 0;
         const edges = s.list.slice(start, start + n).map((node) => ({ cursor: node.id, node }));
         return {

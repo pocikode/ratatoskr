@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -119,6 +119,8 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
   `2a6195f` recheck fixes: `REQUEST_LINE` delimits the target with `[^ \r\n]` instead of `\S`, so UTF-8 byte 0xA0
   (`GET /à`) stays in the target (name, path, head bytes tested). The History record's `createdAt` is the send start;
   the response `createdAt` is completion and `roundtripMs` is their difference (tested).
+  `ceaa58c` recheck fix: `entries` drops entries whose History request was deleted (`deleteRequests`), matching the
+  SQLite cascade; `totalCount` follows (tested).
 - How to verify: `make gen` (no diff), `make check`, `cd web && bun run test -- src/lib/api/mocks`.
 - Known limitations: the replay mock skips Match & Replace, Content-Length update and redirects, and checks only the
   request line (marked `shortcut:`). The generated models keep the lazy fields (e.g. `ReplayEntry.Request`) as plain
@@ -191,6 +193,6 @@ T-098 gives the Replay and Environments teams a shared GraphQL contract, Go stub
 T-098 defines the Replay and Environments GraphQL contracts and supplies Go stubs and mocks for one frontend developer working locally. The tests for the `/à` target and the send-start timestamps pass.
 
 - Verdict: `changes_requested`.
-- [ ] [major] `web/src/lib/api/mocks/replay.ts:253` — Deleting a Replay request through `deleteRequests` removes it from History, but Replay still returns the entry and the deleted request through `entries`. SQLite deletes the entry with its request under `internal/store/migrations/project/0001_init.sql:145`. Remove matching entries when the shared History mock deletes their requests, and test that a Replay refetch drops the entry and updates `totalCount`. Otherwise the mock teaches the editor to keep displaying a result that disappears with the real backend.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:253` — Deleting a Replay request through `deleteRequests` removes it from History, but Replay still returns the entry and the deleted request through `entries`. SQLite deletes the entry with its request under `internal/store/migrations/project/0001_init.sql:145`. Remove matching entries when the shared History mock deletes their requests, and test that a Replay refetch drops the entry and updates `totalCount`. Otherwise the mock teaches the editor to keep displaying a result that disappears with the real backend.
 - `make check` passed with 318 web tests. `make gen` reproduced both generated directories in a temporary checkout. An in-memory GraphQL check reproduced the stale entry, and a SQLite check using the checked-in migration confirmed the cascade. `git diff --check main...HEAD` reported trailing whitespace in the generated web SDL only.
 - The branch changes no proxy, store, or raw HTTP code, so this review skipped `make test-int`. The finding goes to the lead under the existing escalation.

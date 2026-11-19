@@ -39,6 +39,19 @@ describe('replay mock', () => {
     expect(s.edges[0].node.request.source).toBe('REPLAY');
   });
 
+  it('drops an entry when its History request is deleted', async () => {
+    const { q, m } = run(client());
+    const ENTRIES = `{ replaySession(id: "rs3") { entries { totalCount edges { node { id request { id } } } } } }`;
+    const before = (await q(ENTRIES)).data!.replaySession.entries;
+    const doomed = before.edges[0].node;
+    expect(
+      (await m(`mutation { deleteRequests(ids: ["${doomed.request.id}"]) }`)).data!.deleteRequests,
+    ).toBe('1');
+    const after = (await q(ENTRIES)).data!.replaySession.entries;
+    expect(after.totalCount).toBe(before.totalCount - 1);
+    expect(after.edges.map((e: { node: { id: string } }) => e.node.id)).not.toContain(doomed.id);
+  });
+
   it('creates, renames, reorders, moves, duplicates and deletes', async () => {
     const { q, m } = run(client());
     const created = await m(`mutation { createReplayCollection(name: " Mine ") { id name } }`);
