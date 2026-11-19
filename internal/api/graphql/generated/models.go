@@ -395,7 +395,7 @@ type MatchReplaceRuleInput struct {
 
 // What the tester produced.
 type MatchReplaceTestResult struct {
-	// The message after the rule; the input bytes unchanged when nothing changed.
+	// The message after the rule, at most 16 MiB; the input bytes unchanged when nothing changed.
 	Output []byte `json:"output"`
 	// Whether the condition matched (true for an empty condition).
 	ConditionMatched bool `json:"conditionMatched"`

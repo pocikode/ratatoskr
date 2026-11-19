@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -18,6 +18,7 @@ paths:
   - docs/tasks/M2/T-099-contract-match-replace.md
   - docs/01-feature-spec.md (F-MR-1 API details only)
   - docs/tasks/M2/T-108-match-replace-tester.md (acceptance criteria: tester size notice)
+  - docs/tasks/M2/T-102-match-replace-service.md (acceptance criteria: tester output cap)
 spec:
   - docs/01-feature-spec.md#F-MR-1 (incl. "Contract (lead, 2026-11-19, M2)")
   - docs/03-architecture.md §6
@@ -78,7 +79,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   placeholder; regenerated code. Mock `mocks/matchreplace.ts` (2 collections, 4 rules, one disabled) wired into
   `exchange.ts`; `matchreplace.test.ts` covers CRUD, enable, move, reorder, validation codes, import/export, tester.
   Size budget (review of `3ff8e51`): condition ≤ 64 KiB, ≤ 1000 collections, ≤ 3 MiB rule text per project,
-  tester `raw` ≤ 12 MiB; in F-MR-1, the schema, the mock, and a new T-108 criterion (T-108 file added to paths).
+  tester `raw` ≤ 12 MiB, tester `output` ≤ 16 MiB (lead escalation); in F-MR-1, the schema, the mock, and a new T-108 criterion (T-108 file added to paths).
   Import is validated against the schema (`createMatchReplaceMock(schema)` uses `coerceInputValue` on
   `MatchReplaceRuleInput` plus exact-key checks); malformed imports are rejected with nothing appended.
   F-MR-1 gained an "API details" bullet for the decisions the contract makes (no default collection, non-empty matcher
@@ -182,17 +183,22 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 
 - Verdict is `changes_requested`. The previous findings are resolved. The review protocol's three-round limit has been
   reached. The lead needs to decide the tester's result limit and error behavior before T-102 and T-108 implement it.
-- [ ] [major] `internal/api/graphql/schema/matchreplace.graphqls:327` — The tester caps the request and leaves the result
+- [x] [major] `internal/api/graphql/schema/matchreplace.graphqls:327` — The tester caps the request and leaves the result
   uncapped. A short literal that occurs throughout a body can expand a modest fixture to tens of MiB even with an
   ordinary replacement string. The mock already builds the entire replacement with `join` and base64-encodes it on
   the UI thread (`web/src/lib/api/mocks/matchreplace.ts:162`). Larger valid inputs can exhaust memory or fail to return
   the documented result, even with one desktop user. → Define a tester output limit and a documented error when it is
   exceeded. Enforce the limit while producing replacement bytes, before allocating or base64-encoding the full result.
   Cover a small input whose replacement crosses the limit in the mock and downstream tester.
-- [ ] [minor] `web/src/lib/api/mocks/matchreplace.ts:421` — The tester accepts a valid response encoded as base64 with its
+  → Lead decision: tester `output` ≤ 16 MiB (base64 ≈ 21.3 MiB response); larger is `BAD_INPUT`
+  "tester output must be at most 16 MiB", detected from the replacement growth before the result is built,
+  no partial output. In F-MR-1 size budget and the schema; mock checks growth before `join`; new criteria in
+  T-102 (resolver) and T-108 (UI shows the message). Test: 64 KiB of `b`, 300-byte term → `BAD_INPUT`.
+- [x] [minor] `web/src/lib/api/mocks/matchreplace.ts:421` — The tester accepts a valid response encoded as base64 with its
   required trailing padding removed. Reproduced through graphql-js. The Go `Bytes` scalar uses
   `base64.StdEncoding.DecodeString` and returns `BAD_INPUT` for that input. → Validate the padded form in the mock and
   add the unpadded response to the existing rejection cases.
+  → Fixed: `raw` length must be a multiple of 4; unpadded response added to the rejection cases.
 - Verification: all changed files are in scope. `make check` passed (43 Vitest files, 353 tests).
   `make gen` left the tree unchanged. A standalone serialization check for size-budget fixtures with heavily
   escaped text produced a 23,903,217-byte import request and a 29,754,518-byte tester request. Both fit the

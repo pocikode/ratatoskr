@@ -800,7 +800,7 @@ type MatchReplaceTestResult {
   conditionMatched: Boolean!
 
   """
-  The message after the rule; the input bytes unchanged when nothing changed.
+  The message after the rule, at most 16 MiB; the input bytes unchanged when nothing changed.
   """
   output: Bytes!
 }
@@ -1214,7 +1214,9 @@ type Mutation {
   
   Errors: `BAD_INPUT` for an invalid rule, a rule section for the other `kind`,
   `raw` over 12 MiB (so the request fits the 32 MiB API cap; larger messages
-  cannot be tested), or `raw` that is not an HTTP/1.x message of `kind`;
+  cannot be tested), `raw` that is not an HTTP/1.x message of `kind`, or an
+  `output` that would exceed 16 MiB (checked while replacing, before the result
+  is built; no partial output is returned);
   `BAD_QUERY` with span for
   an invalid condition.
   """

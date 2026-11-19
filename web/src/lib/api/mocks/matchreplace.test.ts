@@ -292,5 +292,13 @@ describe('match & replace mock', () => {
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe('BAD_INPUT');
     const huge = btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(12 * 1024 * 1024)}`);
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: huge }))).toBe('BAD_INPUT');
+    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: resp.replace(/=+$/, '') }))).toBe(
+      'BAD_INPUT',
+    );
+    // 64 KiB of 'b' x 300-byte term: a small input whose result crosses the 16 MiB output cap.
+    const grow = btoa(`HTTP/1.1 200 OK\r\n\r\n${'b'.repeat(64 * 1024)}`);
+    expect(
+      code(await m(TEST, { r: { ...body, term: 'x'.repeat(300) }, k: 'RESPONSE', raw: grow })),
+    ).toBe('BAD_INPUT');
   });
 });

@@ -39,6 +39,7 @@ const MAX_TEXT = 1024 * 1024;
 const MAX_CONDITION = 64 * 1024;
 const MAX_PROJECT_TEXT = 3 * MAX_TEXT;
 const MAX_TEST_RAW = 12 * MAX_TEXT;
+const MAX_TEST_OUTPUT = 16 * MAX_TEXT;
 const OPS: Record<string, string[]> = {
   REQUEST_FIRST_LINE: ['UPDATE_RAW'],
   REQUEST_METHOD: ['UPDATE'],
@@ -158,8 +159,16 @@ function applyRule(rule: MockRuleInput, raw: string): string {
   let body = raw.slice(cut + 4);
   const term = toBytes(rule.term);
   const { kind, value } = rule.matcher;
-  const replace = (text: string) =>
-    kind === 'FULL' ? term : kind === 'STRING' ? text.split(toBytes(value)).join(term) : text;
+  // Output cap is checked from the growth before the replaced text is built (32 bytes: Content-Length digits).
+  let budget = MAX_TEST_OUTPUT - raw.length - 32;
+  const replace = (text: string) => {
+    if (kind === 'FULL') return term;
+    if (kind !== 'STRING') return text;
+    const parts = text.split(toBytes(value));
+    budget -= (parts.length - 1) * (term.length - toBytes(value).length);
+    if (budget < 0) throw fail('BAD_INPUT', 'tester output must be at most 16 MiB');
+    return parts.join(term);
+  };
   const isHeader = rule.section.endsWith('_HEADER');
   if (isHeader && rule.operation === 'ADD') headers.push(term);
   else if (isHeader && rule.operation === 'UPDATE_RAW')
@@ -417,6 +426,8 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
             `section ${draft.section} cannot be tested on a ${String(kind).toLowerCase()}`,
           );
         let text: string;
+        // atob also accepts unpadded input; the Go Bytes scalar (StdEncoding) does not.
+        if (String(raw).length % 4 !== 0) throw fail('BAD_INPUT', 'raw is not valid base64');
         try {
           text = atob(String(raw));
         } catch {

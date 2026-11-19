@@ -19,7 +19,7 @@
 # Size budget, so every request fits the 32 MiB API cap: a condition is at most
 # 64 KiB; a project holds at most 1000 rules and 1000 collections, and the UTF-8
 # sum of all its rules' conditions, matcher values and terms is at most 3 MiB.
-# The tester takes at most 12 MiB of `raw`.
+# The tester takes at most 12 MiB of `raw` and returns at most 16 MiB of `output`.
 #
 # The rules are repeated in the descriptions below so they reach the generated
 # SDL and introspection.
@@ -244,7 +244,7 @@ input MatchReplaceRuleInput {
 
 "What the tester produced."
 type MatchReplaceTestResult {
-  "The message after the rule; the input bytes unchanged when nothing changed."
+  "The message after the rule, at most 16 MiB; the input bytes unchanged when nothing changed."
   output: Bytes!
   "Whether the condition matched (true for an empty condition)."
   conditionMatched: Boolean!
@@ -332,7 +332,9 @@ extend type Mutation {
 
   Errors: `BAD_INPUT` for an invalid rule, a rule section for the other `kind`,
   `raw` over 12 MiB (so the request fits the 32 MiB API cap; larger messages
-  cannot be tested), or `raw` that is not an HTTP/1.x message of `kind`;
+  cannot be tested), `raw` that is not an HTTP/1.x message of `kind`, or an
+  `output` that would exceed 16 MiB (checked while replacing, before the result
+  is built; no partial output is returned);
   `BAD_QUERY` with span for
   an invalid condition.
   """

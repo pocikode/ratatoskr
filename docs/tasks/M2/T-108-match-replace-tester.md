@@ -34,6 +34,8 @@ The tester column runs the draft rule against a request or response and shows be
 - [ ] Inputs over 1 MiB show a notice and skip the diff (output still shown).
 - [ ] Inputs over 12 MiB (pasted or picked) are not sent; a notice says the tester takes at most 12 MiB
       (F-MR-1 size budget, set by T-099 review).
+- [ ] A `BAD_INPUT` "tester output must be at most 16 MiB" result shows that message in place of the output
+      (mock: 64 KiB of `b` with term of 300 bytes).
 - [ ] Component tests against the mock; `make check` green.
 
 ## Notes from lead

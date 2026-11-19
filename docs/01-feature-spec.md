@@ -296,7 +296,9 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     at most 64 KiB; a project holds at most 1000 collections, and the UTF-8 sum of all its rules' conditions, matcher
     values and terms is at most 3 MiB (any create, update or import past either is `BAD_INPUT`). A valid export, JSON
     escaped again inside the import request, then stays under ~25 MiB. The tester takes at most 12 MiB of `raw`
-    (`BAD_INPUT`); the UI does not send a larger pasted or picked message and says why.
+    (`BAD_INPUT`); the UI does not send a larger pasted or picked message and says why. Its `output` is at most 16 MiB:
+    a rule whose result would be larger is `BAD_INPUT` ("tester output must be at most 16 MiB"), detected while
+    replacing, before the full result is allocated or encoded; no partial output. The UI shows that message.
 
 ---
 
