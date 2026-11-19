@@ -11,6 +11,7 @@ paths:
   - internal/config/config.go
   - internal/config/config_test.go
   - internal/api/middleware/auth_login_test.go   # only to drop the pinned-500 case
+  - docs/03-architecture.md                      # §8 cookie-safe token sentence only (lead edit)
 spec:
   - docs/03-architecture.md §8
 ---
@@ -51,6 +52,8 @@ cookie login answer 500, while Bearer auth still works (T-024 review, minor 1).
 - Follow-ups (proposed tasks): none.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
 - Findings:
-  - [ ] [blocker|major|minor|nit] path:line — description
+  - [x] [minor] docs/03-architecture.md:197 — the §8 edit was outside `paths`. Fixed: added a §8-only entry to `paths`.
+- Reviewer ran lint, focused race tests, and an invalid-token startup smoke test; all passed. Full `make check` was not
+  run there because the sandbox blocked loopback binds (lead re-ran it green on main after the fix).
