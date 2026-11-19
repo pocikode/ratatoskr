@@ -1,0 +1,180 @@
+# Intercept (docs/01-feature-spec.md F-INT-1, "Contract (lead, 2026-11-19, M2)").
+# Owned by the lead; contract task T-030, resolvers: T-031, proxy hooks: T-100.
+# Settings live in the selected project's database, except `queuing`. The queue
+# is in memory, FIFO and not persisted. WebSocket messages arrive in M4 (T-053).
+
+"Which side of an exchange a held item is."
+enum InterceptItemKind {
+  "A request held before it is sent upstream."
+  REQUEST
+  "A response held before it is sent to the client."
+  RESPONSE
+}
+
+"""
+Intercept settings of the selected project. A request is held iff `queuing` and
+`requests` are on and it matches `query` and the `scopeId` preset; a response
+iff `queuing` and `responses` are on and the exchange matches. `query` is
+evaluated on the message after Match & Replace; `resp.*` clauses are false for
+a request. Changing the condition does not release items already held. Only
+messages whose body fits the capture cap (64 MiB) are held; larger ones pass
+through.
+"""
+type InterceptSettings {
+  """
+  Queuing (true) or Forwarding (false). Not persisted: every start and every
+  project switch begins in Forwarding.
+  """
+  queuing: Boolean!
+  "Whether requests are held while queuing. Default true."
+  requests: Boolean!
+  "Whether responses are held while queuing. Default false."
+  responses: Boolean!
+  "HTTPQL condition deciding which traffic is held; empty (the default) holds everything."
+  query: String!
+  "Scope preset deciding which traffic is held; null (the default) holds everything."
+  scopeId: ID
+  "Status code the client gets for a dropped item, 100-599. Default 502."
+  dropStatusCode: Int!
+}
+
+"""
+Changes to `InterceptSettings`. Omitted fields keep their value; `scopeId:
+null` clears the scope. Nothing changes when any field is invalid.
+"""
+input InterceptSettingsInput {
+  """
+  Turning queuing off forwards every held item unchanged, in FIFO order.
+  `null` is the same as omitting the field.
+  """
+  queuing: Boolean
+  """
+  Turning it off forwards the held requests unchanged, in FIFO order. `null` is
+  the same as omitting the field.
+  """
+  requests: Boolean
+  """
+  Turning it off forwards the held responses unchanged, in FIFO order. `null`
+  is the same as omitting the field.
+  """
+  responses: Boolean
+  "HTTPQL condition; `\"\"` holds everything. `null` is the same as omitting the field."
+  query: String
+  "Scope preset ID; `null` clears it (everything is in scope)."
+  scopeId: ID
+  "Status code for dropped items, 100-599. `null` is the same as omitting the field."
+  dropStatusCode: Int
+}
+
+"""
+A request or response held in the intercept queue. It stays until it is
+forwarded or dropped, queuing or its side is turned off, the project is
+switched, or the client disconnects (a held request then leaves the queue and
+its record stays without a response).
+"""
+type InterceptItem implements Node {
+  "Opaque ID, valid while the item is held."
+  id: ID!
+  "Whether a request or a response is held."
+  kind: InterceptItemKind!
+  """
+  The history record of the exchange. A held request already has its record
+  (pending, no response yet), so it shows in HTTP History.
+  """
+  request: HttpRequest!
+  """
+  The held message exactly as it would be sent now (after Match & Replace): the
+  request for `REQUEST` items, the response for `RESPONSE` items.
+  """
+  raw: Bytes!
+  "When the item entered the queue."
+  heldAt: Time!
+}
+
+"How the intercept queue changed."
+enum InterceptQueueChangeKind {
+  "An item entered the queue."
+  ADDED
+  "An item left the queue (forwarded, dropped, released or client gone)."
+  REMOVED
+}
+
+"One change to the intercept queue, from `interceptQueueChanged`."
+type InterceptQueueChange {
+  "Whether the item entered or left the queue."
+  kind: InterceptQueueChangeKind!
+  "The item; for `REMOVED`, as it was when it left."
+  item: InterceptItem!
+}
+
+extend type Query {
+  "Intercept settings of the selected project."
+  interceptSettings: InterceptSettings!
+  """
+  Held items in FIFO order (oldest first), of one `kind` or, with `kind: null`,
+  both. The sidebar badge is the number of held items.
+  """
+  interceptQueue(kind: InterceptItemKind): [InterceptItem!]!
+}
+
+extend type Mutation {
+  """
+  Updates the settings and returns them; emits `interceptSettingsChanged`.
+  Turning `queuing`, `requests` or `responses` off forwards the affected held
+  items unchanged in FIFO order.
+
+  Errors:
+  - `BAD_QUERY` (with span): `query` does not parse or type-check.
+  - `NOT_FOUND`: unknown `scopeId`.
+  - `BAD_INPUT`: `dropStatusCode` outside 100-599.
+  """
+  updateInterceptSettings(input: InterceptSettingsInput!): InterceptSettings!
+  """
+  Releases a held item and returns its ID; emits `interceptQueueChanged`
+  (`REMOVED`).
+
+  `raw`, when given, replaces the held message and must parse as an HTTP/1.x
+  request (or response for `RESPONSE` items). An edited exchange is stored as
+  an edited record linked to the original (F-HIST-4). With
+  `updateContentLength`, `Content-Length` is set to the body size when the
+  message has no `Transfer-Encoding` and has a body or a `Content-Length`
+  header; otherwise the bytes go out exactly as given. Editing `Host` or the
+  request target never changes the destination: the request goes to the
+  original connection's host, port and TLS.
+
+  Errors:
+  - `NOT_FOUND`: unknown ID or item already released.
+  - `BAD_INPUT`: `raw` does not parse; the message quotes the parse error.
+  """
+  forwardInterceptItem(id: ID!, raw: Bytes, updateContentLength: Boolean! = true): ID!
+  """
+  Drops a held item and returns its ID; emits `interceptQueueChanged`
+  (`REMOVED`). The client gets `dropStatusCode` with a short HTML body and the
+  record gets `isDropped`. A dropped request is never sent upstream and the
+  record has no response; a dropped response keeps the server's response on
+  the record. No edited record is stored. `NOT_FOUND` for an unknown ID or an
+  item already released.
+  """
+  dropInterceptItem(id: ID!): ID!
+  """
+  Forwards every held item of `kind` (both kinds when null) unchanged, in FIFO
+  order. Returns how many were forwarded; emits one `REMOVED` per item.
+  """
+  forwardAllInterceptItems(kind: InterceptItemKind): Int!
+  """
+  Drops every held item of `kind` (both kinds when null), as
+  `dropInterceptItem`. Returns how many were dropped; emits one `REMOVED` per
+  item.
+  """
+  dropAllInterceptItems(kind: InterceptItemKind): Int!
+}
+
+extend type Subscription {
+  "Each item entering or leaving the intercept queue of the selected project."
+  interceptQueueChanged: InterceptQueueChange!
+  """
+  The settings after every change, by any client, including the reset to
+  Forwarding on a project switch.
+  """
+  interceptSettingsChanged: InterceptSettings!
+}

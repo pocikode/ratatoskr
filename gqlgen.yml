@@ -35,6 +35,7 @@ models:
       head: { resolver: true }
       body: { resolver: true }
       editedFrom: { resolver: true }
+      editedBy: { resolver: true }
   HttpResponse:
     fields:
       head: { resolver: true }
@@ -44,3 +45,7 @@ models:
       RequestID:
         type: int64
         description: ID of the request this response belongs to; not exposed in the schema.
+  # `scopeId: null` clears the scope while an omitted field keeps it (F-INT-1).
+  InterceptSettingsInput:
+    fields:
+      scopeId: { omittable: true }

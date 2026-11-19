@@ -72,6 +72,7 @@ export interface MockRequest {
   color: string | null;
   note: string | null;
   editedFrom: MockRequest | null;
+  editedBy: MockRequest | null;
   isDropped: boolean;
   isTruncated: boolean;
   head: string;
@@ -197,6 +198,7 @@ export function makeRequest(i: number, base = Date.UTC(2026, 10, 18, 9, 0, 0)): 
     color: r() < 0.1 ? pick(COLORS) : null,
     note: r() < 0.05 ? `note on #${i}` : null,
     editedFrom: null,
+    editedBy: null,
     isDropped,
     isTruncated: false,
     head: b64(reqHead),
@@ -281,13 +283,26 @@ export interface MockHistoryOptions {
 export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHistoryOptions = {}) {
   const rows: MockRequest[] = Array.from({ length: count }, (_, k) => makeRequest(k + 1));
   // Every 25th row is an edited copy of the row before it (F-HIST-4).
-  for (let k = 24; k < rows.length; k += 25) rows[k]!.editedFrom = rows[k - 1]!;
+  for (let k = 24; k < rows.length; k += 25) {
+    rows[k]!.editedFrom = rows[k - 1]!;
+    rows[k - 1]!.editedBy = rows[k]!;
+  }
   const byId = new Map(rows.map((r) => [r.id, r]));
   let nextId = count + 1;
   const listeners = new Set<Listener>();
   let liveCount = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
   const emit = (event: Record<string, unknown>) => listeners.forEach((l) => l(event));
+  /** Stores a new record built for the next free ID and emits `requestAdded`. */
+  const addRecord = (build: (id: number) => MockRequest): MockRequest => {
+    const r = build(nextId++);
+    rows.push(r);
+    byId.set(r.id, r);
+    emit({ added: r });
+    return r;
+  };
+  /** Emits `requestUpdated` for a record changed in place. */
+  const updateRecord = (r: MockRequest) => emit({ updated: r });
 
   // shortcut: matches the quoted literals (or the whole text) as a case-insensitive substring of
   // method, host, path and query; replace with the real HTTPQL engine once T-0xx lands it.
@@ -325,12 +340,7 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
     listeners.add(listener);
     if (live && liveIntervalMs > 0 && liveCount++ === 0) {
       // One shared timer for all live subscribers, so each new row is emitted once.
-      timer = setInterval(() => {
-        const r = makeRequest(nextId++, Date.now());
-        rows.push(r);
-        byId.set(r.id, r);
-        emit({ added: r });
-      }, liveIntervalMs);
+      timer = setInterval(() => addRecord((id) => makeRequest(id, Date.now())), liveIntervalMs);
     }
     return {
       [Symbol.asyncIterator]() {
@@ -362,6 +372,8 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
   return {
     rows,
     matcher,
+    addRecord,
+    updateRecord,
     root: {
       requests(args: Args) {
         const { first, after, last, before, query, sort } = args as {
@@ -442,7 +454,10 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
         const match = matcher(query);
         const gone = rows.filter((r) => (doomed ? doomed.has(r.id) : match(r)));
         for (const r of gone) byId.delete(r.id);
-        for (const r of rows) if (r.editedFrom && !byId.has(r.editedFrom.id)) r.editedFrom = null;
+        for (const r of rows) {
+          if (r.editedFrom && !byId.has(r.editedFrom.id)) r.editedFrom = null;
+          if (r.editedBy && !byId.has(r.editedBy.id)) r.editedBy = null;
+        }
         rows.splice(0, rows.length, ...rows.filter((r) => byId.has(r.id)));
         for (let k = 0; k < gone.length; k += 1000) {
           emit({ deleted: { ids: gone.slice(k, k + 1000).map((r) => r.id) } });
