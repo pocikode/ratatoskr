@@ -11,12 +11,34 @@ import (
 )
 
 func TestConcurrentFirstStart(t *testing.T) {
-	t.Parallel()
+	for _, empty := range []bool{false, true} {
+		name := "missing"
+		if empty {
+			name = "empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			testConcurrentOpen(t, empty)
+		})
+	}
+}
+
+func testConcurrentOpen(t *testing.T, empty bool) {
+	t.Helper()
 	root, err := os.OpenRoot(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer root.Close()
+	if empty {
+		f, err := root.OpenFile(secret.File, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
 	const n = 32
 	boxes := make(chan *secret.Box, n)
 	var wg sync.WaitGroup

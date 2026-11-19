@@ -7,7 +7,7 @@ import (
 )
 
 // Keep the package-local CA test API while sharing the secret box.
-const secretFile = "secret.key"
+const secretFile = secret.File
 
 type sealer struct{ box *secret.Box }
 

@@ -111,7 +111,7 @@ func Open(ctx context.Context, deps Deps) (*Service, error) {
 
 	if loose {
 		logger.Warn("secret.key was readable by other users; permissions restored to 0600",
-			"file", "secret.key")
+			"file", secret.File)
 	}
 
 	cache, err := lru.New[string, *tls.Certificate](cacheSize)

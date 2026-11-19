@@ -3,7 +3,7 @@ id: T-037
 title: Environment backend - Global and project environments, sealed secrets, interpolation, resolvers
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "Codex (GPT-6)"
 branch: task/T-037-environment-backend
@@ -63,10 +63,10 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   - Note the constructor shape in Handoff so T-109 can wire it.
 
 ## Plan (implementer, ≤15 lines)
-1. Extract the shared secret box while preserving existing CA ciphertext and key-file compatibility.
-2. Add environment storage, validation, atomic variable replacement, selection and byte-preserving interpolation.
-3. Replace GraphQL stubs with thin service adapters; test services, secret storage and GraphQL behavior.
-4. Run `make check` and complete the handoff (app wiring is T-109).
+1. Address all four review findings without changing environment behavior or app wiring.
+2. Keep Unix key locking and add Windows locking, including concurrent legacy empty-file initialization.
+3. Hoist the interpolation regex, document whitespace, and export the shared key filename.
+4. Run `make check` and Windows cross-build; update Review and Handoff.
 
 ## Out-of-scope change needed (if any)
 - ~~Blocked: add `internal/app/app.go` to `paths`~~ → declined by lead, see Notes from lead.
@@ -79,7 +79,7 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
 
 ## Handoff (implementer)
 - What changed: extracted `internal/secret.Box` and switched CA production code to it without changing `ca.Deps`
-  or `ca.Open`. Key creation uses `O_EXCL`, reopens on `EEXIST`, and locks initialization/read with `flock` so
+  or `ca.Open`. Key creation uses `O_EXCL`, reopens on `EEXIST`, and locks initialization/read with platform file locks so
   concurrent openers share one key, including when the file starts empty. Existing CA tests are unchanged;
   a test-only adapter retains their old package-local API, and an independent legacy ciphertext test verifies compatibility.
   Added Global/project CRUD, validation, atomic variable replacement, sealed secret storage, per-project selection,
@@ -93,13 +93,24 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   changing the lockfile. `git diff --check` passed.
 - Known limitations: app wiring remains T-109, so the running binary still answers `NOT_IMPLEMENTED` until that task lands.
   No UI E2E run; API behavior is covered through GraphQL handler tests with real SQLite storage.
-  Key locking uses the standard-library `syscall.Flock` on the repository's supported Linux/macOS platforms.
+  Key locking uses `syscall.Flock` on Unix and `windows.LockFileEx` on Windows; closing the file releases either lock.
+  Windows runtime behavior was not exercised on this Linux host.
 - Follow-ups (T-109): call `secret.Open(root)` (report the returned loose-permission warning), then
   `environment.New(environment.Deps{Instance: inst, Project: projectService.DB, Secrets: box})` and supply the result as
   `resolvers.Deps.Environment`. The service uses `int64` IDs (`environment.GlobalID == 0`); GraphQL exposes Global as
   `"global"` and project IDs as decimal strings. `Vars(ctx) (map[string]string, error)` propagates storage/decryption errors;
   pass its successful result to `environment.Interpolate(raw, vars) []byte` in the Replay send pipeline (T-106).
   No new follow-up tasks proposed.
+
+### Review fixes (implementer, 2026-11-19)
+- Fixed all four findings: isolated Unix locking and added Windows `LockFileEx` (the review's alternative),
+  retained serialization for legacy empty files, hoisted `tokenRE`, documented `[ \t\r\n]*`, and exported `secret.File`.
+- Extended concurrent-open tests to run for both missing and empty key files.
+- Verification: `make check` passed (including race tests and 329 frontend tests);
+  `GOOS=windows CGO_ENABLED=0 go build ./...` and
+  `GOOS=darwin CGO_ENABLED=0 go build ./internal/secret ./internal/ca` passed; `git diff --check` passed.
+- No UI E2E or integration rerun for these review fixes; the previous implementation's integration run passed.
+  Windows/macOS binaries were cross-built only, not executed.
 
 ## Review (reviewer)
 - Verdict: changes_requested (reviewer, 2026-11-19)
@@ -109,7 +120,7 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   Resolvers are thin and match the schema's error codes. SQL is parameterized. Project DB nil handling is the same as in
   `scope`/`filterpreset`.
 - Findings:
-  - [ ] [major] internal/secret/secret.go:67 — `syscall.Flock`/`syscall.LOCK_EX` only exist on Unix, so
+  - [x] [major] internal/secret/secret.go:67 — `syscall.Flock`/`syscall.LOCK_EX` only exist on Unix, so
     `GOOS=windows go build ./...` now fails (`undefined: syscall.Flock`). It passes on `main`. CI only runs on
     Linux/macOS, so nothing catches this. No doc says Windows is unsupported; the Handoff only assumes it. → Fix:
     make key creation portable without a file lock. Write the key to a temp file in `root` (O_EXCL), `Sync`, then
@@ -117,11 +128,15 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
     cases. Readers never see a half-written key. Keep the old "empty file → generate" path for legacy files. The other
     option is a `//go:build unix` file plus a Windows lock file. If the lead decides Windows is unsupported, record it
     in docs/03 and drop this to minor.
-  - [ ] [minor] internal/environment/service.go:366 — `regexp.MustCompile` runs on every `Interpolate` call. Replay and,
+    Implementer: used the platform-lock alternative; Windows cross-build now passes, and concurrent empty-file coverage remains.
+  - [x] [minor] internal/environment/service.go:366 — `regexp.MustCompile` runs on every `Interpolate` call. Replay and,
     later, Automate (thousands of requests) call it once per request. → Move it to a package-level
     `var tokenRE = regexp.MustCompile(...)`.
-  - [ ] [nit] internal/environment/service.go:366 — the token allows `\t\r\n` inside the braces, but the spec says
+    Implementer: moved the compiled regex to package scope; existing interpolation table passes.
+  - [x] [nit] internal/environment/service.go:366 — the token allows `\t\r\n` inside the braces, but the spec says
     "spaces". This works, but T-103/T-106 editors that mark unknown names must use the same rule. → Write the exact
     rule (`[ \t\r\n]*`) in the `Interpolate` doc comment so the frontend can copy it.
-  - [ ] [nit] internal/ca/ca.go:114 — the hard-coded `"secret.key"` log value duplicates `secret.secretFile`. → Export
+    Implementer: documented the exact whitespace rule.
+  - [x] [nit] internal/ca/ca.go:114 — the hard-coded `"secret.key"` log value duplicates `secret.secretFile`. → Export
     `secret.File` and use it here and in `secret_compat_test.go`.
+    Implementer: exported `secret.File` and switched both callers.

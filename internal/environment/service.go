@@ -361,10 +361,12 @@ func validVariableName(name string) bool {
 	return true
 }
 
+var tokenRE = regexp.MustCompile(`\{\{[ \t\r\n]*([A-Za-z_][A-Za-z0-9_.-]*)[ \t\r\n]*\}\}`)
+
 // Interpolate substitutes known {{name}} tokens once, preserving every other byte.
+// Names may have leading and trailing whitespace matching [ \t\r\n]* inside the braces.
 func Interpolate(raw []byte, vars map[string]string) []byte {
-	token := regexp.MustCompile(`\{\{[ \t\r\n]*([A-Za-z_][A-Za-z0-9_.-]*)[ \t\r\n]*\}\}`)
-	return token.ReplaceAllFunc(raw, func(match []byte) []byte {
+	return tokenRE.ReplaceAllFunc(raw, func(match []byte) []byte {
 		name := strings.TrimSpace(string(match[2 : len(match)-2]))
 		if value, ok := vars[name]; ok {
 			return []byte(value)

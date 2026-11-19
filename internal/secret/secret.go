@@ -8,16 +8,15 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"syscall"
 
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
-	// secretFile holds the instance-wide key that seals secrets at rest
+	// File names the instance-wide key that seals secrets at rest
 	// (docs/03-architecture.md §8). It lives next to instance.db so a backup of
 	// the data dir stays usable and a copy without the key does not.
-	secretFile = "secret.key"
+	File = "secret.key"
 	// secretSize is the XChaCha20-Poly1305 key size.
 	secretSize = chacha20poly1305.KeySize
 )
@@ -55,16 +54,16 @@ func loadSecretKey(root *os.Root) ([]byte, bool, error) {
 	if root == nil {
 		return nil, false, errors.New("secret: nil root")
 	}
-	f, err := root.OpenFile(secretFile, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := root.OpenFile(File, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, os.ErrExist) {
-		f, err = root.OpenFile(secretFile, os.O_RDWR, 0)
+		f, err = root.OpenFile(File, os.O_RDWR, 0)
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("secret: open key: %w", err)
 	}
 	defer f.Close()
 	// Closing the descriptor releases the lock, including on an error.
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := lockSecretKey(f); err != nil {
 		return nil, false, fmt.Errorf("secret: lock key: %w", err)
 	}
 	info, err := f.Stat()
