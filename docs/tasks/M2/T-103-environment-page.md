@@ -3,7 +3,7 @@ id: T-103
 title: Environment page and status-bar environment switcher
 milestone: M2
 role: frontend
-status: in_review
+status: done
 depends_on: [T-098]
 owner: "opencode (deepseek-v4.1-flash-1017)"
 branch: task/T-103-environment-page
