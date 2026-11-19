@@ -104,35 +104,22 @@ Automate/workflows later.
 - Follow-ups (proposed tasks): none.
 
 ## Review (reviewer)
-- Verdict: changes_requested (2026-11-19, re-reviewed f47d2d8)
-- Checks: `make check` green; `make test-int` green; `go test -race -count=5 ./internal/replay/sender` green. No `net/http`
-  import in `internal/replay/sender` (tests included). Changed files are inside `paths`; the two docs files ride with
-  this branch per the lead's third note.
-- Previous findings: blocker (no sender), major (owner/plan), minor (docs outside paths, accepted by lead), nit (package doc): all resolved.
+- Verdict: approve (2026-11-19, re-reviewed 02f0b6b)
+- Checks: `make check` green; `make test-int` green; `go test -race -count=10 ./internal/replay/sender` green. No `net/http`
+  import in `internal/replay/sender` or `internal/testutil/tls.go`. Changed files are inside `paths`; the two docs files ride
+  with this branch per the lead's third note.
+- Previous findings (round 2), all resolved in 02f0b6b:
+  - [x] [major] interim 1xx responses: `exchange` now loops `ReadResponse` on one `bufio.Reader` until a non-1xx (or 101).
+    `rawhttp` gives 1xx no body (read.go:389), so the loop never waits for a body. Covered by `TestSendResponseFraming/interim responses`.
+  - [x] [minor] malformed HEAD: method comes from the first request-line token. Covered by `TestSendResponseFraming/malformed HEAD`
+    (the old code would hit the 1 s timeout there).
+  - [x] [minor] failed redirect hop: `TestSendRedirectFailedHop` checks 2 hops, `Hops[1].Response == nil`, kind `dial`.
+  - [x] [nit] Builder drain comment extended.
 - Findings:
-  - [x] [major] internal/replay/sender/sender.go:146 — one `ReadResponse` call returns the first response, including an
-    interim 1xx. A server that sends `103 Early Hints` (common on CDNs) or `100 Continue` (request has
-    `Expect: 100-continue`) before its `200` makes Send return the 1xx as the final response and close the connection,
-    so the real response is lost. F-REP-2 says Send returns "when the response is complete", and the proxy already
-    skips interims (internal/proxy/forward.go:133-139). Listing it as a known limitation does not make it spec behaviour.
-    → Read in a loop on the same `bufio.Reader` while `resp.Status()/100 == 1 && resp.Status() != 101` (about 4 lines).
-    Add a test where the server writes `HTTP/1.1 100 Continue\r\n\r\n` and `HTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\n`,
-    then `RawReply`, and expect the 200. Remove the limitation from the Handoff.
-  - [x] [minor] internal/replay/sender/sender.go:142-145 — the method used to frame the response comes from a full
-    `rawhttp.ReadRequest`, so any request that does not parse gets method `""`. Example:
-    `HEAD / HTTP/1.1\r\nContent-Length: x\r\n\r\n` (malformed requests are the point of the tool). The server answers
-    the HEAD with `Content-Length: 1234` and no body, and Send waits for 1234 body bytes until the timeout (or forever
-    when the timeout is 0). → Take the method from the first token of the request line:
-    `method, _, _ := bytes.Cut(raw, []byte(" "))` (only HEAD matters to `ReadResponse`). Add a table row with an
-    unparseable HEAD.
-  - [x] [minor] internal/replay/sender/sender_test.go:413 — no test for a redirect chain whose second hop fails. The
-    Handoff promises that the failed hop comes last with `Response == nil` and the error is returned, and T-106 stores hops
-    based on that. → Add a test: origin 302 to `http://127.0.0.1:<closed port>/`, then expect 2 hops,
-    `Hops[1].Response == nil`, `Hops[0].Response.Status() == 302` and kind `dial`.
-  - [x] [nit] internal/replay/sender/sender.go:222-225 — draining `req.Body()` so that `Builder.WriteTo` writes no body
-    depends on the builder sharing the drained reader. That works with today's `rawhttp`, but the reason is not obvious.
-    → Extend the comment: "Builder streams m.Body(); once it is drained, nothing is written and no Content-Length is added (SetBody would add one)."
-- Notes: the design is small and matches the plan. It uses a fresh dial per hop, `context.AfterFunc` closes the
-  connection to unblock I/O, and the capped read goes through `rawhttp` capture. Error kinds come from `ctx.Err()`. The
-  synctest timeout and cancel tests are good leak checks. `pipeDial` swaps the package-level `dial`. That is safe today
-  because the tests that use it are sequential and top-level parallel tests start only after them. Keep it that way.
+  - [ ] [nit] internal/replay/sender/sender_test.go:408 — the "closed port" is freed and then dialled. A parallel test that
+    listens on `127.0.0.1:0` can get the same port in between, and the hop then succeeds (rare flake). → Keep `ln` open
+    and stop accepting is not enough; instead dial a port that is listening but closes at once, or accept this as is.
+    Non-blocking.
+- Notes: AC all covered by tests. Design stays small: fresh dial per hop, `context.AfterFunc` closes the conn on
+  timeout/cancel, error kinds from `ctx.Err()`, synctest bubbles act as leak checks. A server that sends endless 1xx
+  responses keeps `Send` busy until the timeout or cancel, same as a stalled server; fine for an operator-started send.
