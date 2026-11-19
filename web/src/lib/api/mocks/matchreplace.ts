@@ -133,7 +133,7 @@ function normalize(input: Args): MockRuleInput {
 /**
  * Applies a rule to one message as byte strings.
  * shortcut: only STRING/FULL `UPDATE_RAW` on headers and bodies, plus header `ADD`; every other
- * rule leaves the message unchanged and conditions always match. The real tester is T-102.
+ * rule leaves the message unchanged and conditions always match. The real tester is T-102 (on the T-035 engine).
  */
 function applyRule(rule: MockRuleInput, raw: string): string {
   const cut = raw.indexOf('\r\n\r\n');

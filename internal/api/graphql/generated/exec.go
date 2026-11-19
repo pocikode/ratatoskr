@@ -3268,8 +3268,8 @@ extend type Subscription {
 }
 `, BuiltIn: false},
 	{Name: "../schema/matchreplace.graphqls", Input: `# Match & Replace (docs/01-feature-spec.md F-MR-1, "Contract (lead, 2026-11-19, M2)").
-# Owned by the lead; contract task T-099, resolvers: T-035 (CRUD, import/export),
-# T-102 (engine, tester). Collections and rules live in the selected project's
+# Owned by the lead; contract task T-099, engine: T-035, service + resolvers:
+# T-102. Collections and rules live in the selected project's
 # database. There is no subscription: pages refetch after their own mutations.
 # Unknown IDs are ` + "`" + `NOT_FOUND` + "`" + `.
 #

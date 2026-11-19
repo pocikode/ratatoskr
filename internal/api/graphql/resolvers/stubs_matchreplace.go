@@ -1,7 +1,6 @@
 package resolvers
 
-// Contract stubs for matchreplace.graphqls (T-099). T-035 (CRUD, import/export) and T-102 (tester) replace this
-// file with matchreplace.go.
+// Contract stubs for matchreplace.graphqls (T-099). T-102 replaces this file with matchreplace.go.
 
 import (
 	"context"
@@ -10,7 +9,7 @@ import (
 	"github.com/pocikode/ratatoskr/internal/apperr"
 )
 
-// MatchReplaceService serves the Match & Replace operations. Placeholder until T-035 defines its methods.
+// MatchReplaceService serves the Match & Replace operations. Placeholder until T-102 defines its methods.
 type MatchReplaceService any
 
 // MatchReplaceRule returns the MatchReplaceRule field resolver.

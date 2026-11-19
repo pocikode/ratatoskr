@@ -40,7 +40,7 @@ type Deps struct {
 	ReplaySend ReplaySendService
 	// Environment serves the environment operations; until T-037 those fields report NOT_IMPLEMENTED.
 	Environment EnvironmentService
-	// MatchReplace serves Match & Replace; until T-035/T-102 those fields report NOT_IMPLEMENTED.
+	// MatchReplace serves Match & Replace; until T-102 those fields report NOT_IMPLEMENTED.
 	MatchReplace MatchReplaceService
 }
 

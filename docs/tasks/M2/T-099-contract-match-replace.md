@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_progress
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -47,12 +47,12 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - Out: Workflow replacer (T-066), WebSocket sections (T-053), subscriptions.
 
 ## Acceptance criteria
-- [ ] Every type/field/argument documented with the F-MR-1 contract rules and errors: `BAD_INPUT` (invalid section ×
+- [x] Every type/field/argument documented with the F-MR-1 contract rules and errors: `BAD_INPUT` (invalid section ×
       operation, matcher not allowed, invalid regex with the RE2 message, empty sources, names 1–200, term > 1 MiB,
       > 1000 rules, bad import JSON/version, reorder ids not the exact set), `BAD_QUERY` with span (condition), `NOT_FOUND`.
-- [ ] Export/import JSON format documented (`{"version":1,"collections":[…]}`, all or nothing, appends).
-- [ ] `make gen` clean; stubs compile; `make check` green.
-- [ ] Mock covers CRUD, enable, move, import/export round-trip and the tester (vitest).
+- [x] Export/import JSON format documented (`{"version":1,"collections":[…]}`, all or nothing, appends).
+- [x] `make gen` clean; stubs compile; `make check` green.
+- [x] Mock covers CRUD, enable, move, import/export round-trip and the tester (vitest).
 
 ## Notes from lead
 - `condition` is `String!` (empty = always) to match how `InterceptSettings.query` is typed.
@@ -70,10 +70,19 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `matchreplace.graphqls` (5 enums, rule/collection/matcher types, rule input, test result; 3 queries,
+  11 mutations; section × operation table, matcher rules, errors and export JSON in the descriptions).
+  `gqlgen.yml`: `MatchReplaceRule.collection` is a lazy resolver with a hidden `CollectionID` extra field (rules are
+  embedded in collections, so the back-reference stays acyclic). `stubs_matchreplace.go` + `Deps.MatchReplace`
+  placeholder; regenerated code. Mock `mocks/matchreplace.ts` (2 collections, 4 rules, one disabled) wired into
+  `exchange.ts`; `matchreplace.test.ts` covers CRUD, enable, move, reorder, validation codes, import/export, tester.
+  F-MR-1 gained an "API details" bullet for the decisions the contract makes (no default collection, non-empty matcher
+  values, `ADD` header term format, tester and import specifics); spec added to this task's paths for that.
+- How to verify: `make gen` (no diff), `make check`; `cd web && bunx --bun vitest run src/lib/api/mocks/matchreplace.test.ts`.
+- Known limitations: mock tester only does STRING/FULL `UPDATE_RAW` on headers/bodies plus header `ADD`, and treats
+  every condition as matched (`shortcut:` comment); mock HTTPQL check only flags unterminated strings; mock regex check
+  is JS `RegExp` plus a look-around/backref reject, not RE2.
+- Follow-ups (proposed tasks): none; T-035/T-102/T-036/T-108 can start.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
