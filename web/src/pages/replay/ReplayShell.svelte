@@ -1,3 +1,7 @@
+<script lang="ts" module>
+  const last: { id: string | null } = { id: null };
+</script>
+
 <script lang="ts">
   import type { Client } from '@urql/core';
   import { untrack } from 'svelte';
@@ -19,6 +23,12 @@
   }
 
   let { projectId, client }: Props = $props();
+
+  // A project switch remounts the shell while the old project's `#/replay/session/<id>` is still in
+  // the URL; that id belongs to the other project, so it must not be applied as a deep link.
+  const switched = last.id !== null && last.id !== untrack(() => projectId);
+  last.id = untrack(() => projectId);
+  const staleHash = switched ? router.location.params[1] : undefined;
 
   // Dev-only mock backend (T-013): `?mock=replay` or `localStorage['replay.mock'] = '1'`.
   function mockRequested(): boolean {
@@ -61,7 +71,9 @@
   // Route → tabs: the deep link `#/replay/session/<id>` wins over the stored active tab.
   const linked = $derived(
     router.location.page === 'replay' && router.location.params[0] === 'session'
-      ? router.location.params[1]
+      ? router.location.params[1] === staleHash
+        ? undefined
+        : router.location.params[1]
       : undefined,
   );
   $effect(() => {

@@ -116,7 +116,8 @@
                 if (e.key === 'Enter') onrename(tab.id, e.currentTarget.value);
                 else if (e.key === 'Escape') oncancelrename();
               }}
-              onblur={(e) => onrename(tab.id, e.currentTarget.value)}
+              onblur={(e) =>
+                renamingId === tab.id ? onrename(tab.id, e.currentTarget.value) : null}
             />
           {:else}
             <button

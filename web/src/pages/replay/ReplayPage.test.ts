@@ -69,6 +69,27 @@ describe('ReplayPage', () => {
     expect(await screen.findByRole('tab', { name: 'POST /login' })).toBeInTheDocument();
   });
 
+  it('does not apply the previous project session route after a project switch', async () => {
+    const first = page('p1');
+    await userEvent.click(await screen.findByText('POST /login'));
+    await screen.findByRole('tab', { name: 'POST /login' });
+    first.unmount();
+    document.body.innerHTML = '';
+    page('p2');
+    await within(await tree()).findByText('POST /login');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole('tab')).toBeNull();
+  });
+
+  it('Escape cancels a tab rename without saving', async () => {
+    page();
+    await userEvent.click(await screen.findByText('POST /login'));
+    await userEvent.dblClick(await screen.findByRole('tab', { name: 'POST /login' }));
+    await userEvent.keyboard('{Control>}a{/Control}nope{Escape}');
+    expect(await screen.findByRole('tab', { name: 'POST /login' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'nope' })).toBeNull();
+  });
+
   it('builds the request from the URL dialog', async () => {
     page();
     await tree();

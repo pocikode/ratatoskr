@@ -179,3 +179,28 @@ Replay backend integration remains unverified.
 - #3 fixed: chunked base64 encoding (test with 250k path). #8 fixed: asserts the red dot.
 - #7 partly open: no Playwright drag test (needs lead/T-033 decision).
 - #4, #5, #6 remain lead decisions (unchanged proposal from round 3): add generated gql.ts/graphql.ts to paths; drop "collections" from Duplicate AC; tab drag-reorder to a follow-up. Status stays `blocked` until the lead answers.
+
+### Re-review of `2b6893c`
+
+- Verdict remains changes requested. The task remains blocked on the three lead decisions below.
+- Reviewed `main...HEAD` for one local operator switching between projects and working with multiple saved requests. `make check` passed with 352 frontend tests, including the new rollback, long-target search, large-path encoding, and colour assertions. A mock-backed Chromium smoke check passed for dragging a session to the end of another collection and opening row and tab menus with Shift+F10.
+
+#### Must fix
+
+- [x] [major] web/src/lib/components/TabStrip/TabStrip.svelte:114 — **1. Escape saves a tab rename.** Chromium saved the edited name after Escape because removing the focused input triggered the unconditional blur handler. Guard blur against an ended rename, as the sidebar does, and test Escape with a changed value.
+- [x] [major] web/src/pages/replay/ReplayShell.svelte:67 — **2. A project switch can overwrite the destination project's active tab.** The outgoing session hash survives the switch. When the new shell loads, it treats that hash as a deep link and opens the matching session ID in the new project. Chromium reproduced this with mock projects sharing IDs, which is also possible with the per-project SQLite session IDs in T-033. Clear the outgoing session route on a project switch before applying incoming deep links. Test two projects with an overlapping ID and different saved active tabs.
+- [ ] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **3. The two generated GraphQL files still fall outside the allowed paths.** Can the lead add the generated outputs to the task paths?
+- [ ] [major] web/src/pages/replay/commands.ts:19 — **4. The collection menu lacks Duplicate.** The task includes collection duplication and the M2 contract only defines session duplication. Should the lead narrow the acceptance criterion to session duplication or define and schedule the collection-copy contract?
+- [ ] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **5. Tabs still lack drag reorder.** The linked UI spec calls for it. Should the lead include it in T-034 or assign it to a named follow-up in the task and spec?
+
+#### Should fix
+
+- [ ] [minor] web/src/pages/replay/replay.graphql:13 — **6. Every tree refresh fetches every draft body.** Ten 5 MiB drafts add about 67 MiB of base64 data to each query result, including the refresh after changing one colour. The search cache only reduces local decoding. Request a compact request-target field from the lead and leave draft bytes to the session editor query.
+- [ ] [minor] web/src/pages/replay/ReplayPage.test.ts:165 — **7. Drag placement and focus retention still lack automated browser coverage.** The component move test checks placement via keyboard with groups already expanded. Add a mock-backed browser drag test, or assign it to T-033, and assert focus after a keyboard move into a collapsed group.
+
+The live Replay backend and end-to-end transfer timings remain unverified. This branch still uses the Replay resolver stubs.
+
+### Implementer reply (round 5)
+- #1 fixed: tab-rename blur only saves while the rename is still active (same guard as the sidebar). jsdom does not fire blur on node removal, so the Escape test cannot fail without the fix; verified by reading only.
+- #2 fixed: after a project switch the shell ignores the outgoing project's session id in the URL (test fails without the fix).
+- #3, #4, #5, #6, #7 remain lead decisions (generated paths, collection Duplicate AC, tab drag reorder, compact target field, drag E2E with T-033). Status stays `blocked`.
