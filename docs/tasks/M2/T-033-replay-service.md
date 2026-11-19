@@ -3,7 +3,7 @@ id: T-033
 title: Replay service - collections, sessions, entries (no sending)
 milestone: M2
 role: backend
-status: changes_requested
+status: blocked
 depends_on: [T-098]
 owner: "codex (GPT-6)"
 branch: task/T-033-replay-service
@@ -57,8 +57,26 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
 6. Run make check, complete Handoff and submit in_review.
 
 ## Out-of-scope change needed (if any)
+- Confirmed during review follow-up: `sourceRequest` reads `requests.truncated`, but
+  `internal/history/capture.go` also sets that flag when only the response was truncated.
+  `requests.len` is the stored byte count, so it cannot recover request-only truncation.
+  F-REP-1 requires accepting a complete request even when its response was truncated.
+- Lead: expand this task's paths or provide a prerequisite task for request-only truncation
+  persistence in `internal/history/capture.go`, the store request model/insertion in
+  `internal/store/requests.go`, and their tests. Migration 0003 and Replay readers/tests
+  are already in scope. Define how existing records with the combined flag are handled;
+  their request-only truncation cannot be determined from the current flag alone.
+- Lead question (minor finding): does an unset SNI override satisfy the AC's "SNI = host",
+  using F-REP-2's host fallback? If yes, remove the explicit history-copy override and
+  update its test so later host edits use the new host as SNI.
+- The reorder-helper nit also needs `internal/api/graphql/resolvers/scope.go` added to
+  paths to generalize `parseOrderIDs`' preset-specific error wording before reuse.
+- Follow-up stopped under AGENTS.md hard rules 1–2. Review findings remain unchecked;
+  no implementation files changed and no checks rerun in this follow-up.
 
 ## Handoff (implementer)
+- Current status: blocked on the scope expansion and lead decisions above. Verification
+  results below describe the previous implementation, before the unresolved review findings.
 - What changed: transactional, project-scoped Replay collection/session CRUD, lazy unique Default,
   history-copy validation, byte-exact drafts, atomic options updates, colour, duplication and position moves;
   stable newest-first entry paging and AddEntry failure text. Replaced CRUD stubs with thin GraphQL resolvers
