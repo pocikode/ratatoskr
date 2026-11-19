@@ -121,6 +121,10 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   overlay omitting the Unix-only file-mode assertion. The unmodified assertion also fails with the previous lock
   implementation under Wine. Native Windows and UI E2E were not run.
 
+### Windows lint follow-up (implementer)
+- Suppressed gosec G103 for the pointer conversion passed to `LockFileEx`, with a task-scoped justification.
+  Windows-targeted lint for `internal/secret`, `make check`, and `git diff --check` passed.
+
 ## Review (reviewer)
 - Verdict: changes_requested (reviewer, 2026-11-19)
 - Checked: all 12 changed files are inside `paths`. `make check` is green (exit 0). `make test-int` was not run because
@@ -180,8 +184,9 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   loaded instead) is possible. Locking 1 byte past EOF on an empty legacy file is allowed on Windows. The lock is
   released when the handle closes. `make test-int` was not rerun because proxy/store/rawhttp did not change.
 - Findings:
-  - [ ] [minor] internal/secret/lock_windows.go:16 — `GOOS=windows golangci-lint run ./internal/secret/...` reports
+  - [x] [minor] internal/secret/lock_windows.go:16 — `GOOS=windows golangci-lint run ./internal/secret/...` reports
     `G103: Use of unsafe calls should be audited (gosec)`. CI only lints on Linux/macOS, so it stays hidden until
     someone lints for Windows. The stdlib has no public `LockFileEx` wrapper, so `unsafe` is required. → Add a
     justified suppression on that line: `//nolint:gosec // T-037: LockFileEx takes *OVERLAPPED; stdlib has no public wrapper.`
     It can go into this branch or into the next task that touches `internal/secret`.
+    Implementer: added the justified suppression at the call site. Windows-targeted lint reports zero issues.
