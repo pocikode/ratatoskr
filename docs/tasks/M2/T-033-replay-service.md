@@ -3,7 +3,7 @@ id: T-033
 title: Replay service - collections, sessions, entries (no sending)
 milestone: M2
 role: backend
-status: in_review
+status: done
 depends_on: [T-098]
 owner: "codex (GPT-6)"
 branch: task/T-033-replay-service
