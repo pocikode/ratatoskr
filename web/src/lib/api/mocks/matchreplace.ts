@@ -148,6 +148,27 @@ function normalize(input: Args): MockRuleInput {
 }
 
 /**
+ * Replaces every non-overlapping `v` (non-empty) with `term` literally, joining in batches so
+ * temporary memory stays bounded: one `replaceAll` over 12 million matches peaked at ~600 MiB.
+ */
+function replaceBytes(text: string, v: string, term: string): string {
+  const chunks: string[] = [];
+  let parts: string[] = [];
+  let last = 0;
+  for (let i = text.indexOf(v); i >= 0; i = text.indexOf(v, last)) {
+    parts.push(text.slice(last, i), term);
+    last = i + v.length;
+    if (parts.length >= 8192) {
+      chunks.push(parts.join(''));
+      parts = [];
+    }
+  }
+  parts.push(text.slice(last));
+  chunks.push(parts.join(''));
+  return chunks.join('');
+}
+
+/**
  * Applies a rule to one message as byte strings.
  * shortcut: only STRING/FULL `UPDATE_RAW` on headers and bodies, plus header `ADD`; every other
  * rule leaves the message unchanged and conditions always match. The real tester is T-102 (on the T-035 engine).
@@ -174,7 +195,7 @@ function applyRule(rule: MockRuleInput, raw: string): string {
     // Matches are counted, not stored: split() on a 12 MiB body allocates ~100 MiB before the cap check.
     let n = 0;
     for (let i = text.indexOf(v); i >= 0; i = text.indexOf(v, i + v.length)) n++;
-    return [text.length + n * (term.length - v.length), () => text.replaceAll(v, () => term)];
+    return [text.length + n * (term.length - v.length), () => replaceBytes(text, v, term)];
   };
   const isHeader = rule.section.endsWith('_HEADER');
   if (isHeader && rule.operation === 'ADD') {

@@ -309,6 +309,16 @@ describe('match & replace mock', () => {
     const dense = btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(12 * 1024 * 1024 - 19)}`);
     const aa = { ...body, matcher: { kind: 'STRING', value: 'a' }, term: 'xx' };
     expect(code(await m(TEST, { r: aa, k: 'RESPONSE', raw: dense }))).toBe('BAD_INPUT');
+    // Dense replacement that fits: every 'a' becomes '$&' literally (no replacement patterns).
+    const dollar = await m(TEST, {
+      r: { ...aa, term: '$&' },
+      k: 'RESPONSE',
+      raw: btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(4 * 1024 * 1024)}`),
+    });
+    expect(dollar.error).toBeUndefined();
+    expect(atob(dollar.data!.testMatchReplace.output)).toBe(
+      `HTTP/1.1 200 OK\r\n\r\n${'$&'.repeat(4 * 1024 * 1024)}`,
+    );
     // FULL counts too: 17 headers each replaced by a 1 MiB term.
     const many = btoa(`HTTP/1.1 200 OK\r\n${'A: 1\r\n'.repeat(17)}\r\n`);
     const full = {

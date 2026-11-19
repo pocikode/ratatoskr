@@ -278,3 +278,23 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - All 24 focused Vitest tests passed. The malformed input was checked through the generated
   GraphQL schema and the allocation measured in Node/V8. Review assumes one desktop user
   and inputs within the documented tester size limits. Full checks and browser E2E were skipped.
+
+### Follow-up on `2895b16`
+
+- Verdict is `changes_requested`. The previous findings are resolved. Return this follow-up to the lead under the review round limit.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:177` — Dense STRING replacements still build a large
+  intermediate result when the output fits the cap. Through the mock GraphQL mutation in Node v26 (V8),
+  changing each `a` to `b` in a response just under 12 MiB produced a 12 MiB result and peaked at
+  624 MiB resident memory. The output-size check passes, and the synchronous `replaceAll` call took
+  about a second in the full mutation. Build the approved result in bounded batches so temporary
+  memory does not grow with the match count. Test a dense replacement that stays within the limit,
+  including literal dollar signs in the term.
+  → Fixed: `replaceBytes` scans with `indexOf` and joins every 8192 parts into a chunk, so the
+  temporary parts array stays bounded. The term is inserted literally, with no `$` patterns. In Node v26, a
+  12 MiB `a`→`b` run grew RSS by 89 MiB and took 0.38 s (`replaceAll`: 470 MiB and 0.74 s). A test replaces
+  4 Mi `a` with `$&` and checks the exact output. The four whitespace-only lines are `make gen` output,
+  which may not be edited by hand.
+- Verification assumed a single desktop user and the documented tester size limits. `make check`
+  passed (43 Vitest files, 353 tests). `make gen` left the tree clean before this review note.
+  `git diff --check` flagged four whitespace-only lines emitted in the generated web schema.
+  Browser E2E and Go integration tests were skipped.
