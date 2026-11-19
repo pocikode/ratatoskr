@@ -3,7 +3,7 @@ id: T-034
 title: Replay page shell - session sidebar, collections, tab strip
 milestone: M2
 role: frontend
-status: blocked
+status: in_review
 depends_on: [T-098]
 owner: "claude-sonnet-5.5"
 branch: task/T-034-replay-shell
@@ -14,6 +14,7 @@ paths:
   - web/src/pages/replay/session/SessionEditor.svelte   # placeholder only; T-107 owns it afterwards
   - web/src/lib/components/SessionSidebar/**
   - web/src/lib/components/TabStrip/**
+  - web/src/lib/api/generated/**   # codegen output only (lead, 2026-11-19)
 spec:
   - docs/01-feature-spec.md#F-REP-1 (incl. M2 contract)
   - docs/02-ui-layout.md §2 (SessionSidebar, TabStrip), §3.7, §4 (tab shortcuts)
@@ -34,18 +35,27 @@ session body.
 - Out: the session editor body (T-107).
 
 ## Acceptance criteria
-- [ ] Tree renders collections/sessions in server order; search filters by name, host or path; Default collection has no
+- [x] Tree renders collections/sessions in server order; search filters by name, host or path; Default collection has no
       delete action.
-- [ ] Drag a session to another collection or position → `moveReplaySession` with the right index; failure reverts the UI.
-- [ ] Rename, duplicate (`(copy)`), delete (with confirm) for sessions and collections work against the mock.
-- [ ] Tabs: open on click, close variants, rename on double-click, colour tag; reload restores open tabs and the active
+- [x] Drag a session to another collection or position → `moveReplaySession` with the right index; failure reverts the UI.
+- [x] Rename and delete (with confirm) for sessions and collections, and duplicate (`(copy)`) for sessions, work against
+      the mock (collections are not duplicated, F-REP-1 contract).
+- [x] Tabs: open on click, close variants, rename on double-click, colour tag; reload restores open tabs and the active
       tab for the same project only; deep link `#/replay/session/<id>` opens that tab.
-- [ ] URL dialog builds `GET <path> HTTP/1.1` + `Host` (port omitted when default) and creates the session.
-- [ ] Keyboard: tree and tabs reachable and operable without a mouse (ARIA tree/tablist roles).
-- [ ] Component tests against the mock; `make check` green.
+- [x] URL dialog builds `GET <path> HTTP/1.1` + `Host` (port omitted when default) and creates the session.
+- [x] Keyboard: tree and tabs reachable and operable without a mouse (ARIA tree/tablist roles).
+- [x] Component tests against the mock; `make check` green.
 
 ## Notes from lead
 - Docs/02 §2 lists `SessionSidebar` and `TabStrip` as shared components; keep Replay-specific GraphQL out of them (props + callbacks).
+- Lead decisions (2026-11-19, answering review rounds 2–5):
+  - Generated paths: `web/src/lib/api/generated/**` added to `paths` (codegen output only, never hand-edited).
+  - Collection Duplicate: out. AC narrowed to session duplicate; F-REP-1 contract updated.
+  - Tab drag reorder: out of T-034, assigned to T-111 (docs/02 §2 updated).
+  - Compact tree payload: contract `ReplaySession.requestTarget` in T-110; switching the tree query off `draft` is T-111.
+    T-034 keeps its current `draft` prefix decode.
+  - Browser drag E2E: assigned to T-039 (Replay AC). T-034 still owes the component test from review #7: keyboard move
+    into a **collapsed** destination keeps focus on the moved row.
 
 ## Plan (implementer, ≤15 lines)
 - `replay.graphql` (+codegen) → `replay.svelte.ts` `ReplayState` (collections, CRUD, move w/ revert, tabs, per-project localStorage).
@@ -58,14 +68,13 @@ session body.
 - Tests: state/url unit tests + page component test against the mock client.
 
 ## Out-of-scope change needed (if any)
-- `web/src/lib/api/generated/gql.ts` and `graphql.ts` change because `bun run codegen` regenerates them from `replay.graphql`
-  (never hand-edited). Lead: please add `web/src/lib/api/generated/**` (codegen output) to this task's `paths` (review #6).
+- None. (Generated output was added to `paths` by the lead on 2026-11-19.)
 
 ## Handoff (implementer)
 - What changed: `web/src/pages/replay/` (ReplayPage → per-project ReplayShell, `ReplayState`, commands, URL dialog, delete/new-collection dialogs, `openInReplay`, `replay.graphql`, placeholder `session/SessionEditor.svelte`); shared `SessionSidebar` (ARIA tree, search, native drag & drop, inline rename) and `TabStrip` (tablist, rename, colour dot, overflow menu); regenerated `web/src/lib/api/generated/**` via codegen. Context menus, palette and `tab.next/prev/close` shortcuts all run through the registry (`replay.*`). A visually hidden `<h1>Replay</h1>` keeps App.test's heading check.
 - How to verify: `make check`; `cd web && bun run dev` then open `/?mock=replay#/replay`. Tests: `src/pages/replay/ReplayPage.test.ts`, `url.test.ts`.
-- Known limitations: no tab drag-reorder, no collection reorder UI (docs mention tab drag reorder; not in this task's AC); no Playwright E2E (the page is only user-visible against the mock until T-033 lands); move failure revert is covered by the refetch in `#run`, not by a dedicated test; `openInReplay` is not yet wired into History/Intercept (T-107/T-032); `ReplayContext` carries the clicked row as `ctx.replay` via a cast because `lib/commands` is outside this task's paths.
-- Follow-ups (proposed tasks): wire `openInReplay` + `history.sendToReplay` in T-107; tab drag reorder; Automate reuses both shared components.
+- Known limitations: no collection reorder UI; tab drag reorder and the compact tree payload are T-111 (contract T-110); browser drag E2E is T-039; `openInReplay` is not yet wired into History/Intercept (T-107/T-032); `ReplayContext` carries the clicked row as `ctx.replay` via a cast because `lib/commands` is outside this task's paths.
+- Follow-ups: wire `openInReplay` + `history.sendToReplay` in T-107; T-110/T-111 (request-target field, tab reorder); T-039 drag E2E; Automate reuses both shared components.
 
 - Review round 2: #1 rename keeps sidebar vs tab origin (`commands.ts`); #2 `move` maps the filtered index to the full
   collection index; #3 failed move restores the previous tree without refetch; #4 request bytes are UTF-8 (`encodeText`);
@@ -140,15 +149,15 @@ What this change does: Adds the Replay collections tree, session tabs, URL dialo
 #### Must fix
 
 - [x] [major] web/src/pages/replay/replay.svelte.ts:232 — **1. Two failed moves can leave an unsaved move visible.** The second move captures a tree that still includes the first optimistic move. If both requests fail in submission order, the second rollback puts the first failed move back on screen. Allow one move at a time through settlement and refresh, and test two attempts against deferred mutation results.
-- [ ] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **2. Generated files still fall outside the allowed paths.** The previous review's scope finding remains open. The handoff requests approval and the branch still includes both generated files. Can the lead authorize `web/src/lib/api/generated/gql.ts` and `web/src/lib/api/generated/graphql.ts` in the task paths?
-- [ ] [major] web/src/pages/replay/commands.ts:19 — **3. Collections have no Duplicate action.** The acceptance criterion explicitly includes collections, while F-REP-1 defines session copies and the schema and mock expose only `duplicateReplaySession`. Should collection duplication be removed from this task's acceptance criterion, or should the lead define and schedule a contract for copying a collection and its sessions?
-- [ ] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **4. Users cannot reorder open tabs.** The linked UI spec lists drag reorder and the task's tab acceptance criterion omits it. Should T-034 implement shared tab reorder or should the lead assign it to a follow-up in the task and spec?
+- [x] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **2. Generated files still fall outside the allowed paths.** The previous review's scope finding remains open. The handoff requests approval and the branch still includes both generated files. Can the lead authorize `web/src/lib/api/generated/gql.ts` and `web/src/lib/api/generated/graphql.ts` in the task paths?
+- [x] [major] web/src/pages/replay/commands.ts:19 — **3. Collections have no Duplicate action.** The acceptance criterion explicitly includes collections, while F-REP-1 defines session copies and the schema and mock expose only `duplicateReplaySession`. Should collection duplication be removed from this task's acceptance criterion, or should the lead define and schedule a contract for copying a collection and its sessions?
+- [x] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **4. Users cannot reorder open tabs.** The linked UI spec lists drag reorder and the task's tab acceptance criterion omits it. Should T-034 implement shared tab reorder or should the lead assign it to a follow-up in the task and spec?
 - [x] [major] web/src/pages/replay/replay.svelte.ts:247 — **5. Sidebar search decodes every saved request body on each keystroke.** The collection query fetches entire base64 drafts even though search only needs the request target. A local Bun probe of this decode loop took about 2.1 seconds for ten 5 MiB drafts, before rendering. Match name and host first and cache the request target by draft, decoding only far enough to read the first line. Coordinate a compact target field with the lead if the collection query still exceeds the page budget.
 - [x] [major] web/src/lib/components/SessionSidebar/SessionSidebar.svelte:97 — **6. A keyboard move into a collapsed collection loses focus.** The source row disappears and the destination row is unmounted, so the focus lookup finds nothing. Open the destination before restoring focus and test the keyboard move with a collapsed destination.
 
 #### Should fix
 
-- [ ] [minor] web/src/pages/replay/ReplayPage.test.ts:161 — **7. No browser test exercises the drag flow.** The component test dispatches keyboard input and the state tests call `move` directly. A broken drag-start or drop binding can pass all of them. Add a mock-backed Playwright flow for dragging a row to another collection and checking placement, or get the lead to schedule the browser coverage with T-033.
+- [x] [minor] web/src/pages/replay/ReplayPage.test.ts:161 — **7. No browser test exercises the drag flow.** The component test dispatches keyboard input and the state tests call `move` directly. A broken drag-start or drop binding can pass all of them. Add a mock-backed Playwright flow for dragging a row to another collection and checking placement, or get the lead to schedule the browser coverage with T-033.
 
 Browser interaction and the real Replay backend remain unverified. The Go Replay resolvers are stubs pending T-033.
 
@@ -165,10 +174,10 @@ Browser interaction and the real Replay backend remain unverified. The Go Replay
 - [x] [major] web/src/pages/replay/replay.svelte.ts:250 — **1. A failed move can restore a deleted session.** While a move is pending, a successful delete refreshes the tree. When the move fails, its rollback overwrites that newer tree. Restore the saved tree only while the optimistic tree is still current. A Chromium probe reproduced the stale row using deferred mutation results.
 - [x] [major] web/src/pages/replay/replay.svelte.ts:261 — **2. Search misses the end of long request paths.** A renamed session with a search term after byte 768 of the request line never matches on that term. Decode through the end of the request target and cache it by draft. A Chromium probe reproduced the miss with a path of about 860 bytes.
 - [x] [major] web/src/pages/replay/replay.svelte.ts:268 — **3. Long paths can crash session creation.** A 250,000-character path passes the dialog validator and throws `RangeError` before the mutation because the byte array is spread into function arguments. Encode without spreading an unbounded array and add a regression test. Confirmed in Chromium with zero mutation calls.
-- [ ] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **4. Generated files still fall outside the allowed paths.** Can the lead add the two generated GraphQL outputs to the task paths?
-- [ ] [major] web/src/pages/replay/commands.ts:19 — **5. The collection menu lacks Duplicate.** Should the lead narrow the acceptance criterion to session duplication or define and schedule a collection-copy contract?
-- [ ] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **6. Tabs still lack drag reorder.** Should the lead include it in T-034 or assign it to a named follow-up in the task and UI spec?
-- [ ] [minor] web/src/pages/replay/ReplayPage.test.ts:161 — **7. Drag and focus lack automated browser regression coverage.** Add a mock-backed Chromium test for the drag, including destination placement, or assign that test to T-033. Extend the keyboard test to collapse the destination and check focus after the move.
+- [x] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **4. Generated files still fall outside the allowed paths.** Can the lead add the two generated GraphQL outputs to the task paths?
+- [x] [major] web/src/pages/replay/commands.ts:19 — **5. The collection menu lacks Duplicate.** Should the lead narrow the acceptance criterion to session duplication or define and schedule a collection-copy contract?
+- [x] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **6. Tabs still lack drag reorder.** Should the lead include it in T-034 or assign it to a named follow-up in the task and UI spec?
+- [x] [minor] web/src/pages/replay/ReplayPage.test.ts:161 — **7. Drag and focus lack automated browser regression coverage.** Add a mock-backed Chromium test for the drag, including destination placement, or assign that test to T-033. Extend the keyboard test to collapse the destination and check focus after the move.
 - [x] [minor] web/src/pages/replay/ReplayPage.test.ts:156 — **8. The colour test passes even if the mutation does nothing.** The last assertion only checks that the already-open tab still exists. Assert that the red tag appears after selection.
 
 Replay backend integration remains unverified.
@@ -189,14 +198,14 @@ Replay backend integration remains unverified.
 
 - [x] [major] web/src/lib/components/TabStrip/TabStrip.svelte:114 — **1. Escape saves a tab rename.** Chromium saved the edited name after Escape because removing the focused input triggered the unconditional blur handler. Guard blur against an ended rename, as the sidebar does, and test Escape with a changed value.
 - [x] [major] web/src/pages/replay/ReplayShell.svelte:67 — **2. A project switch can overwrite the destination project's active tab.** The outgoing session hash survives the switch. When the new shell loads, it treats that hash as a deep link and opens the matching session ID in the new project. Chromium reproduced this with mock projects sharing IDs, which is also possible with the per-project SQLite session IDs in T-033. Clear the outgoing session route on a project switch before applying incoming deep links. Test two projects with an overlapping ID and different saved active tabs.
-- [ ] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **3. The two generated GraphQL files still fall outside the allowed paths.** Can the lead add the generated outputs to the task paths?
-- [ ] [major] web/src/pages/replay/commands.ts:19 — **4. The collection menu lacks Duplicate.** The task includes collection duplication and the M2 contract only defines session duplication. Should the lead narrow the acceptance criterion to session duplication or define and schedule the collection-copy contract?
-- [ ] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **5. Tabs still lack drag reorder.** The linked UI spec calls for it. Should the lead include it in T-034 or assign it to a named follow-up in the task and spec?
+- [x] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **3. The two generated GraphQL files still fall outside the allowed paths.** Can the lead add the generated outputs to the task paths?
+- [x] [major] web/src/pages/replay/commands.ts:19 — **4. The collection menu lacks Duplicate.** The task includes collection duplication and the M2 contract only defines session duplication. Should the lead narrow the acceptance criterion to session duplication or define and schedule the collection-copy contract?
+- [x] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **5. Tabs still lack drag reorder.** The linked UI spec calls for it. Should the lead include it in T-034 or assign it to a named follow-up in the task and spec?
 
 #### Should fix
 
-- [ ] [minor] web/src/pages/replay/replay.graphql:13 — **6. Every tree refresh fetches every draft body.** Ten 5 MiB drafts add about 67 MiB of base64 data to each query result, including the refresh after changing one colour. The search cache only reduces local decoding. Request a compact request-target field from the lead and leave draft bytes to the session editor query.
-- [ ] [minor] web/src/pages/replay/ReplayPage.test.ts:165 — **7. Drag placement and focus retention still lack automated browser coverage.** The component move test checks placement via keyboard with groups already expanded. Add a mock-backed browser drag test, or assign it to T-033, and assert focus after a keyboard move into a collapsed group.
+- [x] [minor] web/src/pages/replay/replay.graphql:13 — **6. Every tree refresh fetches every draft body.** Ten 5 MiB drafts add about 67 MiB of base64 data to each query result, including the refresh after changing one colour. The search cache only reduces local decoding. Request a compact request-target field from the lead and leave draft bytes to the session editor query.
+- [x] [minor] web/src/pages/replay/ReplayPage.test.ts:165 — **7. Drag placement and focus retention still lack automated browser coverage.** The component move test checks placement via keyboard with groups already expanded. Add a mock-backed browser drag test, or assign it to T-033, and assert focus after a keyboard move into a collapsed group.
 
 The live Replay backend and end-to-end transfer timings remain unverified. This branch still uses the Replay resolver stubs.
 
@@ -204,3 +213,10 @@ The live Replay backend and end-to-end transfer timings remain unverified. This 
 - #1 fixed: tab-rename blur only saves while the rename is still active (same guard as the sidebar). jsdom does not fire blur on node removal, so the Escape test cannot fail without the fix; verified by reading only.
 - #2 fixed: after a project switch the shell ignores the outgoing project's session id in the URL (test fails without the fix).
 - #3, #4, #5, #6, #7 remain lead decisions (generated paths, collection Duplicate AC, tab drag reorder, compact target field, drag E2E with T-033). Status stays `blocked`.
+
+### Implementer reply (round 6)
+- Lead decisions applied (Notes from lead, 2026-11-19): generated paths in scope (#3); collection Duplicate out of AC (#4);
+  tab drag reorder → T-111 (#5); compact tree payload → T-110/T-111 (#6); browser drag E2E → T-039 (#7).
+- #7 remaining part done: `ReplayPage.test.ts` "keeps focus on the row moved into a collapsed collection" collapses the
+  destination, moves with Alt+PageUp/PageDown and asserts the destination re-expands with focus on the moved row
+  (fails if the sidebar's `collapsed[dest.id] = false` is removed).

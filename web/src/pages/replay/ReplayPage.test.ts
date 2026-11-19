@@ -200,6 +200,33 @@ describe('ReplayPage actions', () => {
       ).not.toBeNull(),
     );
   });
+
+  it('keeps focus on the row moved into a collapsed collection', async () => {
+    page();
+    const t = await tree();
+    const row = (await within(t).findByText('POST /login')).closest<HTMLElement>(
+      '[role=treeitem]',
+    )!;
+    const header = (name: string) =>
+      within(t).getByText(name).closest<HTMLElement>('[role=treeitem]')!;
+    const inAuth =
+      header('Auth flows').closest('[role=none]')!.querySelector('[role=group]')?.contains(row) ??
+      false;
+    const dest = header(inAuth ? 'Default' : 'Auth flows');
+    await userEvent.click(dest);
+    expect(dest).toHaveAttribute('aria-expanded', 'false');
+    row.focus();
+    await userEvent.keyboard(inAuth ? '{Alt>}{PageUp}{/Alt}' : '{Alt>}{PageDown}{/Alt}');
+    await waitFor(() => {
+      expect(dest).toHaveAttribute('aria-expanded', 'true');
+      const focused = document.activeElement as HTMLElement;
+      expect(focused).toHaveAttribute('role', 'treeitem');
+      expect(focused).toHaveTextContent('POST /login');
+      expect(dest.closest('[role=none]')!.querySelector('[role=group]')!.contains(focused)).toBe(
+        true,
+      );
+    });
+  });
 });
 
 describe('moveSession', () => {
