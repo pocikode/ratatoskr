@@ -1,0 +1,103 @@
+# Environments (docs/01-feature-spec.md F-ENV-1, "Contract (lead, 2026-11-19, M2)").
+# Owned by the lead; contract task T-098, resolvers: T-037.
+# Global lives in instance.db and always exists; project environments live in
+# the selected project's database. There is no subscription: pages refetch
+# after their own mutations. Unknown IDs are `NOT_FOUND`.
+
+"One variable, used as `{{name}}` in Replay, Automate and workflows."
+type EnvironmentVariable {
+  "Matches `[A-Za-z_][A-Za-z0-9_.-]*`, at most 100 characters; unique per environment (case-sensitive)."
+  name: String!
+  """
+  Value, at most 1 MiB (1048576 bytes of UTF-8). Secret values are returned to
+  authenticated clients too; the UI masks them behind a reveal toggle.
+  """
+  value: String!
+  """
+  Whether the value is a secret: sealed at rest with `secret.key`, masked in
+  the UI, and left out of exports (M3) and the Assistant (M6).
+  """
+  secret: Boolean!
+}
+
+"A variable to store; same rules as `EnvironmentVariable`."
+input EnvironmentVariableInput {
+  "Variable name (see `EnvironmentVariable.name`)."
+  name: String!
+  "Value, at most 1 MiB."
+  value: String!
+  "Whether the value is a secret. Default false."
+  secret: Boolean! = false
+}
+
+"""
+A set of variables. Lookup for `{{name}}` uses the selected project
+environment, then Global. Unknown names stay verbatim; substituted values are
+not interpolated again.
+"""
+type Environment implements Node {
+  "Opaque identifier; Global has the same ID in every project."
+  id: ID!
+  """
+  Display name: trimmed, 1-200 characters, unique per project. `Global` is
+  reserved for the instance-wide environment.
+  """
+  name: String!
+  "Whether this is the instance-wide Global environment (cannot be renamed or deleted)."
+  isGlobal: Boolean!
+  """
+  Whether this project environment is the selected one; at most one is. Always
+  false for Global, which is always used after the selected environment.
+  """
+  selected: Boolean!
+  "Variables in the order last set by `setEnvironmentVariables`."
+  variables: [EnvironmentVariable!]!
+}
+
+extend type Query {
+  "Global first, then the selected project's environments in name order. Not paginated."
+  environments: [Environment!]!
+  "One environment (Global or of the selected project), or null if none has this ID."
+  environment(id: ID!): Environment
+}
+
+extend type Mutation {
+  """
+  Creates an empty, unselected project environment.
+
+  Errors: `BAD_INPUT` for a name empty, longer than 200 characters or with
+  control characters after trimming; `CONFLICT` when the name is `Global` or
+  already used in this project.
+  """
+  createEnvironment(name: String!): Environment!
+  """
+  Renames a project environment. Same name rules and errors as
+  `createEnvironment` (keeping its own name is not a conflict); `CONFLICT` for
+  Global; `NOT_FOUND` for an unknown ID.
+  """
+  renameEnvironment(id: ID!, name: String!): Environment!
+  """
+  Deletes a project environment and its variables, and returns its ID. When it
+  was selected, no environment is selected afterwards.
+
+  Errors: `CONFLICT` for Global; `NOT_FOUND` for an unknown ID.
+  """
+  deleteEnvironment(id: ID!): ID!
+  """
+  Replaces the whole variable list of an environment (Global included) and
+  returns it. Nothing changes on error.
+
+  Errors: `BAD_INPUT` for an invalid or duplicate name (the message quotes it)
+  or a value over 1 MiB; `NOT_FOUND` for an unknown ID.
+  """
+  setEnvironmentVariables(id: ID!, variables: [EnvironmentVariableInput!]!): Environment!
+  """
+  Selects a project environment for the selected project, or none with
+  `id: null` (only Global is used then). Returns the selected environment, or
+  null when none is.
+
+  Errors: `BAD_INPUT` for Global's ID (Global is always used; pass null);
+  `NOT_FOUND` for an unknown ID.
+  """
+  selectEnvironment(id: ID): Environment
+}

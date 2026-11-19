@@ -34,6 +34,12 @@ type Deps struct {
 	Filters FilterService
 	// Intercept serves the intercept operations; until T-031 every intercept field reports NOT_IMPLEMENTED.
 	Intercept InterceptService
+	// Replay serves Replay collections and sessions; until T-033 those fields report NOT_IMPLEMENTED.
+	Replay ReplayService
+	// ReplaySend sends Replay requests; until T-106 send and cancel report NOT_IMPLEMENTED.
+	ReplaySend ReplaySendService
+	// Environment serves the environment operations; until T-037 those fields report NOT_IMPLEMENTED.
+	Environment EnvironmentService
 }
 
 // Resolver is the root resolver.

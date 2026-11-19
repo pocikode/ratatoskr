@@ -33,6 +33,9 @@ type ResolverRoot interface {
 	HttpResponse() HttpResponseResolver
 	Mutation() MutationResolver
 	Query() QueryResolver
+	ReplayCollection() ReplayCollectionResolver
+	ReplayEntry() ReplayEntryResolver
+	ReplaySession() ReplaySessionResolver
 	Subscription() SubscriptionResolver
 }
 
@@ -46,6 +49,20 @@ type ComplexityRoot struct {
 		IsExtension func(childComplexity int) int
 		Kind        func(childComplexity int) int
 		Label       func(childComplexity int) int
+	}
+
+	Environment struct {
+		ID        func(childComplexity int) int
+		IsGlobal  func(childComplexity int) int
+		Name      func(childComplexity int) int
+		Selected  func(childComplexity int) int
+		Variables func(childComplexity int) int
+	}
+
+	EnvironmentVariable struct {
+		Name   func(childComplexity int) int
+		Secret func(childComplexity int) int
+		Value  func(childComplexity int) int
 	}
 
 	FilterPreset struct {
@@ -123,29 +140,46 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
+		CancelReplaySend         func(childComplexity int, id string) int
+		CreateEnvironment        func(childComplexity int, name string) int
 		CreateFilterPreset       func(childComplexity int, name string, alias *string, query string) int
 		CreateProject            func(childComplexity int, name string, selectArg bool) int
+		CreateReplayCollection   func(childComplexity int, name string) int
+		CreateReplaySession      func(childComplexity int, input CreateReplaySessionInput) int
 		CreateScopePreset        func(childComplexity int, name string, allow []string, deny []string) int
+		DeleteEnvironment        func(childComplexity int, id string) int
 		DeleteFilterPreset       func(childComplexity int, id string) int
 		DeleteProject            func(childComplexity int, id string) int
+		DeleteReplayCollection   func(childComplexity int, id string) int
+		DeleteReplaySession      func(childComplexity int, id string) int
 		DeleteRequests           func(childComplexity int, ids []string, query *string, scopeID *string) int
 		DeleteScopePreset        func(childComplexity int, id string) int
 		DropAllInterceptItems    func(childComplexity int, kind *InterceptItemKind) int
 		DropInterceptItem        func(childComplexity int, id string) int
 		DuplicateProject         func(childComplexity int, id string, name *string) int
+		DuplicateReplaySession   func(childComplexity int, id string) int
 		DuplicateScopePreset     func(childComplexity int, id string) int
 		ForwardAllInterceptItems func(childComplexity int, kind *InterceptItemKind) int
 		ForwardInterceptItem     func(childComplexity int, id string, raw []byte, updateContentLength bool) int
 		ImportFilterPresets      func(childComplexity int, json string) int
+		MoveReplaySession        func(childComplexity int, id string, collectionID string, index int) int
+		RenameEnvironment        func(childComplexity int, id string, name string) int
 		RenameProject            func(childComplexity int, id string, name string) int
+		RenameReplayCollection   func(childComplexity int, id string, name string) int
 		ReorderFilterPresets     func(childComplexity int, ids []string) int
+		ReorderReplayCollections func(childComplexity int, ids []string) int
 		ReorderScopePresets      func(childComplexity int, ids []string) int
+		SelectEnvironment        func(childComplexity int, id *string) int
 		SelectProject            func(childComplexity int, id string) int
+		SendReplaySession        func(childComplexity int, id string, input SendReplaySessionInput) int
 		SetDefaultProject        func(childComplexity int, id *string) int
+		SetEnvironmentVariables  func(childComplexity int, id string, variables []EnvironmentVariableInput) int
+		SetReplaySessionColor    func(childComplexity int, id string, color *RequestColor) int
 		SetRequestColor          func(childComplexity int, ids []string, color *RequestColor) int
 		SetRequestNote           func(childComplexity int, id string, note *string) int
 		UpdateFilterPreset       func(childComplexity int, id string, name string, alias *string, query string) int
 		UpdateInterceptSettings  func(childComplexity int, input InterceptSettingsInput) int
+		UpdateReplaySession      func(childComplexity int, id string, input UpdateReplaySessionInput) int
 		UpdateScopePreset        func(childComplexity int, id string, name string, allow []string, deny []string) int
 	}
 
@@ -180,6 +214,8 @@ type ComplexityRoot struct {
 
 	Query struct {
 		CurrentProject      func(childComplexity int) int
+		Environment         func(childComplexity int, id string) int
+		Environments        func(childComplexity int) int
 		ExportFilterPresets func(childComplexity int) int
 		FilterPreset        func(childComplexity int, id string) int
 		FilterPresets       func(childComplexity int) int
@@ -188,6 +224,8 @@ type ComplexityRoot struct {
 		Project             func(childComplexity int, id string) int
 		Projects            func(childComplexity int) int
 		QueryCompletions    func(childComplexity int, language QueryLanguage, text string, cursor int) int
+		ReplayCollections   func(childComplexity int) int
+		ReplaySession       func(childComplexity int, id string) int
 		Request             func(childComplexity int, id string) int
 		Requests            func(childComplexity int, first *int, after *string, last *int, before *string, query *string, scopeID *string, sort *RequestSort) int
 		ScopePreset         func(childComplexity int, id string) int
@@ -200,6 +238,59 @@ type ComplexityRoot struct {
 		From  func(childComplexity int) int
 		Items func(childComplexity int) int
 		To    func(childComplexity int) int
+	}
+
+	ReplayCollection struct {
+		ID        func(childComplexity int) int
+		IsDefault func(childComplexity int) int
+		Name      func(childComplexity int) int
+		Sessions  func(childComplexity int) int
+	}
+
+	ReplayConnection struct {
+		Host func(childComplexity int) int
+		Port func(childComplexity int) int
+		Sni  func(childComplexity int) int
+		TLS  func(childComplexity int) int
+	}
+
+	ReplayEntry struct {
+		CreatedAt func(childComplexity int) int
+		Error     func(childComplexity int) int
+		ID        func(childComplexity int) int
+		Request   func(childComplexity int) int
+	}
+
+	ReplayEntryConnection struct {
+		Edges      func(childComplexity int) int
+		PageInfo   func(childComplexity int) int
+		TotalCount func(childComplexity int) int
+	}
+
+	ReplayEntryEdge struct {
+		Cursor func(childComplexity int) int
+		Node   func(childComplexity int) int
+	}
+
+	ReplayOptions struct {
+		ApplyMatchReplace   func(childComplexity int) int
+		FollowRedirects     func(childComplexity int) int
+		TimeoutMs           func(childComplexity int) int
+		UpdateContentLength func(childComplexity int) int
+	}
+
+	ReplaySession struct {
+		Collection func(childComplexity int) int
+		Color      func(childComplexity int) int
+		Connection func(childComplexity int) int
+		CreatedAt  func(childComplexity int) int
+		Draft      func(childComplexity int) int
+		Entries    func(childComplexity int, first int, after *string) int
+		ID         func(childComplexity int) int
+		Kind       func(childComplexity int) int
+		Name       func(childComplexity int) int
+		Options    func(childComplexity int) int
+		Sending    func(childComplexity int) int
 	}
 
 	RequestUpdate struct {
@@ -275,6 +366,11 @@ type MutationResolver interface {
 	DeleteProject(ctx context.Context, id string) (string, error)
 	SetDefaultProject(ctx context.Context, id *string) (*Project, error)
 	SelectProject(ctx context.Context, id string) (*Project, error)
+	CreateEnvironment(ctx context.Context, name string) (*Environment, error)
+	RenameEnvironment(ctx context.Context, id string, name string) (*Environment, error)
+	DeleteEnvironment(ctx context.Context, id string) (string, error)
+	SetEnvironmentVariables(ctx context.Context, id string, variables []EnvironmentVariableInput) (*Environment, error)
+	SelectEnvironment(ctx context.Context, id *string) (*Environment, error)
 	CreateFilterPreset(ctx context.Context, name string, alias *string, query string) (*FilterPreset, error)
 	UpdateFilterPreset(ctx context.Context, id string, name string, alias *string, query string) (*FilterPreset, error)
 	DeleteFilterPreset(ctx context.Context, id string) (string, error)
@@ -288,6 +384,18 @@ type MutationResolver interface {
 	DropInterceptItem(ctx context.Context, id string) (string, error)
 	ForwardAllInterceptItems(ctx context.Context, kind *InterceptItemKind) (int, error)
 	DropAllInterceptItems(ctx context.Context, kind *InterceptItemKind) (int, error)
+	CreateReplayCollection(ctx context.Context, name string) (*ReplayCollection, error)
+	RenameReplayCollection(ctx context.Context, id string, name string) (*ReplayCollection, error)
+	DeleteReplayCollection(ctx context.Context, id string) (string, error)
+	ReorderReplayCollections(ctx context.Context, ids []string) ([]ReplayCollection, error)
+	CreateReplaySession(ctx context.Context, input CreateReplaySessionInput) (*ReplaySession, error)
+	UpdateReplaySession(ctx context.Context, id string, input UpdateReplaySessionInput) (*ReplaySession, error)
+	SetReplaySessionColor(ctx context.Context, id string, color *RequestColor) (*ReplaySession, error)
+	DuplicateReplaySession(ctx context.Context, id string) (*ReplaySession, error)
+	MoveReplaySession(ctx context.Context, id string, collectionID string, index int) (*ReplaySession, error)
+	DeleteReplaySession(ctx context.Context, id string) (string, error)
+	SendReplaySession(ctx context.Context, id string, input SendReplaySessionInput) (*ReplayEntry, error)
+	CancelReplaySend(ctx context.Context, id string) (bool, error)
 	CreateScopePreset(ctx context.Context, name string, allow []string, deny []string) (*ScopePreset, error)
 	UpdateScopePreset(ctx context.Context, id string, name string, allow []string, deny []string) (*ScopePreset, error)
 	DuplicateScopePreset(ctx context.Context, id string) (*ScopePreset, error)
@@ -296,6 +404,8 @@ type MutationResolver interface {
 }
 type QueryResolver interface {
 	ServerInfo(ctx context.Context) (*ServerInfo, error)
+	Environments(ctx context.Context) ([]Environment, error)
+	Environment(ctx context.Context, id string) (*Environment, error)
 	FilterPresets(ctx context.Context) ([]FilterPreset, error)
 	FilterPreset(ctx context.Context, id string) (*FilterPreset, error)
 	ExportFilterPresets(ctx context.Context) (string, error)
@@ -307,9 +417,22 @@ type QueryResolver interface {
 	Projects(ctx context.Context) ([]Project, error)
 	Project(ctx context.Context, id string) (*Project, error)
 	CurrentProject(ctx context.Context) (*Project, error)
+	ReplayCollections(ctx context.Context) ([]ReplayCollection, error)
+	ReplaySession(ctx context.Context, id string) (*ReplaySession, error)
 	ScopePresets(ctx context.Context) ([]ScopePreset, error)
 	ScopePreset(ctx context.Context, id string) (*ScopePreset, error)
 	SitemapNodes(ctx context.Context, parentID *string, query *string, scopeID *string, recursive bool) ([]SitemapNode, error)
+}
+type ReplayCollectionResolver interface {
+	Sessions(ctx context.Context, obj *ReplayCollection) ([]ReplaySession, error)
+}
+type ReplayEntryResolver interface {
+	Request(ctx context.Context, obj *ReplayEntry) (*HTTPRequest, error)
+}
+type ReplaySessionResolver interface {
+	Collection(ctx context.Context, obj *ReplaySession) (*ReplayCollection, error)
+
+	Entries(ctx context.Context, obj *ReplaySession, first int, after *string) (*ReplayEntryConnection, error)
 }
 type SubscriptionResolver interface {
 	Ping(ctx context.Context) (<-chan *Ping, error)
@@ -369,6 +492,56 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Completion.Label(childComplexity), true
+
+	case "Environment.id":
+		if e.ComplexityRoot.Environment.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Environment.ID(childComplexity), true
+	case "Environment.isGlobal":
+		if e.ComplexityRoot.Environment.IsGlobal == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Environment.IsGlobal(childComplexity), true
+	case "Environment.name":
+		if e.ComplexityRoot.Environment.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Environment.Name(childComplexity), true
+	case "Environment.selected":
+		if e.ComplexityRoot.Environment.Selected == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Environment.Selected(childComplexity), true
+	case "Environment.variables":
+		if e.ComplexityRoot.Environment.Variables == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Environment.Variables(childComplexity), true
+
+	case "EnvironmentVariable.name":
+		if e.ComplexityRoot.EnvironmentVariable.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EnvironmentVariable.Name(childComplexity), true
+	case "EnvironmentVariable.secret":
+		if e.ComplexityRoot.EnvironmentVariable.Secret == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EnvironmentVariable.Secret(childComplexity), true
+	case "EnvironmentVariable.value":
+		if e.ComplexityRoot.EnvironmentVariable.Value == nil {
+			break
+		}
+
+		return e.ComplexityRoot.EnvironmentVariable.Value(childComplexity), true
 
 	case "FilterPreset.alias":
 		if e.ComplexityRoot.FilterPreset.Alias == nil {
@@ -688,6 +861,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.InterceptSettings.ScopeID(childComplexity), true
 
+	case "Mutation.cancelReplaySend":
+		if e.ComplexityRoot.Mutation.CancelReplaySend == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_cancelReplaySend_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CancelReplaySend(childComplexity, args["id"].(string)), true
+	case "Mutation.createEnvironment":
+		if e.ComplexityRoot.Mutation.CreateEnvironment == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createEnvironment_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateEnvironment(childComplexity, args["name"].(string)), true
 	case "Mutation.createFilterPreset":
 		if e.ComplexityRoot.Mutation.CreateFilterPreset == nil {
 			break
@@ -710,6 +905,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.CreateProject(childComplexity, args["name"].(string), args["select"].(bool)), true
+	case "Mutation.createReplayCollection":
+		if e.ComplexityRoot.Mutation.CreateReplayCollection == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createReplayCollection_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateReplayCollection(childComplexity, args["name"].(string)), true
+	case "Mutation.createReplaySession":
+		if e.ComplexityRoot.Mutation.CreateReplaySession == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_createReplaySession_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.CreateReplaySession(childComplexity, args["input"].(CreateReplaySessionInput)), true
 	case "Mutation.createScopePreset":
 		if e.ComplexityRoot.Mutation.CreateScopePreset == nil {
 			break
@@ -721,6 +938,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.CreateScopePreset(childComplexity, args["name"].(string), args["allow"].([]string), args["deny"].([]string)), true
+	case "Mutation.deleteEnvironment":
+		if e.ComplexityRoot.Mutation.DeleteEnvironment == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteEnvironment_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteEnvironment(childComplexity, args["id"].(string)), true
 	case "Mutation.deleteFilterPreset":
 		if e.ComplexityRoot.Mutation.DeleteFilterPreset == nil {
 			break
@@ -743,6 +971,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DeleteProject(childComplexity, args["id"].(string)), true
+	case "Mutation.deleteReplayCollection":
+		if e.ComplexityRoot.Mutation.DeleteReplayCollection == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteReplayCollection_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteReplayCollection(childComplexity, args["id"].(string)), true
+	case "Mutation.deleteReplaySession":
+		if e.ComplexityRoot.Mutation.DeleteReplaySession == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_deleteReplaySession_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DeleteReplaySession(childComplexity, args["id"].(string)), true
 	case "Mutation.deleteRequests":
 		if e.ComplexityRoot.Mutation.DeleteRequests == nil {
 			break
@@ -798,6 +1048,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.DuplicateProject(childComplexity, args["id"].(string), args["name"].(*string)), true
+	case "Mutation.duplicateReplaySession":
+		if e.ComplexityRoot.Mutation.DuplicateReplaySession == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_duplicateReplaySession_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.DuplicateReplaySession(childComplexity, args["id"].(string)), true
 	case "Mutation.duplicateScopePreset":
 		if e.ComplexityRoot.Mutation.DuplicateScopePreset == nil {
 			break
@@ -842,6 +1103,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ImportFilterPresets(childComplexity, args["json"].(string)), true
+	case "Mutation.moveReplaySession":
+		if e.ComplexityRoot.Mutation.MoveReplaySession == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_moveReplaySession_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.MoveReplaySession(childComplexity, args["id"].(string), args["collectionId"].(string), args["index"].(int)), true
+	case "Mutation.renameEnvironment":
+		if e.ComplexityRoot.Mutation.RenameEnvironment == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_renameEnvironment_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RenameEnvironment(childComplexity, args["id"].(string), args["name"].(string)), true
 	case "Mutation.renameProject":
 		if e.ComplexityRoot.Mutation.RenameProject == nil {
 			break
@@ -853,6 +1136,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.RenameProject(childComplexity, args["id"].(string), args["name"].(string)), true
+	case "Mutation.renameReplayCollection":
+		if e.ComplexityRoot.Mutation.RenameReplayCollection == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_renameReplayCollection_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.RenameReplayCollection(childComplexity, args["id"].(string), args["name"].(string)), true
 	case "Mutation.reorderFilterPresets":
 		if e.ComplexityRoot.Mutation.ReorderFilterPresets == nil {
 			break
@@ -864,6 +1158,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ReorderFilterPresets(childComplexity, args["ids"].([]string)), true
+	case "Mutation.reorderReplayCollections":
+		if e.ComplexityRoot.Mutation.ReorderReplayCollections == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_reorderReplayCollections_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ReorderReplayCollections(childComplexity, args["ids"].([]string)), true
 	case "Mutation.reorderScopePresets":
 		if e.ComplexityRoot.Mutation.ReorderScopePresets == nil {
 			break
@@ -875,6 +1180,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ReorderScopePresets(childComplexity, args["ids"].([]string)), true
+	case "Mutation.selectEnvironment":
+		if e.ComplexityRoot.Mutation.SelectEnvironment == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_selectEnvironment_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SelectEnvironment(childComplexity, args["id"].(*string)), true
 	case "Mutation.selectProject":
 		if e.ComplexityRoot.Mutation.SelectProject == nil {
 			break
@@ -886,6 +1202,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SelectProject(childComplexity, args["id"].(string)), true
+	case "Mutation.sendReplaySession":
+		if e.ComplexityRoot.Mutation.SendReplaySession == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_sendReplaySession_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SendReplaySession(childComplexity, args["id"].(string), args["input"].(SendReplaySessionInput)), true
 	case "Mutation.setDefaultProject":
 		if e.ComplexityRoot.Mutation.SetDefaultProject == nil {
 			break
@@ -897,6 +1224,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.SetDefaultProject(childComplexity, args["id"].(*string)), true
+	case "Mutation.setEnvironmentVariables":
+		if e.ComplexityRoot.Mutation.SetEnvironmentVariables == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setEnvironmentVariables_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SetEnvironmentVariables(childComplexity, args["id"].(string), args["variables"].([]EnvironmentVariableInput)), true
+	case "Mutation.setReplaySessionColor":
+		if e.ComplexityRoot.Mutation.SetReplaySessionColor == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_setReplaySessionColor_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SetReplaySessionColor(childComplexity, args["id"].(string), args["color"].(*RequestColor)), true
 	case "Mutation.setRequestColor":
 		if e.ComplexityRoot.Mutation.SetRequestColor == nil {
 			break
@@ -941,6 +1290,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.UpdateInterceptSettings(childComplexity, args["input"].(InterceptSettingsInput)), true
+	case "Mutation.updateReplaySession":
+		if e.ComplexityRoot.Mutation.UpdateReplaySession == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateReplaySession_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.UpdateReplaySession(childComplexity, args["id"].(string), args["input"].(UpdateReplaySessionInput)), true
 	case "Mutation.updateScopePreset":
 		if e.ComplexityRoot.Mutation.UpdateScopePreset == nil {
 			break
@@ -1065,6 +1425,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.CurrentProject(childComplexity), true
+	case "Query.environment":
+		if e.ComplexityRoot.Query.Environment == nil {
+			break
+		}
+
+		args, err := ec.field_Query_environment_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.Environment(childComplexity, args["id"].(string)), true
+	case "Query.environments":
+		if e.ComplexityRoot.Query.Environments == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.Environments(childComplexity), true
 	case "Query.exportFilterPresets":
 		if e.ComplexityRoot.Query.ExportFilterPresets == nil {
 			break
@@ -1134,6 +1511,23 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.QueryCompletions(childComplexity, args["language"].(QueryLanguage), args["text"].(string), args["cursor"].(int)), true
+	case "Query.replayCollections":
+		if e.ComplexityRoot.Query.ReplayCollections == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.ReplayCollections(childComplexity), true
+	case "Query.replaySession":
+		if e.ComplexityRoot.Query.ReplaySession == nil {
+			break
+		}
+
+		args, err := ec.field_Query_replaySession_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ReplaySession(childComplexity, args["id"].(string)), true
 	case "Query.request":
 		if e.ComplexityRoot.Query.Request == nil {
 			break
@@ -1209,6 +1603,210 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.QueryCompletions.To(childComplexity), true
+
+	case "ReplayCollection.id":
+		if e.ComplexityRoot.ReplayCollection.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayCollection.ID(childComplexity), true
+	case "ReplayCollection.isDefault":
+		if e.ComplexityRoot.ReplayCollection.IsDefault == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayCollection.IsDefault(childComplexity), true
+	case "ReplayCollection.name":
+		if e.ComplexityRoot.ReplayCollection.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayCollection.Name(childComplexity), true
+	case "ReplayCollection.sessions":
+		if e.ComplexityRoot.ReplayCollection.Sessions == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayCollection.Sessions(childComplexity), true
+
+	case "ReplayConnection.host":
+		if e.ComplexityRoot.ReplayConnection.Host == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayConnection.Host(childComplexity), true
+	case "ReplayConnection.port":
+		if e.ComplexityRoot.ReplayConnection.Port == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayConnection.Port(childComplexity), true
+	case "ReplayConnection.sni":
+		if e.ComplexityRoot.ReplayConnection.Sni == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayConnection.Sni(childComplexity), true
+	case "ReplayConnection.tls":
+		if e.ComplexityRoot.ReplayConnection.TLS == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayConnection.TLS(childComplexity), true
+
+	case "ReplayEntry.createdAt":
+		if e.ComplexityRoot.ReplayEntry.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntry.CreatedAt(childComplexity), true
+	case "ReplayEntry.error":
+		if e.ComplexityRoot.ReplayEntry.Error == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntry.Error(childComplexity), true
+	case "ReplayEntry.id":
+		if e.ComplexityRoot.ReplayEntry.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntry.ID(childComplexity), true
+	case "ReplayEntry.request":
+		if e.ComplexityRoot.ReplayEntry.Request == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntry.Request(childComplexity), true
+
+	case "ReplayEntryConnection.edges":
+		if e.ComplexityRoot.ReplayEntryConnection.Edges == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntryConnection.Edges(childComplexity), true
+	case "ReplayEntryConnection.pageInfo":
+		if e.ComplexityRoot.ReplayEntryConnection.PageInfo == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntryConnection.PageInfo(childComplexity), true
+	case "ReplayEntryConnection.totalCount":
+		if e.ComplexityRoot.ReplayEntryConnection.TotalCount == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntryConnection.TotalCount(childComplexity), true
+
+	case "ReplayEntryEdge.cursor":
+		if e.ComplexityRoot.ReplayEntryEdge.Cursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntryEdge.Cursor(childComplexity), true
+	case "ReplayEntryEdge.node":
+		if e.ComplexityRoot.ReplayEntryEdge.Node == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayEntryEdge.Node(childComplexity), true
+
+	case "ReplayOptions.applyMatchReplace":
+		if e.ComplexityRoot.ReplayOptions.ApplyMatchReplace == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayOptions.ApplyMatchReplace(childComplexity), true
+	case "ReplayOptions.followRedirects":
+		if e.ComplexityRoot.ReplayOptions.FollowRedirects == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayOptions.FollowRedirects(childComplexity), true
+	case "ReplayOptions.timeoutMs":
+		if e.ComplexityRoot.ReplayOptions.TimeoutMs == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayOptions.TimeoutMs(childComplexity), true
+	case "ReplayOptions.updateContentLength":
+		if e.ComplexityRoot.ReplayOptions.UpdateContentLength == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplayOptions.UpdateContentLength(childComplexity), true
+
+	case "ReplaySession.collection":
+		if e.ComplexityRoot.ReplaySession.Collection == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.Collection(childComplexity), true
+	case "ReplaySession.color":
+		if e.ComplexityRoot.ReplaySession.Color == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.Color(childComplexity), true
+	case "ReplaySession.connection":
+		if e.ComplexityRoot.ReplaySession.Connection == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.Connection(childComplexity), true
+	case "ReplaySession.createdAt":
+		if e.ComplexityRoot.ReplaySession.CreatedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.CreatedAt(childComplexity), true
+	case "ReplaySession.draft":
+		if e.ComplexityRoot.ReplaySession.Draft == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.Draft(childComplexity), true
+	case "ReplaySession.entries":
+		if e.ComplexityRoot.ReplaySession.Entries == nil {
+			break
+		}
+
+		args, err := ec.field_ReplaySession_entries_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.ReplaySession.Entries(childComplexity, args["first"].(int), args["after"].(*string)), true
+	case "ReplaySession.id":
+		if e.ComplexityRoot.ReplaySession.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.ID(childComplexity), true
+	case "ReplaySession.kind":
+		if e.ComplexityRoot.ReplaySession.Kind == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.Kind(childComplexity), true
+	case "ReplaySession.name":
+		if e.ComplexityRoot.ReplaySession.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.Name(childComplexity), true
+	case "ReplaySession.options":
+		if e.ComplexityRoot.ReplaySession.Options == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.Options(childComplexity), true
+	case "ReplaySession.sending":
+		if e.ComplexityRoot.ReplaySession.Sending == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.Sending(childComplexity), true
 
 	case "RequestUpdate.matches":
 		if e.ComplexityRoot.RequestUpdate.Matches == nil {
@@ -1415,8 +2013,14 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	ec := newExecutionContext(opCtx, e, make(chan graphql.DeferredResult))
 	inputUnmarshalers := func() *graphql.InputUnmarshalerIndex {
 		return graphql.NewInputUnmarshalerIndex(
+			graphql.NewInputUnmarshaler("CreateReplaySessionInput", ec.unmarshalInputCreateReplaySessionInput),
+			graphql.NewInputUnmarshaler("EnvironmentVariableInput", ec.unmarshalInputEnvironmentVariableInput),
 			graphql.NewInputUnmarshaler("InterceptSettingsInput", ec.unmarshalInputInterceptSettingsInput),
+			graphql.NewInputUnmarshaler("ReplayConnectionInput", ec.unmarshalInputReplayConnectionInput),
+			graphql.NewInputUnmarshaler("ReplayOptionsInput", ec.unmarshalInputReplayOptionsInput),
 			graphql.NewInputUnmarshaler("RequestSort", ec.unmarshalInputRequestSort),
+			graphql.NewInputUnmarshaler("SendReplaySessionInput", ec.unmarshalInputSendReplaySessionInput),
+			graphql.NewInputUnmarshaler("UpdateReplaySessionInput", ec.unmarshalInputUpdateReplaySessionInput),
 		)
 	}
 	first := true
@@ -1597,6 +2201,110 @@ type Subscription {
   show whether the live connection is up.
   """
   ping: Ping!
+}
+`, BuiltIn: false},
+	{Name: "../schema/environment.graphqls", Input: `# Environments (docs/01-feature-spec.md F-ENV-1, "Contract (lead, 2026-11-19, M2)").
+# Owned by the lead; contract task T-098, resolvers: T-037.
+# Global lives in instance.db and always exists; project environments live in
+# the selected project's database. There is no subscription: pages refetch
+# after their own mutations. Unknown IDs are ` + "`" + `NOT_FOUND` + "`" + `.
+
+"One variable, used as ` + "`" + `{{name}}` + "`" + ` in Replay, Automate and workflows."
+type EnvironmentVariable {
+  "Matches ` + "`" + `[A-Za-z_][A-Za-z0-9_.-]*` + "`" + `, at most 100 characters; unique per environment (case-sensitive)."
+  name: String!
+  """
+  Value, at most 1 MiB (1048576 bytes of UTF-8). Secret values are returned to
+  authenticated clients too; the UI masks them behind a reveal toggle.
+  """
+  value: String!
+  """
+  Whether the value is a secret: sealed at rest with ` + "`" + `secret.key` + "`" + `, masked in
+  the UI, and left out of exports (M3) and the Assistant (M6).
+  """
+  secret: Boolean!
+}
+
+"A variable to store; same rules as ` + "`" + `EnvironmentVariable` + "`" + `."
+input EnvironmentVariableInput {
+  "Variable name (see ` + "`" + `EnvironmentVariable.name` + "`" + `)."
+  name: String!
+  "Value, at most 1 MiB."
+  value: String!
+  "Whether the value is a secret. Default false."
+  secret: Boolean! = false
+}
+
+"""
+A set of variables. Lookup for ` + "`" + `{{name}}` + "`" + ` uses the selected project
+environment, then Global. Unknown names stay verbatim; substituted values are
+not interpolated again.
+"""
+type Environment implements Node {
+  "Opaque identifier; Global has the same ID in every project."
+  id: ID!
+  """
+  Display name: trimmed, 1-200 characters, unique per project. ` + "`" + `Global` + "`" + ` is
+  reserved for the instance-wide environment.
+  """
+  name: String!
+  "Whether this is the instance-wide Global environment (cannot be renamed or deleted)."
+  isGlobal: Boolean!
+  """
+  Whether this project environment is the selected one; at most one is. Always
+  false for Global, which is always used after the selected environment.
+  """
+  selected: Boolean!
+  "Variables in the order last set by ` + "`" + `setEnvironmentVariables` + "`" + `."
+  variables: [EnvironmentVariable!]!
+}
+
+extend type Query {
+  "Global first, then the selected project's environments in name order. Not paginated."
+  environments: [Environment!]!
+  "One environment (Global or of the selected project), or null if none has this ID."
+  environment(id: ID!): Environment
+}
+
+extend type Mutation {
+  """
+  Creates an empty, unselected project environment.
+
+  Errors: ` + "`" + `BAD_INPUT` + "`" + ` for a name empty, longer than 200 characters or with
+  control characters after trimming; ` + "`" + `CONFLICT` + "`" + ` when the name is ` + "`" + `Global` + "`" + ` or
+  already used in this project.
+  """
+  createEnvironment(name: String!): Environment!
+  """
+  Renames a project environment. Same name rules and errors as
+  ` + "`" + `createEnvironment` + "`" + ` (keeping its own name is not a conflict); ` + "`" + `CONFLICT` + "`" + ` for
+  Global; ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  renameEnvironment(id: ID!, name: String!): Environment!
+  """
+  Deletes a project environment and its variables, and returns its ID. When it
+  was selected, no environment is selected afterwards.
+
+  Errors: ` + "`" + `CONFLICT` + "`" + ` for Global; ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  deleteEnvironment(id: ID!): ID!
+  """
+  Replaces the whole variable list of an environment (Global included) and
+  returns it. Nothing changes on error.
+
+  Errors: ` + "`" + `BAD_INPUT` + "`" + ` for an invalid or duplicate name (the message quotes it)
+  or a value over 1 MiB; ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  setEnvironmentVariables(id: ID!, variables: [EnvironmentVariableInput!]!): Environment!
+  """
+  Selects a project environment for the selected project, or none with
+  ` + "`" + `id: null` + "`" + ` (only Global is used then). Returns the selected environment, or
+  null when none is.
+
+  Errors: ` + "`" + `BAD_INPUT` + "`" + ` for Global's ID (Global is always used; pass null);
+  ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  selectEnvironment(id: ID): Environment
 }
 `, BuiltIn: false},
 	{Name: "../schema/filter.graphqls", Input: `# Filter presets (docs/01-feature-spec.md F-FILTER-1, docs/04-query-language.md §1).
@@ -2335,6 +3043,332 @@ extend type Subscription {
   projectChanged: ProjectChange!
 }
 `, BuiltIn: false},
+	{Name: "../schema/replay.graphqls", Input: `# Replay (docs/01-feature-spec.md F-REP-1 and F-REP-2, "Contract (lead, 2026-11-19, M2)").
+# Owned by the lead; contract task T-098, CRUD resolvers: T-033, send: T-106.
+# Collections, sessions and entries live in the selected project's database.
+# There is no subscription: pages refetch after their own mutations.
+#
+# Shared rules:
+# - Names (collections and sessions) are trimmed; empty, longer than 200
+#   characters or containing control characters is ` + "`" + `BAD_INPUT` + "`" + `. Names need not
+#   be unique.
+# - Request bytes (` + "`" + `draft` + "`" + `, ` + "`" + `raw` + "`" + `) are at most 16 MiB (16777216 bytes) once
+#   decoded, else ` + "`" + `BAD_INPUT` + "`" + `; they are stored exactly as given.
+# - Unknown IDs are ` + "`" + `NOT_FOUND` + "`" + `.
+
+"What a Replay session sends. WebSocket (M4) and Pipeline (M7) sessions add values then."
+enum ReplaySessionKind {
+  "Raw HTTP/1.x request and response."
+  HTTP
+}
+
+"""
+A folder of sessions. The "Default" collection is created with the project's
+first Replay use, so ` + "`" + `replayCollections` + "`" + ` never returns an empty list.
+"""
+type ReplayCollection implements Node {
+  "Opaque identifier."
+  id: ID!
+  "Display name; see the shared name rules at the top of this file."
+  name: String!
+  """
+  Whether this is the Default collection: it can be renamed but not deleted,
+  and it receives new sessions created without ` + "`" + `collectionId` + "`" + `.
+  """
+  isDefault: Boolean!
+  "Sessions of this collection in position order (see ` + "`" + `moveReplaySession` + "`" + `)."
+  sessions: [ReplaySession!]!
+}
+
+"Where a session's request goes. Editing ` + "`" + `Host` + "`" + ` in the request never changes it."
+type ReplayConnection {
+  "Host name or IP address to dial."
+  host: String!
+  "TCP port, 1-65535."
+  port: Int!
+  "Whether to speak TLS (certificates are not verified; ALPN ` + "`" + `http/1.1` + "`" + `)."
+  tls: Boolean!
+  """
+  SNI override for TLS; null sends ` + "`" + `host` + "`" + ` as SNI when it is a name and no SNI
+  for an IP address.
+  """
+  sni: String
+}
+
+"""
+A connection to store or send to. Errors: ` + "`" + `BAD_INPUT` + "`" + ` for an empty ` + "`" + `host` + "`" + ` or
+one containing whitespace or control characters, a ` + "`" + `port` + "`" + ` outside 1-65535, or
+an empty ` + "`" + `sni` + "`" + ` (use null for no override).
+"""
+input ReplayConnectionInput {
+  "Host name or IP address to dial."
+  host: String!
+  "TCP port, 1-65535."
+  port: Int!
+  "Whether to speak TLS."
+  tls: Boolean!
+  "SNI override; null (or omitted) for none."
+  sni: String
+}
+
+"Send options of a session."
+type ReplayOptions {
+  "Follow up to 10 redirects (F-REP-2). Default false."
+  followRedirects: Boolean!
+  """
+  Set ` + "`" + `Content-Length` + "`" + ` to the body size before sending (same rule as
+  Intercept: only when there is no ` + "`" + `Transfer-Encoding` + "`" + ` and there is a body or a
+  ` + "`" + `Content-Length` + "`" + ` header). Default true.
+  """
+  updateContentLength: Boolean!
+  "Time allowed from dial to the last response byte, 1000-300000 ms. Default 60000."
+  timeoutMs: Int!
+  "Run Match & Replace rules (source ` + "`" + `replay` + "`" + `) on the request before sending. Default false."
+  applyMatchReplace: Boolean!
+}
+
+"""
+Changes to ` + "`" + `ReplayOptions` + "`" + `. Omitted or null fields keep their value. ` + "`" + `BAD_INPUT` + "`" + `
+for ` + "`" + `timeoutMs` + "`" + ` outside 1000-300000; nothing changes then.
+"""
+input ReplayOptionsInput {
+  "See ` + "`" + `ReplayOptions.followRedirects` + "`" + `."
+  followRedirects: Boolean
+  "See ` + "`" + `ReplayOptions.updateContentLength` + "`" + `."
+  updateContentLength: Boolean
+  "See ` + "`" + `ReplayOptions.timeoutMs` + "`" + `; 1000-300000."
+  timeoutMs: Int
+  "See ` + "`" + `ReplayOptions.applyMatchReplace` + "`" + `."
+  applyMatchReplace: Boolean
+}
+
+"One Replay tab: a request draft, where it goes, and the sends made from it."
+type ReplaySession implements Node {
+  "Opaque identifier."
+  id: ID!
+  "Always ` + "`" + `HTTP` + "`" + ` in M2."
+  kind: ReplaySessionKind!
+  """
+  Display name. New sessions are named ` + "`" + `METHOD path` + "`" + ` from the request line,
+  cut to 60 characters (` + "`" + `Untitled` + "`" + ` when the bytes have no request line).
+  """
+  name: String!
+  "Tag colour shown on the tab; null when none."
+  color: RequestColor
+  "The collection holding the session."
+  collection: ReplayCollection!
+  "Where the request goes."
+  connection: ReplayConnection!
+  "Send options."
+  options: ReplayOptions!
+  """
+  The request bytes the editor shows: exactly as last saved by
+  ` + "`" + `updateReplaySession` + "`" + ` or ` + "`" + `sendReplaySession` + "`" + ` (before interpolation, Match &
+  Replace or Content-Length update).
+  """
+  draft: Bytes!
+  "Whether a send is in flight (see ` + "`" + `sendReplaySession` + "`" + `)."
+  sending: Boolean!
+  "When the session was created."
+  createdAt: Time!
+  """
+  Sends made from this session, newest first. ` + "`" + `first` + "`" + ` is 1..1000 (` + "`" + `BAD_INPUT` + "`" + `
+  otherwise); ` + "`" + `after` + "`" + ` is a cursor from a previous page.
+  """
+  entries(first: Int! = 100, after: String): ReplayEntryConnection!
+}
+
+"One send of a session."
+type ReplayEntry implements Node {
+  "Opaque identifier."
+  id: ID!
+  """
+  The request record as sent (source ` + "`" + `REPLAY` + "`" + `), with its response. After
+  followed redirects it is the last hop; every hop is its own record in HTTP
+  History. Failed sends have a record without a response.
+  """
+  request: HttpRequest!
+  """
+  Why the send failed (dial, TLS, timeout or cancel), as a short readable
+  message, e.g. ` + "`" + `timeout after 60000 ms` + "`" + ` or ` + "`" + `cancelled` + "`" + `; null on success. A
+  failed send has no response.
+  """
+  error: String
+  "When the send started."
+  createdAt: Time!
+}
+
+"One entry in a ` + "`" + `ReplaySession.entries` + "`" + ` connection."
+type ReplayEntryEdge {
+  "Opaque cursor of this position; valid for the same session only."
+  cursor: String!
+  "The entry at this position."
+  node: ReplayEntry!
+}
+
+"A page of entries, newest first."
+type ReplayEntryConnection {
+  "Entries of this page."
+  edges: [ReplayEntryEdge!]!
+  "Cursors and whether more pages exist."
+  pageInfo: PageInfo!
+  "Number of entries of the session."
+  totalCount: Int!
+}
+
+"""
+A new session: either copied from a history request (` + "`" + `fromRequestId` + "`" + `) or from
+scratch (` + "`" + `connection` + "`" + ` and ` + "`" + `raw` + "`" + `). Giving both or neither is ` + "`" + `BAD_INPUT` + "`" + `.
+"""
+input CreateReplaySessionInput {
+  "Collection to add the session to, placed last; null for the Default collection."
+  collectionId: ID
+  """
+  History request to copy: its stored request bytes and connection. ` + "`" + `NOT_FOUND` + "`" + `
+  when unknown; ` + "`" + `BAD_INPUT` + "`" + ` when its stored request was truncated.
+  """
+  fromRequestId: ID
+  "Connection for a session from scratch."
+  connection: ReplayConnectionInput
+  """
+  Request bytes for a session from scratch. The URL dialog sends
+  ` + "`" + `GET <path> HTTP/1.1` + "`" + ` with a ` + "`" + `Host` + "`" + ` header.
+  """
+  raw: Bytes
+  "Name; null for ` + "`" + `METHOD path` + "`" + ` (see ` + "`" + `ReplaySession.name` + "`" + `)."
+  name: String
+}
+
+"Changes to a session. Omitted or null fields keep their value; nothing changes when any field is invalid."
+input UpdateReplaySessionInput {
+  "New name; see the shared name rules."
+  name: String
+  "Replaces the whole connection."
+  connection: ReplayConnectionInput
+  "Merged into the current options."
+  options: ReplayOptionsInput
+  "Replaces the draft bytes."
+  draft: Bytes
+}
+
+"What to send. The values are first saved on the session, as ` + "`" + `updateReplaySession` + "`" + ` would."
+input SendReplaySessionInput {
+  "The editor's bytes; saved as the draft."
+  raw: Bytes!
+  "Saved as the session's connection."
+  connection: ReplayConnectionInput!
+  "Merged into the session's options; null keeps them."
+  options: ReplayOptionsInput
+}
+
+extend type Query {
+  """
+  All collections of the selected project in collection order (see
+  ` + "`" + `reorderReplayCollections` + "`" + `), each with its sessions in position order. Never
+  empty: the Default collection is created on first use. Not paginated.
+  """
+  replayCollections: [ReplayCollection!]!
+  "One session, or null if no session has this ID."
+  replaySession(id: ID!): ReplaySession
+}
+
+extend type Mutation {
+  "Creates an empty collection, placed last. ` + "`" + `BAD_INPUT` + "`" + ` for an invalid name."
+  createReplayCollection(name: String!): ReplayCollection!
+  "Renames a collection (Default included). ` + "`" + `BAD_INPUT` + "`" + ` for an invalid name, ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID."
+  renameReplayCollection(id: ID!, name: String!): ReplayCollection!
+  """
+  Deletes a collection with its sessions and their entries, and returns its ID.
+  In-flight sends of those sessions are cancelled. Request records stay in
+  HTTP History.
+
+  Errors: ` + "`" + `CONFLICT` + "`" + ` for the Default collection; ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  deleteReplayCollection(id: ID!): ID!
+  """
+  Sets the collection order and returns all collections in the new order.
+  ` + "`" + `ids` + "`" + ` must list every collection exactly once: a missing, extra, unknown or
+  repeated ID is ` + "`" + `BAD_INPUT` + "`" + ` and nothing changes.
+  """
+  reorderReplayCollections(ids: [ID!]!): [ReplayCollection!]!
+  """
+  Creates an HTTP session with default options and no colour, placed last in
+  its collection.
+
+  Errors:
+  - ` + "`" + `BAD_INPUT` + "`" + `: both or neither of ` + "`" + `fromRequestId` + "`" + ` and ` + "`" + `connection` + "`" + `+` + "`" + `raw` + "`" + `;
+    only one of ` + "`" + `connection` + "`" + ` and ` + "`" + `raw` + "`" + `; an invalid connection, name or ` + "`" + `raw` + "`" + `;
+    the history request was truncated.
+  - ` + "`" + `NOT_FOUND` + "`" + `: unknown ` + "`" + `collectionId` + "`" + ` or ` + "`" + `fromRequestId` + "`" + `.
+  """
+  createReplaySession(input: CreateReplaySessionInput!): ReplaySession!
+  """
+  Saves name, connection, options or draft. Allowed while sending; the send in
+  flight keeps the values it started with.
+
+  Errors: ` + "`" + `BAD_INPUT` + "`" + ` for an invalid field (nothing changes); ` + "`" + `NOT_FOUND` + "`" + ` for
+  an unknown ID.
+  """
+  updateReplaySession(id: ID!, input: UpdateReplaySessionInput!): ReplaySession!
+  "Sets the tag colour; null clears it. ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID."
+  setReplaySessionColor(id: ID!, color: RequestColor): ReplaySession!
+  """
+  Copies draft, connection, options and colour (not entries) into a new session
+  named ` + "`" + `<name> (copy)` + "`" + ` (the source name cut to 193 characters first), placed
+  right after the source in its collection. ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  duplicateReplaySession(id: ID!): ReplaySession!
+  """
+  Moves a session to position ` + "`" + `index` + "`" + ` (0-based) of ` + "`" + `collectionId` + "`" + `, which may be
+  its own collection. An ` + "`" + `index` + "`" + ` past the end places it last.
+
+  Errors: ` + "`" + `BAD_INPUT` + "`" + ` for a negative ` + "`" + `index` + "`" + `; ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID or
+  ` + "`" + `collectionId` + "`" + `.
+  """
+  moveReplaySession(id: ID!, collectionId: ID!, index: Int!): ReplaySession!
+  """
+  Deletes a session with its entries and returns its ID; an in-flight send is
+  cancelled. Request records stay in HTTP History. ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  deleteReplaySession(id: ID!): ID!
+  """
+  Sends the request and returns the stored entry once the response is
+  complete, the timeout passes or the send is cancelled (` + "`" + `cancelReplaySend` + "`" + `).
+
+  1. ` + "`" + `raw` + "`" + `, ` + "`" + `connection` + "`" + ` and ` + "`" + `options` + "`" + ` are validated, then saved on the session
+     (draft first, so nothing typed is lost even when the send fails).
+  2. ` + "`" + `{{var}}` + "`" + ` interpolation with the selected environment, then Global
+     (F-ENV-1).
+  3. Match & Replace (source ` + "`" + `replay` + "`" + `) when ` + "`" + `applyMatchReplace` + "`" + ` is on.
+  4. Content-Length update when ` + "`" + `updateContentLength` + "`" + ` is on.
+  5. The result must parse as an HTTP/1.x request head; the body is every byte
+     after the blank line and is not checked against ` + "`" + `Content-Length` + "`" + `.
+  6. Written on a fresh connection (no pooling, closed after the exchange):
+     TLS without certificate verification, SNI per ` + "`" + `ReplayConnection.sni` + "`" + `,
+     ALPN ` + "`" + `http/1.1` + "`" + `. The timeout covers dial to the last response byte.
+     Responses are read up to the 64 MiB capture cap, then cut (` + "`" + `isTruncated` + "`" + `).
+  7. Redirects are followed per F-REP-2 when ` + "`" + `followRedirects` + "`" + ` is on.
+
+  Each send stores one request record per hop (source ` + "`" + `REPLAY` + "`" + `, the bytes as
+  sent) and one entry. Dial, TLS, timeout and cancel failures are not GraphQL
+  errors: they return an entry with ` + "`" + `error` + "`" + ` and no response.
+
+  Errors (no entry is stored):
+  - ` + "`" + `CONFLICT` + "`" + `: a send of this session is already in flight.
+  - ` + "`" + `BAD_INPUT` + "`" + `: invalid ` + "`" + `raw` + "`" + `, connection or options (nothing is saved); the
+    bytes after steps 2-4 do not parse (the message quotes the parse error; the
+    draft stays saved).
+  - ` + "`" + `NOT_FOUND` + "`" + `: unknown ID.
+  """
+  sendReplaySession(id: ID!, input: SendReplaySessionInput!): ReplayEntry!
+  """
+  Cancels the session's in-flight send, which then returns an entry with error
+  ` + "`" + `cancelled` + "`" + `. Returns true when a send was cancelled, false when none was in
+  flight. ` + "`" + `NOT_FOUND` + "`" + ` for an unknown ID.
+  """
+  cancelReplaySend(id: ID!): Boolean!
+}
+`, BuiltIn: false},
 	{Name: "../schema/scope.graphqls", Input: `# Scope presets (docs/01-feature-spec.md F-SCOPE-1). Owned by the lead; contract: T-091, resolvers: T-092.
 # Presets live in the selected project's database. There is no subscription:
 # the list is small, so pages refetch ` + "`" + `scopePresets` + "`" + ` after their own mutations.
@@ -2519,6 +3553,34 @@ func (ec *executionContext) childFields_Completion(ctx context.Context, field gr
 		return ec.fieldContext_Completion_isExtension(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Completion", field.Name)
+}
+
+func (ec *executionContext) childFields_Environment(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_Environment_id(ctx, field)
+	case "name":
+		return ec.fieldContext_Environment_name(ctx, field)
+	case "isGlobal":
+		return ec.fieldContext_Environment_isGlobal(ctx, field)
+	case "selected":
+		return ec.fieldContext_Environment_selected(ctx, field)
+	case "variables":
+		return ec.fieldContext_Environment_variables(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type Environment", field.Name)
+}
+
+func (ec *executionContext) childFields_EnvironmentVariable(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "name":
+		return ec.fieldContext_EnvironmentVariable_name(ctx, field)
+	case "value":
+		return ec.fieldContext_EnvironmentVariable_value(ctx, field)
+	case "secret":
+		return ec.fieldContext_EnvironmentVariable_secret(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type EnvironmentVariable", field.Name)
 }
 
 func (ec *executionContext) childFields_FilterPreset(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -2737,6 +3799,112 @@ func (ec *executionContext) childFields_QueryCompletions(ctx context.Context, fi
 		return ec.fieldContext_QueryCompletions_items(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type QueryCompletions", field.Name)
+}
+
+func (ec *executionContext) childFields_ReplayCollection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ReplayCollection_id(ctx, field)
+	case "name":
+		return ec.fieldContext_ReplayCollection_name(ctx, field)
+	case "isDefault":
+		return ec.fieldContext_ReplayCollection_isDefault(ctx, field)
+	case "sessions":
+		return ec.fieldContext_ReplayCollection_sessions(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ReplayCollection", field.Name)
+}
+
+func (ec *executionContext) childFields_ReplayConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "host":
+		return ec.fieldContext_ReplayConnection_host(ctx, field)
+	case "port":
+		return ec.fieldContext_ReplayConnection_port(ctx, field)
+	case "tls":
+		return ec.fieldContext_ReplayConnection_tls(ctx, field)
+	case "sni":
+		return ec.fieldContext_ReplayConnection_sni(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ReplayConnection", field.Name)
+}
+
+func (ec *executionContext) childFields_ReplayEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ReplayEntry_id(ctx, field)
+	case "request":
+		return ec.fieldContext_ReplayEntry_request(ctx, field)
+	case "error":
+		return ec.fieldContext_ReplayEntry_error(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_ReplayEntry_createdAt(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ReplayEntry", field.Name)
+}
+
+func (ec *executionContext) childFields_ReplayEntryConnection(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "edges":
+		return ec.fieldContext_ReplayEntryConnection_edges(ctx, field)
+	case "pageInfo":
+		return ec.fieldContext_ReplayEntryConnection_pageInfo(ctx, field)
+	case "totalCount":
+		return ec.fieldContext_ReplayEntryConnection_totalCount(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ReplayEntryConnection", field.Name)
+}
+
+func (ec *executionContext) childFields_ReplayEntryEdge(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "cursor":
+		return ec.fieldContext_ReplayEntryEdge_cursor(ctx, field)
+	case "node":
+		return ec.fieldContext_ReplayEntryEdge_node(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ReplayEntryEdge", field.Name)
+}
+
+func (ec *executionContext) childFields_ReplayOptions(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "followRedirects":
+		return ec.fieldContext_ReplayOptions_followRedirects(ctx, field)
+	case "updateContentLength":
+		return ec.fieldContext_ReplayOptions_updateContentLength(ctx, field)
+	case "timeoutMs":
+		return ec.fieldContext_ReplayOptions_timeoutMs(ctx, field)
+	case "applyMatchReplace":
+		return ec.fieldContext_ReplayOptions_applyMatchReplace(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ReplayOptions", field.Name)
+}
+
+func (ec *executionContext) childFields_ReplaySession(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_ReplaySession_id(ctx, field)
+	case "kind":
+		return ec.fieldContext_ReplaySession_kind(ctx, field)
+	case "name":
+		return ec.fieldContext_ReplaySession_name(ctx, field)
+	case "color":
+		return ec.fieldContext_ReplaySession_color(ctx, field)
+	case "collection":
+		return ec.fieldContext_ReplaySession_collection(ctx, field)
+	case "connection":
+		return ec.fieldContext_ReplaySession_connection(ctx, field)
+	case "options":
+		return ec.fieldContext_ReplaySession_options(ctx, field)
+	case "draft":
+		return ec.fieldContext_ReplaySession_draft(ctx, field)
+	case "sending":
+		return ec.fieldContext_ReplaySession_sending(ctx, field)
+	case "createdAt":
+		return ec.fieldContext_ReplaySession_createdAt(ctx, field)
+	case "entries":
+		return ec.fieldContext_ReplaySession_entries(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type ReplaySession", field.Name)
 }
 
 func (ec *executionContext) childFields_RequestUpdate(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -2991,6 +4159,34 @@ func (ec *executionContext) field_HttpResponse_body_args(ctx context.Context, ra
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_cancelReplaySend_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_createEnvironment_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createFilterPreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -3043,6 +4239,34 @@ func (ec *executionContext) field_Mutation_createProject_args(ctx context.Contex
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_createReplayCollection_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_createReplaySession_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (CreateReplaySessionInput, error) {
+			return ec.unmarshalNCreateReplaySessionInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCreateReplaySessionInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_createScopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -3073,6 +4297,20 @@ func (ec *executionContext) field_Mutation_createScopePreset_args(ctx context.Co
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_deleteEnvironment_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_deleteFilterPreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -3088,6 +4326,34 @@ func (ec *executionContext) field_Mutation_deleteFilterPreset_args(ctx context.C
 }
 
 func (ec *executionContext) field_Mutation_deleteProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_deleteReplayCollection_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_deleteReplaySession_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
@@ -3195,6 +4461,20 @@ func (ec *executionContext) field_Mutation_duplicateProject_args(ctx context.Con
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_duplicateReplaySession_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_duplicateScopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -3267,7 +4547,81 @@ func (ec *executionContext) field_Mutation_importFilterPresets_args(ctx context.
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_moveReplaySession_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "collectionId",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["collectionId"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "index",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["index"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_renameEnvironment_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_renameProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_renameReplayCollection_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
@@ -3303,6 +4657,20 @@ func (ec *executionContext) field_Mutation_reorderFilterPresets_args(ctx context
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_reorderReplayCollections_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "ids",
+		func(ctx context.Context, v any) ([]string, error) {
+			return ec.unmarshalNID2ᚕstringᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["ids"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_reorderScopePresets_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -3314,6 +4682,20 @@ func (ec *executionContext) field_Mutation_reorderScopePresets_args(ctx context.
 		return nil, err
 	}
 	args["ids"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_selectEnvironment_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOID2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -3331,6 +4713,28 @@ func (ec *executionContext) field_Mutation_selectProject_args(ctx context.Contex
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_sendReplaySession_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (SendReplaySessionInput, error) {
+			return ec.unmarshalNSendReplaySessionInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSendReplaySessionInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_setDefaultProject_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -3342,6 +4746,50 @@ func (ec *executionContext) field_Mutation_setDefaultProject_args(ctx context.Co
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setEnvironmentVariables_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "variables",
+		func(ctx context.Context, v any) ([]EnvironmentVariableInput, error) {
+			return ec.unmarshalNEnvironmentVariableInput2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentVariableInputᚄ(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["variables"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_setReplaySessionColor_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "color",
+		func(ctx context.Context, v any) (*RequestColor, error) {
+			return ec.unmarshalORequestColor2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestColor(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["color"] = arg1
 	return args, nil
 }
 
@@ -3441,6 +4889,28 @@ func (ec *executionContext) field_Mutation_updateInterceptSettings_args(ctx cont
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_updateReplaySession_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "input",
+		func(ctx context.Context, v any) (UpdateReplaySessionInput, error) {
+			return ec.unmarshalNUpdateReplaySessionInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐUpdateReplaySessionInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_updateScopePreset_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -3490,6 +4960,20 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		return nil, err
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_environment_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -3562,6 +5046,20 @@ func (ec *executionContext) field_Query_queryCompletions_args(ctx context.Contex
 		return nil, err
 	}
 	args["cursor"] = arg2
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_replaySession_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNID2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
 	return args, nil
 }
 
@@ -3690,6 +5188,28 @@ func (ec *executionContext) field_Query_sitemapNodes_args(ctx context.Context, r
 		return nil, err
 	}
 	args["recursive"] = arg3
+	return args, nil
+}
+
+func (ec *executionContext) field_ReplaySession_entries_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "first",
+		func(ctx context.Context, v any) (int, error) {
+			return ec.unmarshalNInt2int(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["first"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "after",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["after"] = arg1
 	return args, nil
 }
 
@@ -3924,6 +5444,199 @@ func (ec *executionContext) _Completion_isExtension(ctx context.Context, field g
 }
 func (ec *executionContext) fieldContext_Completion_isExtension(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Completion", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _Environment_id(ctx context.Context, field graphql.CollectedField, obj *Environment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Environment_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Environment_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Environment", field, false, false, "ID")
+}
+
+func (ec *executionContext) _Environment_name(ctx context.Context, field graphql.CollectedField, obj *Environment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Environment_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Environment_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Environment", field, false, false, "String")
+}
+
+func (ec *executionContext) _Environment_isGlobal(ctx context.Context, field graphql.CollectedField, obj *Environment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Environment_isGlobal(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IsGlobal, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Environment_isGlobal(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Environment", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _Environment_selected(ctx context.Context, field graphql.CollectedField, obj *Environment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Environment_selected(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Selected, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Environment_selected(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Environment", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _Environment_variables(ctx context.Context, field graphql.CollectedField, obj *Environment) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Environment_variables(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Variables, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []EnvironmentVariable) graphql.Marshaler {
+			return ec.marshalNEnvironmentVariable2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentVariableᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Environment_variables(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Environment",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_EnvironmentVariable(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _EnvironmentVariable_name(ctx context.Context, field graphql.CollectedField, obj *EnvironmentVariable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EnvironmentVariable_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EnvironmentVariable_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EnvironmentVariable", field, false, false, "String")
+}
+
+func (ec *executionContext) _EnvironmentVariable_value(ctx context.Context, field graphql.CollectedField, obj *EnvironmentVariable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EnvironmentVariable_value(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Value, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EnvironmentVariable_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EnvironmentVariable", field, false, false, "String")
+}
+
+func (ec *executionContext) _EnvironmentVariable_secret(ctx context.Context, field graphql.CollectedField, obj *EnvironmentVariable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_EnvironmentVariable_secret(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Secret, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_EnvironmentVariable_secret(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("EnvironmentVariable", field, false, false, "Boolean")
 }
 
 func (ec *executionContext) _FilterPreset_id(ctx context.Context, field graphql.CollectedField, obj *FilterPreset) (ret graphql.Marshaler) {
@@ -5454,6 +7167,226 @@ func (ec *executionContext) fieldContext_Mutation_selectProject(ctx context.Cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_createEnvironment(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_createEnvironment(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateEnvironment(ctx, fc.Args["name"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Environment) graphql.Marshaler {
+			return ec.marshalNEnvironment2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_createEnvironment(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Environment(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createEnvironment_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_renameEnvironment(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_renameEnvironment(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RenameEnvironment(ctx, fc.Args["id"].(string), fc.Args["name"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Environment) graphql.Marshaler {
+			return ec.marshalNEnvironment2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_renameEnvironment(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Environment(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_renameEnvironment_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteEnvironment(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_deleteEnvironment(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteEnvironment(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_deleteEnvironment(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteEnvironment_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setEnvironmentVariables(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_setEnvironmentVariables(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SetEnvironmentVariables(ctx, fc.Args["id"].(string), fc.Args["variables"].([]EnvironmentVariableInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Environment) graphql.Marshaler {
+			return ec.marshalNEnvironment2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_setEnvironmentVariables(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Environment(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setEnvironmentVariables_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_selectEnvironment(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_selectEnvironment(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SelectEnvironment(ctx, fc.Args["id"].(*string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Environment) graphql.Marshaler {
+			return ec.marshalOEnvironment2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_selectEnvironment(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Environment(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_selectEnvironment_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_createFilterPreset(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -6020,6 +7953,534 @@ func (ec *executionContext) fieldContext_Mutation_dropAllInterceptItems(ctx cont
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_dropAllInterceptItems_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createReplayCollection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_createReplayCollection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateReplayCollection(ctx, fc.Args["name"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplayCollection) graphql.Marshaler {
+			return ec.marshalNReplayCollection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollection(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_createReplayCollection(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayCollection(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createReplayCollection_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_renameReplayCollection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_renameReplayCollection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().RenameReplayCollection(ctx, fc.Args["id"].(string), fc.Args["name"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplayCollection) graphql.Marshaler {
+			return ec.marshalNReplayCollection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollection(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_renameReplayCollection(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayCollection(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_renameReplayCollection_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteReplayCollection(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_deleteReplayCollection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteReplayCollection(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_deleteReplayCollection(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteReplayCollection_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_reorderReplayCollections(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_reorderReplayCollections(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ReorderReplayCollections(ctx, fc.Args["ids"].([]string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ReplayCollection) graphql.Marshaler {
+			return ec.marshalNReplayCollection2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollectionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_reorderReplayCollections(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayCollection(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_reorderReplayCollections_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_createReplaySession(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_createReplaySession(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CreateReplaySession(ctx, fc.Args["input"].(CreateReplaySessionInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplaySession) graphql.Marshaler {
+			return ec.marshalNReplaySession2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_createReplaySession(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplaySession(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_createReplaySession_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateReplaySession(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_updateReplaySession(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().UpdateReplaySession(ctx, fc.Args["id"].(string), fc.Args["input"].(UpdateReplaySessionInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplaySession) graphql.Marshaler {
+			return ec.marshalNReplaySession2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_updateReplaySession(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplaySession(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateReplaySession_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_setReplaySessionColor(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_setReplaySessionColor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SetReplaySessionColor(ctx, fc.Args["id"].(string), fc.Args["color"].(*RequestColor))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplaySession) graphql.Marshaler {
+			return ec.marshalNReplaySession2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_setReplaySessionColor(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplaySession(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_setReplaySessionColor_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_duplicateReplaySession(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_duplicateReplaySession(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DuplicateReplaySession(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplaySession) graphql.Marshaler {
+			return ec.marshalNReplaySession2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_duplicateReplaySession(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplaySession(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_duplicateReplaySession_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_moveReplaySession(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_moveReplaySession(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().MoveReplaySession(ctx, fc.Args["id"].(string), fc.Args["collectionId"].(string), fc.Args["index"].(int))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplaySession) graphql.Marshaler {
+			return ec.marshalNReplaySession2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_moveReplaySession(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplaySession(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_moveReplaySession_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_deleteReplaySession(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_deleteReplaySession(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().DeleteReplaySession(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_deleteReplaySession(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type ID does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_deleteReplaySession_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_sendReplaySession(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_sendReplaySession(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SendReplaySession(ctx, fc.Args["id"].(string), fc.Args["input"].(SendReplaySessionInput))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplayEntry) graphql.Marshaler {
+			return ec.marshalNReplayEntry2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntry(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_sendReplaySession(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayEntry(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_sendReplaySession_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_cancelReplaySend(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_cancelReplaySend(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().CancelReplaySend(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_cancelReplaySend(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type Boolean does not have child fields")
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_cancelReplaySend_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -6678,6 +9139,82 @@ func (ec *executionContext) fieldContext_Query_serverInfo(_ context.Context, fie
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_environments(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_environments(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().Environments(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []Environment) graphql.Marshaler {
+			return ec.marshalNEnvironment2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_environments(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Environment(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_environment(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_environment(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().Environment(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *Environment) graphql.Marshaler {
+			return ec.marshalOEnvironment2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_environment(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Environment(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_environment_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_filterPresets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -7093,6 +9630,82 @@ func (ec *executionContext) fieldContext_Query_currentProject(_ context.Context,
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_replayCollections(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_replayCollections(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().ReplayCollections(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ReplayCollection) graphql.Marshaler {
+			return ec.marshalNReplayCollection2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollectionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_replayCollections(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayCollection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_replaySession(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_replaySession(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ReplaySession(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplaySession) graphql.Marshaler {
+			return ec.marshalOReplaySession2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_Query_replaySession(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplaySession(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_replaySession_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_scopePresets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -7363,6 +9976,835 @@ func (ec *executionContext) fieldContext_QueryCompletions_items(_ context.Contex
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_Completion(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplayCollection_id(ctx context.Context, field graphql.CollectedField, obj *ReplayCollection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayCollection_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayCollection_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayCollection", field, false, false, "ID")
+}
+
+func (ec *executionContext) _ReplayCollection_name(ctx context.Context, field graphql.CollectedField, obj *ReplayCollection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayCollection_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayCollection_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayCollection", field, false, false, "String")
+}
+
+func (ec *executionContext) _ReplayCollection_isDefault(ctx context.Context, field graphql.CollectedField, obj *ReplayCollection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayCollection_isDefault(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.IsDefault, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayCollection_isDefault(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayCollection", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ReplayCollection_sessions(ctx context.Context, field graphql.CollectedField, obj *ReplayCollection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayCollection_sessions(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ReplayCollection().Sessions(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ReplaySession) graphql.Marshaler {
+			return ec.marshalNReplaySession2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySessionᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayCollection_sessions(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplayCollection",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplaySession(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplayConnection_host(ctx context.Context, field graphql.CollectedField, obj *ReplayConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayConnection_host(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Host, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayConnection_host(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayConnection", field, false, false, "String")
+}
+
+func (ec *executionContext) _ReplayConnection_port(ctx context.Context, field graphql.CollectedField, obj *ReplayConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayConnection_port(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Port, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayConnection_port(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayConnection", field, false, false, "Int")
+}
+
+func (ec *executionContext) _ReplayConnection_tls(ctx context.Context, field graphql.CollectedField, obj *ReplayConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayConnection_tls(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TLS, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayConnection_tls(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayConnection", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ReplayConnection_sni(ctx context.Context, field graphql.CollectedField, obj *ReplayConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayConnection_sni(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Sni, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayConnection_sni(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayConnection", field, false, false, "String")
+}
+
+func (ec *executionContext) _ReplayEntry_id(ctx context.Context, field graphql.CollectedField, obj *ReplayEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntry_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntry_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayEntry", field, false, false, "ID")
+}
+
+func (ec *executionContext) _ReplayEntry_request(ctx context.Context, field graphql.CollectedField, obj *ReplayEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntry_request(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ReplayEntry().Request(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *HTTPRequest) graphql.Marshaler {
+			return ec.marshalNHttpRequest2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐHTTPRequest(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntry_request(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplayEntry",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_HttpRequest(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplayEntry_error(ctx context.Context, field graphql.CollectedField, obj *ReplayEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntry_error(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Error, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntry_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayEntry", field, false, false, "String")
+}
+
+func (ec *executionContext) _ReplayEntry_createdAt(ctx context.Context, field graphql.CollectedField, obj *ReplayEntry) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntry_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntry_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayEntry", field, false, false, "Time")
+}
+
+func (ec *executionContext) _ReplayEntryConnection_edges(ctx context.Context, field graphql.CollectedField, obj *ReplayEntryConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntryConnection_edges(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Edges, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []ReplayEntryEdge) graphql.Marshaler {
+			return ec.marshalNReplayEntryEdge2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntryEdgeᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntryConnection_edges(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplayEntryConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayEntryEdge(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplayEntryConnection_pageInfo(ctx context.Context, field graphql.CollectedField, obj *ReplayEntryConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntryConnection_pageInfo(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.PageInfo, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *PageInfo) graphql.Marshaler {
+			return ec.marshalNPageInfo2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐPageInfo(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntryConnection_pageInfo(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplayEntryConnection",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_PageInfo(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplayEntryConnection_totalCount(ctx context.Context, field graphql.CollectedField, obj *ReplayEntryConnection) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntryConnection_totalCount(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TotalCount, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntryConnection_totalCount(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayEntryConnection", field, false, false, "Int")
+}
+
+func (ec *executionContext) _ReplayEntryEdge_cursor(ctx context.Context, field graphql.CollectedField, obj *ReplayEntryEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntryEdge_cursor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Cursor, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntryEdge_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayEntryEdge", field, false, false, "String")
+}
+
+func (ec *executionContext) _ReplayEntryEdge_node(ctx context.Context, field graphql.CollectedField, obj *ReplayEntryEdge) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayEntryEdge_node(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Node, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplayEntry) graphql.Marshaler {
+			return ec.marshalNReplayEntry2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntry(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayEntryEdge_node(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplayEntryEdge",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayEntry(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplayOptions_followRedirects(ctx context.Context, field graphql.CollectedField, obj *ReplayOptions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayOptions_followRedirects(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.FollowRedirects, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayOptions_followRedirects(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayOptions", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ReplayOptions_updateContentLength(ctx context.Context, field graphql.CollectedField, obj *ReplayOptions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayOptions_updateContentLength(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.UpdateContentLength, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayOptions_updateContentLength(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayOptions", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ReplayOptions_timeoutMs(ctx context.Context, field graphql.CollectedField, obj *ReplayOptions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayOptions_timeoutMs(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.TimeoutMs, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayOptions_timeoutMs(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayOptions", field, false, false, "Int")
+}
+
+func (ec *executionContext) _ReplayOptions_applyMatchReplace(ctx context.Context, field graphql.CollectedField, obj *ReplayOptions) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplayOptions_applyMatchReplace(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ApplyMatchReplace, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplayOptions_applyMatchReplace(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplayOptions", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ReplaySession_id(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNID2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplaySession", field, false, false, "ID")
+}
+
+func (ec *executionContext) _ReplaySession_kind(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_kind(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Kind, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v ReplaySessionKind) graphql.Marshaler {
+			return ec.marshalNReplaySessionKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySessionKind(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplaySession", field, false, false, "ReplaySessionKind")
+}
+
+func (ec *executionContext) _ReplaySession_name(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplaySession", field, false, false, "String")
+}
+
+func (ec *executionContext) _ReplaySession_color(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_color(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Color, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *RequestColor) graphql.Marshaler {
+			return ec.marshalORequestColor2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestColor(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_color(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplaySession", field, false, false, "RequestColor")
+}
+
+func (ec *executionContext) _ReplaySession_collection(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_collection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ReplaySession().Collection(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplayCollection) graphql.Marshaler {
+			return ec.marshalNReplayCollection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollection(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_collection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplaySession",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayCollection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplaySession_connection(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_connection(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Connection, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplayConnection) graphql.Marshaler {
+			return ec.marshalNReplayConnection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayConnection(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_connection(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplaySession",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayConnection(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplaySession_options(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_options(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Options, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplayOptions) graphql.Marshaler {
+			return ec.marshalNReplayOptions2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayOptions(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_options(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplaySession",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayOptions(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ReplaySession_draft(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_draft(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Draft, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []byte) graphql.Marshaler {
+			return ec.marshalNBytes2ᚕbyte(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_draft(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplaySession", field, false, false, "Bytes")
+}
+
+func (ec *executionContext) _ReplaySession_sending(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_sending(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Sending, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_sending(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplaySession", field, false, false, "Boolean")
+}
+
+func (ec *executionContext) _ReplaySession_createdAt(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_createdAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CreatedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_createdAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplaySession", field, false, false, "Time")
+}
+
+func (ec *executionContext) _ReplaySession_entries(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_entries(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.ReplaySession().Entries(ctx, obj, fc.Args["first"].(int), fc.Args["after"].(*string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *ReplayEntryConnection) graphql.Marshaler {
+			return ec.marshalNReplayEntryConnection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntryConnection(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_entries(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ReplaySession",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_ReplayEntryConnection(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_ReplaySession_entries_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -9226,6 +12668,136 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputCreateReplaySessionInput(ctx context.Context, obj any) (CreateReplaySessionInput, error) {
+	var it CreateReplaySessionInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"collectionId", "fromRequestId", "connection", "raw", "name"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "collectionId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("collectionId"))
+			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CollectionID = data
+		case "fromRequestId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("fromRequestId"))
+			data, err := ec.unmarshalOID2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.FromRequestID = data
+		case "connection":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("connection"))
+			data, err := ec.unmarshalOReplayConnectionInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayConnectionInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Connection = data
+		case "raw":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("raw"))
+			data, err := ec.unmarshalOBytes2ᚕbyte(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Raw = data
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalCreateReplaySessionInput unmarshals raw into the CreateReplaySessionInput input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalCreateReplaySessionInput(ctx context.Context, raw any) (CreateReplaySessionInput, error) {
+	var out CreateReplaySessionInput
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "CreateReplaySessionInput", raw, &out)
+	return out, err
+}
+
+func (ec *executionContext) unmarshalInputEnvironmentVariableInput(ctx context.Context, obj any) (EnvironmentVariableInput, error) {
+	var it EnvironmentVariableInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["secret"]; !present {
+		asMap["secret"] = false
+	}
+
+	fieldsInOrder := [...]string{"name", "value", "secret"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "value":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("value"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Value = data
+		case "secret":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("secret"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Secret = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalEnvironmentVariableInput unmarshals raw into the EnvironmentVariableInput input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalEnvironmentVariableInput(ctx context.Context, raw any) (EnvironmentVariableInput, error) {
+	var out EnvironmentVariableInput
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "EnvironmentVariableInput", raw, &out)
+	return out, err
+}
+
 func (ec *executionContext) unmarshalInputInterceptSettingsInput(ctx context.Context, obj any) (InterceptSettingsInput, error) {
 	var it InterceptSettingsInput
 	if obj == nil {
@@ -9303,6 +12875,132 @@ func UnmarshalInterceptSettingsInput(ctx context.Context, raw any) (InterceptSet
 	return out, err
 }
 
+func (ec *executionContext) unmarshalInputReplayConnectionInput(ctx context.Context, obj any) (ReplayConnectionInput, error) {
+	var it ReplayConnectionInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"host", "port", "tls", "sni"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "host":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("host"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Host = data
+		case "port":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("port"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Port = data
+		case "tls":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("tls"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TLS = data
+		case "sni":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sni"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Sni = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalReplayConnectionInput unmarshals raw into the ReplayConnectionInput input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalReplayConnectionInput(ctx context.Context, raw any) (ReplayConnectionInput, error) {
+	var out ReplayConnectionInput
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "ReplayConnectionInput", raw, &out)
+	return out, err
+}
+
+func (ec *executionContext) unmarshalInputReplayOptionsInput(ctx context.Context, obj any) (ReplayOptionsInput, error) {
+	var it ReplayOptionsInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"followRedirects", "updateContentLength", "timeoutMs", "applyMatchReplace"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "followRedirects":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("followRedirects"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.FollowRedirects = data
+		case "updateContentLength":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("updateContentLength"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.UpdateContentLength = data
+		case "timeoutMs":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("timeoutMs"))
+			data, err := ec.unmarshalOInt2ᚖint(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.TimeoutMs = data
+		case "applyMatchReplace":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("applyMatchReplace"))
+			data, err := ec.unmarshalOBoolean2ᚖbool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ApplyMatchReplace = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalReplayOptionsInput unmarshals raw into the ReplayOptionsInput input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalReplayOptionsInput(ctx context.Context, raw any) (ReplayOptionsInput, error) {
+	var out ReplayOptionsInput
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "ReplayOptionsInput", raw, &out)
+	return out, err
+}
+
 func (ec *executionContext) unmarshalInputRequestSort(ctx context.Context, obj any) (RequestSort, error) {
 	var it RequestSort
 	if obj == nil {
@@ -9356,6 +13054,125 @@ func UnmarshalRequestSort(ctx context.Context, raw any) (RequestSort, error) {
 	return out, err
 }
 
+func (ec *executionContext) unmarshalInputSendReplaySessionInput(ctx context.Context, obj any) (SendReplaySessionInput, error) {
+	var it SendReplaySessionInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"raw", "connection", "options"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "raw":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("raw"))
+			data, err := ec.unmarshalNBytes2ᚕbyte(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Raw = data
+		case "connection":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("connection"))
+			data, err := ec.unmarshalNReplayConnectionInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayConnectionInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Connection = data
+		case "options":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("options"))
+			data, err := ec.unmarshalOReplayOptionsInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayOptionsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Options = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalSendReplaySessionInput unmarshals raw into the SendReplaySessionInput input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalSendReplaySessionInput(ctx context.Context, raw any) (SendReplaySessionInput, error) {
+	var out SendReplaySessionInput
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "SendReplaySessionInput", raw, &out)
+	return out, err
+}
+
+func (ec *executionContext) unmarshalInputUpdateReplaySessionInput(ctx context.Context, obj any) (UpdateReplaySessionInput, error) {
+	var it UpdateReplaySessionInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"name", "connection", "options", "draft"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "name":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("name"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Name = data
+		case "connection":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("connection"))
+			data, err := ec.unmarshalOReplayConnectionInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayConnectionInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Connection = data
+		case "options":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("options"))
+			data, err := ec.unmarshalOReplayOptionsInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayOptionsInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Options = data
+		case "draft":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("draft"))
+			data, err := ec.unmarshalOBytes2ᚕbyte(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Draft = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalUpdateReplaySessionInput unmarshals raw into the UpdateReplaySessionInput input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalUpdateReplaySessionInput(ctx context.Context, raw any) (UpdateReplaySessionInput, error) {
+	var out UpdateReplaySessionInput
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "UpdateReplaySessionInput", raw, &out)
+	return out, err
+}
+
 // endregion **************************** input.gotpl *****************************
 
 // region    ************************** interface.gotpl ***************************
@@ -9371,6 +13188,27 @@ func (ec *executionContext) _Node(ctx context.Context, sel ast.SelectionSet, obj
 			return graphql.Null
 		}
 		return ec._ScopePreset(ctx, sel, obj)
+	case ReplaySession:
+		return ec._ReplaySession(ctx, sel, &obj)
+	case *ReplaySession:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._ReplaySession(ctx, sel, obj)
+	case ReplayEntry:
+		return ec._ReplayEntry(ctx, sel, &obj)
+	case *ReplayEntry:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._ReplayEntry(ctx, sel, obj)
+	case ReplayCollection:
+		return ec._ReplayCollection(ctx, sel, &obj)
+	case *ReplayCollection:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._ReplayCollection(ctx, sel, obj)
 	case Project:
 		return ec._Project(ctx, sel, &obj)
 	case *Project:
@@ -9399,6 +13237,13 @@ func (ec *executionContext) _Node(ctx context.Context, sel ast.SelectionSet, obj
 			return graphql.Null
 		}
 		return ec._FilterPreset(ctx, sel, obj)
+	case Environment:
+		return ec._Environment(ctx, sel, &obj)
+	case *Environment:
+		if obj == nil {
+			return graphql.Null
+		}
+		return ec._Environment(ctx, sel, obj)
 	default:
 		if typedObj, ok := obj.(graphql.Marshaler); ok {
 			return typedObj
@@ -9445,6 +13290,102 @@ func (ec *executionContext) _Completion(ctx context.Context, sel ast.SelectionSe
 			}
 		case "isExtension":
 			out.Values[i] = ec._Completion_isExtension(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var environmentImplementors = []string{"Environment", "Node"}
+
+func (ec *executionContext) _Environment(ctx context.Context, sel ast.SelectionSet, obj *Environment) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, environmentImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Environment")
+		case "id":
+			out.Values[i] = ec._Environment_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "name":
+			out.Values[i] = ec._Environment_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "isGlobal":
+			out.Values[i] = ec._Environment_isGlobal(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "selected":
+			out.Values[i] = ec._Environment_selected(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "variables":
+			out.Values[i] = ec._Environment_variables(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var environmentVariableImplementors = []string{"EnvironmentVariable"}
+
+func (ec *executionContext) _EnvironmentVariable(ctx context.Context, sel ast.SelectionSet, obj *EnvironmentVariable) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, environmentVariableImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("EnvironmentVariable")
+		case "name":
+			out.Values[i] = ec._EnvironmentVariable_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "value":
+			out.Values[i] = ec._EnvironmentVariable_value(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "secret":
+			out.Values[i] = ec._EnvironmentVariable_secret(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -10006,6 +13947,41 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "createEnvironment":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createEnvironment(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "renameEnvironment":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_renameEnvironment(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteEnvironment":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteEnvironment(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setEnvironmentVariables":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setEnvironmentVariables(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "selectEnvironment":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_selectEnvironment(ctx, field)
+			})
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "createFilterPreset":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_createFilterPreset(ctx, field)
@@ -10093,6 +14069,90 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "dropAllInterceptItems":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_dropAllInterceptItems(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createReplayCollection":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createReplayCollection(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "renameReplayCollection":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_renameReplayCollection(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteReplayCollection":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteReplayCollection(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "reorderReplayCollections":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_reorderReplayCollections(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "createReplaySession":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_createReplaySession(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateReplaySession":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateReplaySession(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "setReplaySessionColor":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_setReplaySessionColor(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "duplicateReplaySession":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_duplicateReplaySession(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "moveReplaySession":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_moveReplaySession(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "deleteReplaySession":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_deleteReplaySession(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sendReplaySession":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_sendReplaySession(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "cancelReplaySend":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_cancelReplaySend(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -10371,6 +14431,18 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_serverInfo(ctx, field)
 				})
+		case "environments":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_environments(ctx, field)
+				})
+		case "environment":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_environment(ctx, field)
+				})
 		case "filterPresets":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
 				true, true,
@@ -10436,6 +14508,18 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Query_currentProject(ctx, field)
+				})
+		case "replayCollections":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_replayCollections(ctx, field)
+				})
+		case "replaySession":
+			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
+				true, false,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Query_replaySession(ctx, field)
 				})
 		case "scopePresets":
 			out.ResolveRootConcurrently(innerCtx, ec.OperationContext, i,
@@ -10512,6 +14596,366 @@ func (ec *executionContext) _QueryCompletions(ctx context.Context, sel ast.Selec
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var replayCollectionImplementors = []string{"ReplayCollection", "Node"}
+
+func (ec *executionContext) _ReplayCollection(ctx context.Context, sel ast.SelectionSet, obj *ReplayCollection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, replayCollectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReplayCollection")
+		case "id":
+			out.Values[i] = ec._ReplayCollection_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "name":
+			out.Values[i] = ec._ReplayCollection_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "isDefault":
+			out.Values[i] = ec._ReplayCollection_isDefault(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "sessions":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ReplayCollection_sessions(ctx, field, obj)
+				})
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var replayConnectionImplementors = []string{"ReplayConnection"}
+
+func (ec *executionContext) _ReplayConnection(ctx context.Context, sel ast.SelectionSet, obj *ReplayConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, replayConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReplayConnection")
+		case "host":
+			out.Values[i] = ec._ReplayConnection_host(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "port":
+			out.Values[i] = ec._ReplayConnection_port(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "tls":
+			out.Values[i] = ec._ReplayConnection_tls(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sni":
+			out.Values[i] = ec._ReplayConnection_sni(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var replayEntryImplementors = []string{"ReplayEntry", "Node"}
+
+func (ec *executionContext) _ReplayEntry(ctx context.Context, sel ast.SelectionSet, obj *ReplayEntry) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, replayEntryImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReplayEntry")
+		case "id":
+			out.Values[i] = ec._ReplayEntry_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "request":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ReplayEntry_request(ctx, field, obj)
+				})
+		case "error":
+			out.Values[i] = ec._ReplayEntry_error(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "createdAt":
+			out.Values[i] = ec._ReplayEntry_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var replayEntryConnectionImplementors = []string{"ReplayEntryConnection"}
+
+func (ec *executionContext) _ReplayEntryConnection(ctx context.Context, sel ast.SelectionSet, obj *ReplayEntryConnection) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, replayEntryConnectionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReplayEntryConnection")
+		case "edges":
+			out.Values[i] = ec._ReplayEntryConnection_edges(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "pageInfo":
+			out.Values[i] = ec._ReplayEntryConnection_pageInfo(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "totalCount":
+			out.Values[i] = ec._ReplayEntryConnection_totalCount(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var replayEntryEdgeImplementors = []string{"ReplayEntryEdge"}
+
+func (ec *executionContext) _ReplayEntryEdge(ctx context.Context, sel ast.SelectionSet, obj *ReplayEntryEdge) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, replayEntryEdgeImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReplayEntryEdge")
+		case "cursor":
+			out.Values[i] = ec._ReplayEntryEdge_cursor(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "node":
+			out.Values[i] = ec._ReplayEntryEdge_node(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var replayOptionsImplementors = []string{"ReplayOptions"}
+
+func (ec *executionContext) _ReplayOptions(ctx context.Context, sel ast.SelectionSet, obj *ReplayOptions) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, replayOptionsImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReplayOptions")
+		case "followRedirects":
+			out.Values[i] = ec._ReplayOptions_followRedirects(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateContentLength":
+			out.Values[i] = ec._ReplayOptions_updateContentLength(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "timeoutMs":
+			out.Values[i] = ec._ReplayOptions_timeoutMs(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "applyMatchReplace":
+			out.Values[i] = ec._ReplayOptions_applyMatchReplace(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	if n := len(deferred.Defers); n > 0 {
+		atomic.AddInt32(&ec.Deferred, int32(min(n, math.MaxInt32)))
+		ec.ProcessDeferredGroup(deferred)
+	}
+
+	return out
+}
+
+var replaySessionImplementors = []string{"ReplaySession", "Node"}
+
+func (ec *executionContext) _ReplaySession(ctx context.Context, sel ast.SelectionSet, obj *ReplaySession) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, replaySessionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := graphql.NewDeferredGroup(ctx)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("ReplaySession")
+		case "id":
+			out.Values[i] = ec._ReplaySession_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "kind":
+			out.Values[i] = ec._ReplaySession_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "name":
+			out.Values[i] = ec._ReplaySession_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "color":
+			out.Values[i] = ec._ReplaySession_color(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "collection":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ReplaySession_collection(ctx, field, obj)
+				})
+		case "connection":
+			out.Values[i] = ec._ReplaySession_connection(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "options":
+			out.Values[i] = ec._ReplaySession_options(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "draft":
+			out.Values[i] = ec._ReplaySession_draft(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "sending":
+			out.Values[i] = ec._ReplaySession_sending(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "createdAt":
+			out.Values[i] = ec._ReplaySession_createdAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "entries":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ReplaySession_entries(ctx, field, obj)
+				})
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -11240,6 +15684,78 @@ func (ec *executionContext) marshalNCompletionKind2githubᚗcomᚋpocikodeᚋrat
 	return v
 }
 
+func (ec *executionContext) unmarshalNCreateReplaySessionInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐCreateReplaySessionInput(ctx context.Context, v any) (CreateReplaySessionInput, error) {
+	res, err := ec.unmarshalInputCreateReplaySessionInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNEnvironment2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx context.Context, sel ast.SelectionSet, v Environment) graphql.Marshaler {
+	return ec._Environment(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNEnvironment2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentᚄ(ctx context.Context, sel ast.SelectionSet, v []Environment) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEnvironment2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNEnvironment2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx context.Context, sel ast.SelectionSet, v *Environment) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "Environment!")
+		return graphql.Null
+	}
+	return ec._Environment(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNEnvironmentVariable2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentVariable(ctx context.Context, sel ast.SelectionSet, v EnvironmentVariable) graphql.Marshaler {
+	return ec._EnvironmentVariable(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNEnvironmentVariable2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentVariableᚄ(ctx context.Context, sel ast.SelectionSet, v []EnvironmentVariable) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNEnvironmentVariable2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentVariable(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) unmarshalNEnvironmentVariableInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentVariableInput(ctx context.Context, v any) (EnvironmentVariableInput, error) {
+	res, err := ec.unmarshalInputEnvironmentVariableInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalNEnvironmentVariableInput2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentVariableInputᚄ(ctx context.Context, v any) ([]EnvironmentVariableInput, error) {
+	vSlice := graphql.CoerceList(v)
+	var err error
+	res := make([]EnvironmentVariableInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNEnvironmentVariableInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironmentVariableInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
 func (ec *executionContext) marshalNFilterPreset2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx context.Context, sel ast.SelectionSet, v FilterPreset) graphql.Marshaler {
 	return ec._FilterPreset(ctx, sel, &v)
 }
@@ -11544,6 +16060,129 @@ func (ec *executionContext) marshalNQueryLanguage2githubᚗcomᚋpocikodeᚋrata
 	return v
 }
 
+func (ec *executionContext) marshalNReplayCollection2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollection(ctx context.Context, sel ast.SelectionSet, v ReplayCollection) graphql.Marshaler {
+	return ec._ReplayCollection(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNReplayCollection2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollectionᚄ(ctx context.Context, sel ast.SelectionSet, v []ReplayCollection) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNReplayCollection2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollection(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNReplayCollection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayCollection(ctx context.Context, sel ast.SelectionSet, v *ReplayCollection) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ReplayCollection!")
+		return graphql.Null
+	}
+	return ec._ReplayCollection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNReplayConnection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayConnection(ctx context.Context, sel ast.SelectionSet, v *ReplayConnection) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ReplayConnection!")
+		return graphql.Null
+	}
+	return ec._ReplayConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNReplayConnectionInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayConnectionInput(ctx context.Context, v any) (*ReplayConnectionInput, error) {
+	res, err := ec.unmarshalInputReplayConnectionInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNReplayEntry2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntry(ctx context.Context, sel ast.SelectionSet, v *ReplayEntry) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ReplayEntry!")
+		return graphql.Null
+	}
+	return ec._ReplayEntry(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNReplayEntryConnection2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntryConnection(ctx context.Context, sel ast.SelectionSet, v *ReplayEntryConnection) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ReplayEntryConnection!")
+		return graphql.Null
+	}
+	return ec._ReplayEntryConnection(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNReplayEntryEdge2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntryEdge(ctx context.Context, sel ast.SelectionSet, v ReplayEntryEdge) graphql.Marshaler {
+	return ec._ReplayEntryEdge(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNReplayEntryEdge2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntryEdgeᚄ(ctx context.Context, sel ast.SelectionSet, v []ReplayEntryEdge) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNReplayEntryEdge2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayEntryEdge(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNReplayOptions2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayOptions(ctx context.Context, sel ast.SelectionSet, v *ReplayOptions) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ReplayOptions!")
+		return graphql.Null
+	}
+	return ec._ReplayOptions(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNReplaySession2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx context.Context, sel ast.SelectionSet, v ReplaySession) graphql.Marshaler {
+	return ec._ReplaySession(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNReplaySession2ᚕgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySessionᚄ(ctx context.Context, sel ast.SelectionSet, v []ReplaySession) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNReplaySession2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNReplaySession2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx context.Context, sel ast.SelectionSet, v *ReplaySession) graphql.Marshaler {
+	if v == nil {
+		graphql.AddInvalidNullError(ctx, "ReplaySession!")
+		return graphql.Null
+	}
+	return ec._ReplaySession(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNReplaySessionKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySessionKind(ctx context.Context, v any) (ReplaySessionKind, error) {
+	var res ReplaySessionKind
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNReplaySessionKind2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySessionKind(ctx context.Context, sel ast.SelectionSet, v ReplaySessionKind) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) unmarshalNRequestSortField2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestSortField(ctx context.Context, v any) (RequestSortField, error) {
 	var res RequestSortField
 	err := res.UnmarshalGQL(v)
@@ -11606,6 +16245,11 @@ func (ec *executionContext) marshalNScopePreset2ᚖgithubᚗcomᚋpocikodeᚋrat
 		return graphql.Null
 	}
 	return ec._ScopePreset(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNSendReplaySessionInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐSendReplaySessionInput(ctx context.Context, v any) (SendReplaySessionInput, error) {
+	res, err := ec.unmarshalInputSendReplaySessionInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalNServerInfo2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐServerInfo(ctx context.Context, sel ast.SelectionSet, v *ServerInfo) graphql.Marshaler {
@@ -11711,6 +16355,11 @@ func (ec *executionContext) marshalNTime2timeᚐTime(ctx context.Context, sel as
 		graphql.AddInvalidNullFromMarshaler(ctx, "Time!")
 	}
 	return res
+}
+
+func (ec *executionContext) unmarshalNUpdateReplaySessionInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐUpdateReplaySessionInput(ctx context.Context, v any) (UpdateReplaySessionInput, error) {
+	res, err := ec.unmarshalInputUpdateReplaySessionInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx context.Context, sel ast.SelectionSet, v introspection.Directive) graphql.Marshaler {
@@ -11903,6 +16552,13 @@ func (ec *executionContext) marshalOBytes2ᚕbyte(ctx context.Context, sel ast.S
 	return res
 }
 
+func (ec *executionContext) marshalOEnvironment2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐEnvironment(ctx context.Context, sel ast.SelectionSet, v *Environment) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._Environment(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalOFilterPreset2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐFilterPreset(ctx context.Context, sel ast.SelectionSet, v *FilterPreset) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -12016,6 +16672,29 @@ func (ec *executionContext) marshalOProject2ᚖgithubᚗcomᚋpocikodeᚋratatos
 		return graphql.Null
 	}
 	return ec._Project(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOReplayConnectionInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayConnectionInput(ctx context.Context, v any) (*ReplayConnectionInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputReplayConnectionInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) unmarshalOReplayOptionsInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplayOptionsInput(ctx context.Context, v any) (*ReplayOptionsInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputReplayOptionsInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOReplaySession2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐReplaySession(ctx context.Context, sel ast.SelectionSet, v *ReplaySession) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._ReplaySession(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalORequestColor2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐRequestColor(ctx context.Context, v any) (*RequestColor, error) {

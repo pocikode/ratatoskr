@@ -49,3 +49,14 @@ models:
   InterceptSettingsInput:
     fields:
       scopeId: { omittable: true }
+  # Replay graph edges load lazily, so collection lists do not read every session's entries (T-098).
+  ReplayCollection:
+    fields:
+      sessions: { resolver: true }
+  ReplaySession:
+    fields:
+      collection: { resolver: true }
+      entries: { resolver: true }
+  ReplayEntry:
+    fields:
+      request: { resolver: true }
