@@ -257,3 +257,24 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   → Fixed: the STRING matcher is converted once per test in `applyRule`; a 1000-header, 64 KiB
   no-match case is tested (unchanged output, < 1 s; the old code took ~1.5 s there).
 - Verification assumed one desktop process and inputs inside the tester byte caps. `make check` passed with 353 web tests. `make gen` left the tree clean. All 14 changed files are in scope. Browser E2E and Go integration tests were skipped.
+
+### Follow-up on `9fcfc66`
+
+- Verdict is `changes_requested`. The matcher is now encoded once. The review round limit
+  has been reached. The remaining findings go to the lead.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:174` — The tester splits a near-12 MiB
+  body of repeated `a` into about 12.6 million entries before checking the output limit.
+  With a two-byte replacement, the result exceeds the cap, but V8 has already allocated
+  about 96 MiB for the split array. Count non-overlapping matches without storing them,
+  then build the replacement after the framing-inclusive size check.
+  → Fixed: STRING matches are counted with an `indexOf` loop (no array), and the replacement is
+  built with `replaceAll` only after the size check; near-12 MiB `a` × 2-byte term tested as `BAD_INPUT`.
+- [x] [minor] `web/src/lib/api/mocks/matchreplace.ts:456` — The mock accepts a bare CR
+  followed by text in the response status line. GraphQL returned `changed: true` for
+  `HTTP/1.1 200\rX\r\n\r\noriginal` with a response-body rule. Validate the entire
+  status line through its CRLF and add a malformed-input regression case.
+  → Fixed: response status line must be `HTTP/1.x NNN[ reason]\r\n` with no CR/LF in the reason;
+  the bare-CR case is rejected and a reason-less `HTTP/1.1 204\r\n` is accepted (both tested).
+- All 24 focused Vitest tests passed. The malformed input was checked through the generated
+  GraphQL schema and the allocation measured in Node/V8. Review assumes one desktop user
+  and inputs within the documented tester size limits. Full checks and browser E2E were skipped.

@@ -290,6 +290,11 @@ describe('match & replace mock', () => {
 
     expect(code(await m(TEST, { r: body, k: 'REQUEST', raw: req }))).toBe('BAD_INPUT');
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe('BAD_INPUT');
+    // A bare CR inside the status line is malformed, not a line end.
+    const bareCR = btoa('HTTP/1.1 200\rX\r\n\r\noriginal');
+    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: bareCR }))).toBe('BAD_INPUT');
+    const noReason = btoa('HTTP/1.1 204\r\n\r\nb');
+    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: noReason })).error).toBeUndefined();
     const huge = btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(12 * 1024 * 1024)}`);
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: huge }))).toBe('BAD_INPUT');
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: resp.replace(/=+$/, '') }))).toBe(
@@ -300,6 +305,10 @@ describe('match & replace mock', () => {
     expect(
       code(await m(TEST, { r: { ...body, term: 'x'.repeat(300) }, k: 'RESPONSE', raw: grow })),
     ).toBe('BAD_INPUT');
+    // Near-12 MiB of 'a' with a 2-byte term: over the cap, rejected without materialising matches.
+    const dense = btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(12 * 1024 * 1024 - 19)}`);
+    const aa = { ...body, matcher: { kind: 'STRING', value: 'a' }, term: 'xx' };
+    expect(code(await m(TEST, { r: aa, k: 'RESPONSE', raw: dense }))).toBe('BAD_INPUT');
     // FULL counts too: 17 headers each replaced by a 1 MiB term.
     const many = btoa(`HTTP/1.1 200 OK\r\n${'A: 1\r\n'.repeat(17)}\r\n`);
     const full = {

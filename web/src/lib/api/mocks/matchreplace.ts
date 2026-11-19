@@ -171,8 +171,10 @@ function applyRule(rule: MockRuleInput, raw: string): string {
   const plan = (text: string): [number, () => string] => {
     if (kind === 'FULL') return [term.length, () => term];
     if (kind !== 'STRING') return [text.length, () => text];
-    const parts = text.split(v);
-    return [text.length + (parts.length - 1) * (term.length - v.length), () => parts.join(term)];
+    // Matches are counted, not stored: split() on a 12 MiB body allocates ~100 MiB before the cap check.
+    let n = 0;
+    for (let i = text.indexOf(v); i >= 0; i = text.indexOf(v, i + v.length)) n++;
+    return [text.length + n * (term.length - v.length), () => text.replaceAll(v, () => term)];
   };
   const isHeader = rule.section.endsWith('_HEADER');
   if (isHeader && rule.operation === 'ADD') {
@@ -453,7 +455,7 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
         const line =
           kind === 'REQUEST'
             ? /^[!#$%&'*+.^_`|~0-9A-Za-z-]+ \S+ HTTP\/1\.[01]\r\n/
-            : /^HTTP\/1\.[01] \d{3}[ \r]/;
+            : /^HTTP\/1\.[01] \d{3}(?: [^\r\n]*)?\r\n/;
         if (!line.test(text) || !text.includes('\r\n\r\n'))
           throw fail('BAD_INPUT', `raw is not an HTTP/1.x ${String(kind).toLowerCase()}`);
         const out = applyRule(draft, text);
