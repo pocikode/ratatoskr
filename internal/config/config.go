@@ -196,6 +196,13 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// The token is the login cookie's value, so it must be cookie-safe (docs/03 §8). Never echo it.
+	if strings.ContainsFunc(c.AuthToken, func(r rune) bool {
+		return r < 0x21 || r > 0x7E || strings.ContainsRune(`",;\`, r)
+	}) {
+		return errors.New(`config: auth_token must be printable ASCII without space, '"', ',', ';' or '\'`)
+	}
+
 	return nil
 }
 

@@ -3,9 +3,9 @@ id: T-029
 title: Reject auth tokens a cookie cannot carry
 milestone: M0
 role: backend
-status: todo
+status: in_review
 depends_on: [T-024]
-owner: ""
+owner: "claude-code/opus (lead, operator-approved)"
 branch: task/T-029-config-cookie-safe-token
 paths:
   - internal/config/config.go
@@ -24,15 +24,15 @@ cookie login answer 500, while Bearer auth still works (T-024 review, minor 1).
 - Out: any change to how tokens are compared, to the login endpoints, or to token rotation.
 
 ## Acceptance criteria
-- [ ] `Validate` returns an error when `AuthToken` is non-empty and holds any byte outside printable ASCII
+- [x] `Validate` returns an error when `AuthToken` is non-empty and holds any byte outside printable ASCII
       (0x21–0x7E), or any of `"`, `,`, `;`, `\`. These are the cookie-safe bytes listed in docs/03 §8.
       The error names the flag and never contains the token.
-- [ ] An empty token still means auth is off, so it stays valid.
-- [ ] Table test: a valid token, one case per forbidden class (space, `"`, `,`, `;`, `\`, a control byte, non-ASCII),
+- [x] An empty token still means auth is off, so it stays valid.
+- [x] Table test: a valid token, one case per forbidden class (space, `"`, `,`, `;`, `\`, a control byte, non-ASCII),
       and a check that the token never appears in the error text.
-- [ ] The T-024 middleware test that pins the 500 for such a token is removed, because config now makes that state
+- [x] The T-024 middleware test that pins the 500 for such a token is removed, because config now makes that state
       unreachable. The 500 path in the handler stays as a defensive branch.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 ## Notes from lead
 - Build the check from a byte loop or `strings.ContainsFunc`. Do not use `http.Cookie.Valid`, which would drag a cookie
@@ -43,10 +43,12 @@ cookie login answer 500, while Bearer auth still works (T-024 review, minor 1).
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `Config.Validate` rejects a non-empty `AuthToken` containing anything outside 0x21–0x7E or any of
+  `" , ; \`. The error names `auth_token` but never includes the token. Added table cases in `config_test.go`, removed
+  `TestLoginTokenNotCookieSafe`, and updated the docs/03 §8 sentence (lead).
+- How to verify: `go test -race ./internal/config/ ./internal/api/middleware/`; `make check`.
+- Known limitations: done by the lead on `main` with operator approval instead of by a backend agent on a task branch.
+- Follow-ups (proposed tasks): none.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested

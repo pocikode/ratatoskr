@@ -194,7 +194,7 @@ Indexes: `requests(host)`, `(created_at)`, `(source)`, `(method)`, `responses(co
   store, expire and leak without separating anything); attributes are `HttpOnly`, `SameSite=Strict`, `Path=/` and
   `Secure` when the request arrived over TLS. Login attempts are limited to 5/min per TCP peer IP (reserved atomically; 429 afterwards; a success resets the count; no
   `X-Forwarded-For` trust); failures are logged at warn with the IP, never the submitted value. The token must be
-  cookie-safe (printable ASCII without space, `"`, `,`, `;`, `\`), otherwise cookie login answers 500 while Bearer still works.
+  cookie-safe (printable ASCII without space, `"`, `,`, `;`, `\`); config validation refuses to start otherwise (T-029).
 - Guests are decided by the TCP peer address. A reverse proxy on the same host makes every client it forwards a loopback
   peer, so `--allow-guests` must not be combined with one (documented in `--help`; no `X-Forwarded-For` trust).
 - DNS rebinding: when the UI listener is bound to a loopback address, requests whose `Host` (port stripped) is not

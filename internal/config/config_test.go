@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -456,11 +457,31 @@ func TestValidate(t *testing.T) {
 			cfg:     Config{Listen: []string{DefaultListen}, UIListen: "localhost", DataDir: "/tmp/x"},
 			wantErr: "ui_listen",
 		},
+		{
+			name: "cookie-safe auth token",
+			cfg:  Config{Listen: []string{DefaultListen}, DataDir: "/tmp/x", AuthToken: "Ab0!#$%&'()*+-./:<=>?@[]^_`{|}~"},
+		},
+	}
+
+	for _, bad := range []string{"se cret", `se"cret`, "se,cret", "se;cret", `se\cret`, "se\x01cret", "se\x7fcret", "sécret"} {
+		tests = append(tests, struct {
+			name    string
+			cfg     Config
+			wantErr string
+		}{
+			name:    fmt.Sprintf("auth token %q", bad),
+			cfg:     Config{Listen: []string{DefaultListen}, DataDir: "/tmp/x", AuthToken: bad},
+			wantErr: "auth_token",
+		})
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.cfg.Validate()
+
+			if tt.cfg.AuthToken != "" && err != nil && strings.Contains(err.Error(), tt.cfg.AuthToken) {
+				t.Fatalf("Validate() error leaks the token: %v", err)
+			}
 
 			if tt.wantErr == "" {
 				if err != nil {

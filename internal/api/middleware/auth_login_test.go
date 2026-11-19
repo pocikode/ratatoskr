@@ -363,20 +363,6 @@ func TestLoginLimiterConcurrent(t *testing.T) {
 	}
 }
 
-// TestLoginTokenNotCookieSafe: a token a cookie cannot carry yields 500 on
-// login (Bearer still works); docs/03 §8 lists the allowed bytes.
-func TestLoginTokenNotCookieSafe(t *testing.T) {
-	t.Parallel()
-
-	a := loginAuth()
-	a.Token = `se"cret`
-
-	rec := serveAuth(a, sessionRequest(t, http.MethodPost, loginPath, `{"token":"se\"cret"}`))
-	if rec.Code != http.StatusInternalServerError || responseCookie(rec, TokenCookie) != nil {
-		t.Errorf("status = %d, want 500 without a cookie", rec.Code)
-	}
-}
-
 // TestLoginAuthDisabledQuiet: with no token configured, login neither logs nor
 // spends limiter slots.
 func TestLoginAuthDisabledQuiet(t *testing.T) {
