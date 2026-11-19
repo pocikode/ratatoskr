@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -135,3 +135,12 @@ without changing the streaming path for traffic that neither feature touches.
   - Fixed: both over-cap paths log at info.
 
 Verification: `make check` and the cached `make test-int` passed. Fresh proxy and repository integration runs both missed the existing latency target once (`p99 added latency 6.301418ms (direct 745.43µs, proxy 7.046848ms), want < 5ms` and `p99 added latency 5.052387ms (direct 2.598851ms, proxy 7.651238ms), want < 5ms`). The uncached suite passed with `GOFLAGS='-count=1 -p=2' make test-int`. The load test passed twice in isolation on each branch at the existing 200-client workload. Three 1,000-operation nil-hook GET samples per branch showed no slowdown, with medians of 1.452 ms/op on `main` and 1.137 ms/op on T-105, and 107–108 allocations per operation on both. The baseline samples varied from 1.162 to 1.723 ms/op.
+
+### Round 2
+
+- Verdict: changes_requested
+- [ ] [major] internal/proxy/hooks.go:578 — An edited response with a valid head and an incomplete body can leave the client connection reusable. With automatic length updates off, shortening a held response body while preserving its declared length leaves the client waiting for bytes the proxy has already finished sending. Check the delivered message boundary before allowing reuse and close on a mismatch. Preserve the forwarded bytes.
+- [ ] [major] internal/proxy/hooks.go:419 — When a streamed upload exceeds the capture cap and its response fits, both response rule paths receive the captured request prefix as if it were the whole upstream request. A rule testing the full request body can therefore produce the wrong result. Carry the truncation state into the response-rule decision and settle the bounded-input behavior with the lead. Add a mixed-size integration case. The existing over-cap test puts both bodies over the cap.
+- [ ] [minor] internal/proxy/hooks.go:507 — Response Intercept rebuilds and caches a copy of the upstream request even when Match & Replace is disabled. At the existing 200-client test workload, 8 MiB uploads with small held responses would produce roughly 1.6 GiB of extra cached request copies. Build those bytes only for an active response rule and reuse the captured request bytes for the unedited hold view.
+
+Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git diff --check main...HEAD` passed. This round used the existing 200-client load test and did not repeat the nil-hook benchmark comparison recorded above.
