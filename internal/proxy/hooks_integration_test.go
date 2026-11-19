@@ -893,3 +893,49 @@ func TestInterceptDropPages(t *testing.T) {
 		})
 	}
 }
+
+// An edited response whose body does not end where its framing says closes
+// the client connection after the bytes as given.
+func TestInterceptEditedResponseBadLengthClosesClient(t *testing.T) {
+	for name, edited := range map[string]string{
+		"short": "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc",
+		"long":  "HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nabc",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHookRig(t, []intercept.Kind{intercept.Response}, nil, rawhttp.Limits{})
+
+			_, br := h.send("GET http://%s/r HTTP/1.1\r\nHost: %s\r\n\r\n")
+			h.nextHold(intercept.Response).reply <- intercept.Decision{Raw: []byte(edited), Edited: true}
+
+			if got := readAll(t, br); got != edited {
+				t.Fatalf("client got %q, want %q", got, edited)
+			}
+		})
+	}
+}
+
+// A request over the capture cap is no rule input: its fitting response is
+// held but no response rule runs, before or after the hold.
+func TestOverCapRequestSkipsResponseRules(t *testing.T) {
+	rw := &fakeRewriter{active: map[string][2]bool{"proxy": {false, true}, "intercept": {false, true}}}
+	// RawReply's 2-byte body fits a 5-byte cap; the 20-byte upload does not.
+	h := newHookRig(t, []intercept.Kind{intercept.Response}, rw, rawhttp.Limits{MaxBodyBytes: 5})
+
+	_, br := h.send("POST http://%s/u HTTP/1.1\r\nHost: %s\r\nContent-Length: 20\r\n\r\n01234567890123456789")
+
+	call := h.nextHold(intercept.Response)
+	if got := string(call.msg.Response().Raw); got != testutil.RawReply {
+		t.Fatalf("held response %q, want %q", got, testutil.RawReply)
+	}
+
+	edited := "HTTP/1.1 201 Created\r\nContent-Length: 3\r\n\r\nnew"
+	call.reply <- intercept.Decision{Raw: []byte(edited), Edited: true}
+
+	if got := h.response(br, "POST"); got != edited {
+		t.Fatalf("client got %q, want %q", got, edited)
+	}
+
+	if calls := rw.seen(); len(calls) != 0 {
+		t.Fatalf("response rules ran: %q", calls)
+	}
+}

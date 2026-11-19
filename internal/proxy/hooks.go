@@ -142,9 +142,21 @@ func (s *Server) parseRequest(raw []byte) (*rawhttp.Request, error) {
 	return rawhttp.ReadRequest(bufio.NewReader(bytes.NewReader(raw)), rawhttp.Limits{MaxHeadBytes: s.maxHead(), MaxBodyBytes: -1})
 }
 
-// parseResponse re-reads a whole response held in memory.
-func (s *Server) parseResponse(raw []byte, method string) (*rawhttp.Response, error) {
-	return rawhttp.ReadResponse(bufio.NewReader(bytes.NewReader(raw)), method, rawhttp.Limits{MaxHeadBytes: s.maxHead(), MaxBodyBytes: -1})
+// parseResponse re-reads a response held in memory. whole reports whether raw
+// is exactly one complete message: only then can the client connection be
+// reused after it.
+func (s *Server) parseResponse(raw []byte, method string) (r *rawhttp.Response, whole bool, err error) {
+	rd := bytes.NewReader(raw)
+	br := bufio.NewReader(rd)
+
+	r, err = rawhttp.ReadResponse(br, method, rawhttp.Limits{MaxHeadBytes: s.maxHead(), MaxBodyBytes: -1})
+	if err != nil {
+		return nil, false, err
+	}
+
+	_, err = io.Copy(io.Discard, r.Body())
+
+	return r, err == nil && rd.Len()+br.Buffered() == 0, nil
 }
 
 // upstreamBytes returns raw (a whole request, or a head alone) as it goes to
@@ -262,7 +274,7 @@ func (c *session) hold(ctx context.Context, id int64, kind intercept.Kind, msg q
 
 // rewrite runs the Match & Replace rules of source on raw. A failing rule
 // set leaves the message as it was.
-func (c *session) rewrite(source string, response bool, req, raw []byte) []byte {
+func (c *session) rewrite(source string, response bool, req func() []byte, raw []byte) []byte {
 	rw := c.s.deps.Rewriter
 	if rw == nil || !rw.Active(source, response) {
 		return raw
@@ -274,7 +286,7 @@ func (c *session) rewrite(source string, response bool, req, raw []byte) []byte 
 	)
 
 	if response {
-		out, err = rw.Response(c.ctx, source, req, raw)
+		out, err = rw.Response(c.ctx, source, req(), raw)
 	} else {
 		out, err = rw.Request(c.ctx, source, raw)
 	}
@@ -504,16 +516,30 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 		_ = c.release(nil, x.sent, x.sent, resp, up)
 	}
 
-	reqRaw := c.upstreamRaw(x, req)
-	delivered := c.rewrite(sourceProxy, true, reqRaw, data)
+	// Response rules get the upstream request, built only when a rule runs.
+	// A request cut at the capture cap is no rule input: its exchange gets no
+	// response rule (F-MR-1; operator, 2026-11-19, T-105 review).
+	rewrite := func(source string, raw []byte) []byte {
+		if req.Truncated() {
+			if rw := c.s.deps.Rewriter; rw != nil && rw.Active(source, true) {
+				c.s.log.Info("proxy: request over the capture cap; response rules skipped", "component", "proxy", "source", source)
+			}
+
+			return raw
+		}
+
+		return c.rewrite(source, true, func() []byte { return c.upstreamRaw(x, req) }, raw)
+	}
+
+	delivered := rewrite(sourceProxy, data)
 
 	if id != 0 && c.s.icpt != nil && c.s.icpt.WouldHold(intercept.Response) {
-		if r, err := c.s.parseResponse(delivered, x.sent.Method()); err != nil {
+		if r, _, err := c.s.parseResponse(delivered, x.sent.Method()); err != nil {
 			c.s.log.Info("proxy: rewritten response does not parse; not holding", "component", "proxy", "error", err)
 		} else {
 			heldReq, heldHead := req.Raw(), req
 			if x.changed {
-				heldReq, heldHead = reqRaw, x.sent
+				heldReq, heldHead = x.upRaw, x.sent
 			}
 
 			msg := &heldMessage{
@@ -537,7 +563,7 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 
 				return false
 			case dec.Edited && !bytes.Equal(dec.Raw, delivered):
-				delivered, x.intercepted = c.rewrite(sourceIntercept, true, reqRaw, dec.Raw), true
+				delivered, x.intercepted = rewrite(sourceIntercept, dec.Raw), true
 			}
 		}
 	}
@@ -548,9 +574,11 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 
 	final := &resp.Message
 	edited := answer
+	whole := true
 
 	if changed {
-		if r, err := c.s.parseResponse(delivered, x.sent.Method()); err == nil {
+		var r *rawhttp.Response
+		if r, whole, err = c.s.parseResponse(delivered, x.sent.Method()); err == nil {
 			final = &r.Message
 			edited = &history.Response{
 				Side: historySide(delivered, &r.Message), Code: r.Status(),
@@ -575,7 +603,9 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 
 	_, copyErr := c.conn.Write(delivered)
 
-	return copyErr == nil && !upgrade && final != nil && !req.Close() && !final.Close() &&
+	// An edit whose bytes do not end where its framing says (a short or
+	// overlong body) leaves the client unable to find the next response.
+	return copyErr == nil && !upgrade && final != nil && whole && !req.Close() && !final.Close() &&
 		final.Framing() != rawhttp.FramingClose && !x.headChanged(req)
 }
 
