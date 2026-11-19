@@ -3,9 +3,9 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-030]
-owner: ""
+owner: "Codex"
 branch: task/T-031-intercept-service
 paths:
   - internal/intercept/**
@@ -61,6 +61,11 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
   import `internal/proxy`.
 
 ## Plan (implementer, ≤15 lines)
+
+- Implement project settings, HTTPQL and scope matching, and the FIFO hold/release API.
+- Validate and handle replacement bytes with the existing raw HTTP parser and builder.
+- Implement GraphQL queries, mutations, and subscriptions against the service.
+- Cover release order, cancellation, project isolation, validation, and event delivery, then run `make check`.
 
 ## Out-of-scope change needed (if any)
 
