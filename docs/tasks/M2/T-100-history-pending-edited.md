@@ -24,8 +24,7 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 
 ## Scope
 - In: `history.Capture.NewPending(ctx, Entry) int64` (ID returned at once; IDs from `MAX(id)+1` at project open),
-  `Complete(ctx, id, *Response)`, `Written(ctx, id) error` (returns once the pending row of `id` is committed, at
-  once if it already is; ctx error if ctx ends; error if the project closed first; F-INT-1, docs/03 §4), a dropped flag, `EditedFrom` + `Source` on entries; the proxy switched from "insert when
+  `Complete(ctx, id, *Response)`, a dropped flag, `EditedFrom` + `Source` on entries; the proxy switched from "insert when
   complete" to `NewPending` at request read and `Complete` after the response (or failure); `editedBy` lookup in
   `history.Service` + resolver (delete `stubs_history_edited.go`).
 - Out: creating edited pairs from the proxy (T-105 calls the API added here), intercept, M&R.
@@ -36,8 +35,6 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 - [ ] Proxy integration test with a slow test server: the request is listed by `Service.List` with no response before the
       server answers; `Added` then `Updated` events fire in that order; the final row equals what M1 stored (bytes, timing).
 - [ ] An exchange that fails upstream (502 from the proxy) is completed as today (no response, record kept).
-- [ ] `Written` (synctest): blocks until the batch holding `id` commits, then `Service.Get(id)` finds it; returns at once
-      for a committed ID; returns ctx's error on cancel and an error when the project closes first; no goroutine leak.
 - [ ] `Complete` for an ID whose project was closed meanwhile is dropped and counted in `Dropped()`, no error, no panic.
 - [ ] Dropped flag stored as `is_dropped = 1`; an entry with `EditedFrom` stores `edited_from`; `editedBy` returns the edited
       record, null otherwise (service + resolver tests).
