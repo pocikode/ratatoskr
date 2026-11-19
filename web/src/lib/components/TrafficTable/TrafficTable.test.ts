@@ -31,6 +31,8 @@ interface TableProps {
   onsortchange?: (sort: SortState | null) => void;
   onrowopen?: (row: Row) => void;
   onrowcontextmenu?: (row: Row, event: MouseEvent) => void;
+  onNearEnd?: () => void;
+  paginationKey?: number;
 }
 
 // `bind:this`-free, prop-only view of the generic component for the test renderer.
@@ -68,6 +70,40 @@ describe('TrafficTable', () => {
     expect(screen.getByText('No rows match.')).toBeVisible();
   });
 
+  it('reports the end once per row count and keeps the window virtualized as rows append', async () => {
+    const onNearEnd = vi.fn();
+    const { rows, rerender } = setup({ onNearEnd });
+    const grid = screen.getByRole('grid', { name: 'Traffic table' });
+    const viewport = grid.querySelector<HTMLElement>('.overflow-auto')!;
+    const scrollToRow = async (index: number) => {
+      viewport.scrollTop = index * 26;
+      await fireEvent.scroll(viewport);
+    };
+
+    await scrollToRow(940);
+    expect(onNearEnd).not.toHaveBeenCalled();
+    await scrollToRow(950);
+    expect(onNearEnd).toHaveBeenCalledTimes(1);
+    const windowSize = within(grid).getAllByRole('row').length;
+    expect(windowSize).toBeLessThan(80);
+
+    await scrollToRow(940);
+    await scrollToRow(951);
+    expect(onNearEnd).toHaveBeenCalledTimes(1);
+
+    const reloaded = rows.map((row) => ({ ...row }));
+    await rerender({ rows: reloaded });
+    expect(onNearEnd).toHaveBeenCalledTimes(1);
+    await rerender({ paginationKey: 1 });
+    expect(onNearEnd).toHaveBeenCalledTimes(2);
+
+    await rerender({ rows: [...rows, ...makeRows(1000).map((row) => ({ ...row, id: -row.id }))] });
+    expect(onNearEnd).toHaveBeenCalledTimes(2);
+    await scrollToRow(1950);
+    expect(onNearEnd).toHaveBeenCalledTimes(3);
+    expect(within(grid).getAllByRole('row')).toHaveLength(windowSize);
+  });
+
   it('reports sorting through the callback and marks the header', async () => {
     const user = userEvent.setup();
     const onsortchange = vi.fn<(sort: SortState | null) => void>();
@@ -102,6 +138,25 @@ describe('TrafficTable', () => {
     expect(selection.size).toBe(2);
     await user.keyboard(' ');
     expect(selection.size).toBe(1);
+  });
+
+  it('keeps the same active request and selection when a row is prepended', async () => {
+    const onrowopen = vi.fn();
+    const { rows, selection, rerender } = setup({ onrowopen });
+    const grid = screen.getByRole('grid', { name: 'Traffic table' });
+    grid.focus();
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    const before = grid.getAttribute('aria-activedescendant');
+
+    await rerender({ rows: [{ ...rows[0]!, id: 1001 }, ...rows] });
+    const active = document.getElementById(grid.getAttribute('aria-activedescendant') ?? '');
+    expect(active?.id).not.toBe(before);
+    expect(active).toHaveTextContent('1000');
+    expect([...selection.keys]).toEqual(['1000']);
+    await fireEvent.keyDown(grid, { key: 'Enter' });
+    expect(onrowopen).toHaveBeenLastCalledWith(rows[0]);
+    await fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect([...selection.keys]).toEqual(['999']);
   });
 
   it('starts on the first row when there is no active row', async () => {

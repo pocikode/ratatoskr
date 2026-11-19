@@ -42,8 +42,14 @@ fragment HistoryMessage on HttpRequest {
   }
 }
 
-query HistoryRequests($query: String, $scopeId: ID, $first: Int!, $sort: RequestSort) {
-  requests(query: $query, scopeId: $scopeId, first: $first, sort: $sort) {
+query HistoryRequests(
+  $query: String
+  $scopeId: ID
+  $first: Int!
+  $after: String
+  $sort: RequestSort
+) {
+  requests(query: $query, scopeId: $scopeId, first: $first, after: $after, sort: $sort) {
     totalCount
     pageInfo {
       hasNextPage

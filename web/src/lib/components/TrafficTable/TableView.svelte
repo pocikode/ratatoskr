@@ -1,4 +1,5 @@
 <script lang="ts" generics="Row">
+  import { untrack } from 'svelte';
   import type { Snippet } from 'svelte';
   import type { Selection } from './selection.svelte';
   import type { ColumnConfig, RowColor, SortState, TrafficColumn } from './types';
@@ -22,6 +23,8 @@
     onsort: (column: TrafficColumn<Row>) => void;
     /** Fired on every drag step and once with `commit` when the drag ends. */
     onwidth: (id: string, width: number, commit: boolean) => void;
+    onNearEnd?: () => void;
+    paginationKey?: number;
     empty?: Snippet;
   }
 
@@ -38,6 +41,8 @@
     color,
     onsort,
     onwidth,
+    onNearEnd,
+    paginationKey,
     empty,
   }: Props = $props();
 
@@ -78,6 +83,20 @@
   const end = $derived(
     Math.min(rows.length, Math.ceil((bodyScroll + bodyHeight) / rowH) + OVERSCAN),
   );
+
+  let previousCount = 0;
+  let previousKey: number | undefined;
+  let notified = false;
+  $effect(() => {
+    const count = rows.length;
+    const key = paginationKey;
+    if (count !== previousCount || key !== previousKey) notified = false;
+    previousCount = count;
+    previousKey = key;
+    if (!onNearEnd || notified || count === 0 || (count - end) * rowH > bodyHeight) return;
+    notified = true;
+    untrack(onNearEnd);
+  });
 
   $effect(() => {
     pageRows = Math.max(1, Math.floor(bodyHeight / rowH) - 1);

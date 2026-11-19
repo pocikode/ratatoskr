@@ -16,6 +16,42 @@ describe('HttpHistoryPage', () => {
     expect(screen.getByText('12 matching')).toBeInTheDocument();
   });
 
+  it('loads another page when the history table scrolls near the end', async () => {
+    render(HttpHistoryPage, { client: createMockClient({ count: 1001, liveIntervalMs: 0 }) });
+    await screen.findByText('1000 rows');
+    const grid = screen.getByRole('grid', { name: 'HTTP History' });
+    const viewport = grid.querySelector<HTMLElement>('.overflow-auto')!;
+
+    viewport.scrollTop = 950 * 26;
+    await fireEvent.scroll(viewport);
+
+    await screen.findByText('1001 rows');
+    expect(within(grid).getAllByRole('row').length).toBeLessThan(80);
+  });
+
+  it('keeps header focus and the active request after sorting by keyboard', async () => {
+    const user = userEvent.setup();
+    render(HttpHistoryPage, { client: createMockClient({ count: 12, liveIntervalMs: 0 }) });
+    await screen.findByText('12 rows');
+    const grid = screen.getByRole('grid', { name: 'HTTP History' });
+    grid.focus();
+    await user.keyboard('{ArrowDown}');
+
+    const header = within(grid).getByRole('button', { name: 'Host' });
+    header.focus();
+    await user.keyboard('{Enter}');
+    await screen.findByText('12 matching');
+
+    expect(header).toHaveFocus();
+    expect(within(grid).getByRole('columnheader', { name: 'Host' })).toHaveAttribute(
+      'aria-sort',
+      'ascending',
+    );
+    const active = document.getElementById(grid.getAttribute('aria-activedescendant') ?? '');
+    expect(active).toBe(within(grid).getByRole('row', { selected: true }));
+    expect(within(active!).getByRole('gridcell', { name: '12' })).toBeInTheDocument();
+  });
+
   it('shows the selected request and response in the viewers', async () => {
     render(HttpHistoryPage, { client: createMockClient({ count: 12, liveIntervalMs: 0 }) });
     await screen.findByText('12 rows');
