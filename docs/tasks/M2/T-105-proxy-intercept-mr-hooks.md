@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -174,3 +174,10 @@ Round 3 fixes verified with `make check` and `GOFLAGS='-count=1 -p=2' make test-
   - Fixed: `hookResponse(req.Truncated())` buffers for a rule only when the request was not cut (the skip is logged there); a hold still buffers. Test `TestOverCapRequestStreamsResponse` (gated upstream, client must see head + prefix first), mutation-checked.
 
 Verification: the focused proxy integration suite passed under the race detector and `git diff --check main...HEAD` passed. The full repository checks and benchmark were not rerun in this review.
+
+### Round 5
+
+- Verdict: changes_requested
+- [ ] [major] internal/proxy/forward.go:115 — When history capture is paused, `NewPending` returns zero. With response queuing on and no active response rule, the proxy still buffers the response even though the hold path requires a nonzero history ID. A slow download can wait for upstream completion or the capture cap before the client gets its response head. Require a nonzero pending ID for Intercept-driven response buffering and add a gated streaming test with paused capture.
+
+Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int` (including the 200-client proxy load test), and `git diff --check main...HEAD` passed. The nil-hook benchmark comparison was not rerun.
