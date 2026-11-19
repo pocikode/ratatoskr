@@ -62,7 +62,7 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		defer func() { c.continued = false }()
 	}
 
-	x := &edits{sent: req}
+	x := &edits{sent: req, inTunnel: inTunnel}
 
 	if c.s.hookRequest() {
 		data, full, err := c.s.buffer(&req.Message)
@@ -86,7 +86,7 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 			pending()
 
 			var dropped bool
-			if out, dropped, err = c.requestHooks(x, id, &entry, data, inTunnel); dropped {
+			if out, dropped, err = c.requestHooks(x, id, &entry, data); dropped {
 				return false
 			}
 
@@ -112,24 +112,27 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		Code: resp.Status(), RoundTrip: time.Since(entry.CreatedAt), CreatedAt: time.Now(),
 	}
 
-	if resp.Status() == 101 {
-		owner := c.editOwner(id, x.sentRaw != nil)
-		c.finish(id, answer, resp)
-		c.storeEdited(owner, x, id, &entry, answer)
-		return c.upgrade(resp, up)
-	}
-
 	if c.s.hookResponse() {
 		return c.respondHooked(x, id, &entry, req, resp, up, answer)
 	}
 
+	owner := c.editOwner(id, x.changed)
+
+	if resp.Status() == 101 {
+		c.finish(id, answer, resp)
+		c.storeEdited(owner, x, id, &entry, answer)
+		return c.upgrade(resp.Head(), up)
+	}
+
 	_, copyErr := resp.WriteTo(c.conn)
 
-	owner := c.editOwner(id, x.sentRaw != nil)
 	c.finish(id, answer, resp)
 	c.storeEdited(owner, x, id, &entry, answer)
 
-	return c.release(copyErr, req, x.sent, resp, up) // an incomplete body closes up either way
+	// An incomplete body closes up either way. The origin answered the method
+	// it got (exchange reads with x.sent); a HEAD edit leaves the client's
+	// framing wrong, so its connection ends here.
+	return c.release(copyErr, req, x.sent, resp, up) && !x.headChanged(req)
 }
 
 // idempotent reports the RFC 9110 safe methods: a repeat is harmless.
@@ -210,15 +213,15 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn,
 	}
 }
 
-// upgrade relays a 101 answer: the head goes to the client, then both sides
+// upgrade relays a 101 answer: head goes to the client, then both sides
 // are copied raw until either closes. WebSocket frames are recorded by a
 // later task; the handshake is stored like any request.
-func (c *session) upgrade(resp *rawhttp.Response, up *netx.Conn) bool {
+func (c *session) upgrade(head []byte, up *netx.Conn) bool {
 	defer up.Close()
 
 	up.SetIdle(0)
 
-	if _, err := resp.WriteTo(c.conn); err != nil {
+	if _, err := c.conn.Write(head); err != nil {
 		return false
 	}
 

@@ -89,6 +89,8 @@ func (s *Server) buffer(m *rawhttp.Message) (data []byte, full bool, err error) 
 	case m.Framing() == rawhttp.FramingNone:
 		return m.Raw(), true, nil
 	case limit < 0 || m.ContentLength() > limit:
+		s.log.Info("proxy: body over the capture cap passes through unheld and unchanged", "component", "proxy", "cap", limit)
+
 		return m.Head(), false, nil
 	}
 
@@ -146,24 +148,39 @@ func (s *Server) parseResponse(raw []byte, method string) (*rawhttp.Response, er
 }
 
 // upstreamBytes returns raw (a whole request, or a head alone) as it goes to
-// the origin server: outside a tunnel an absolute-form target becomes
-// origin-form. A head alone yields the rewritten head, as no body follows it.
+// the origin server, and its parse: outside a tunnel an absolute-form target
+// becomes origin-form. Only the head is rebuilt; the bytes after it go out as
+// given, whatever length the head declares.
 func (s *Server) upstreamBytes(raw []byte, inTunnel bool) ([]byte, *rawhttp.Request, error) {
-	r, err := s.parseRequest(raw)
+	rd := bytes.NewReader(raw)
+	br := bufio.NewReader(rd)
+
+	r, err := rawhttp.ReadRequest(br, rawhttp.Limits{MaxHeadBytes: s.maxHead(), MaxBodyBytes: -1})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if !inTunnel {
-		if _, rest, ok := cutScheme(r.Target()); ok {
-			_, origin := splitAuthority(rest)
-			b := r.Builder().SetTarget(origin).DelHeader("Proxy-Connection").Bytes()
-
-			return b, r, nil
-		}
+	_, rest, ok := cutScheme(r.Target())
+	if inTunnel || !ok {
+		return raw, r, nil
 	}
 
-	return raw, r, nil
+	_, origin := splitAuthority(rest)
+	suffix := raw[len(raw)-rd.Len()-br.Buffered():]
+
+	h, err := s.parseRequest(r.Head()) // a head alone: the builder copies no body
+	if err != nil {
+		return nil, nil, err
+	}
+
+	b := append(h.Builder().SetTarget(origin).DelHeader("Proxy-Connection").Bytes(), suffix...)
+
+	u, err := s.parseRequest(b)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return b, u, nil
 }
 
 // watchClient calls cancel when the client closes its connection while a
@@ -181,9 +198,17 @@ func (c *session) watchClient(cancel context.CancelFunc) (stop func()) {
 	go func() {
 		defer close(done)
 
-		// Pipelined bytes end the watch without a signal; only a read error means the client is gone.
-		if _, err := c.br.Peek(1); err != nil && !stopping.Load() {
-			cancel()
+		// Pipelined bytes stay in c.br for the next read; only a read error means
+		// the client is gone. shortcut: a client that pipelines a full buffer
+		// (4 KiB) ends the watch, its disconnect is then seen at the next write.
+		for n := c.br.Buffered() + 1; n <= c.br.Size(); n = c.br.Buffered() + 1 {
+			if _, err := c.br.Peek(n); err != nil {
+				if !stopping.Load() {
+					cancel()
+				}
+
+				return
+			}
 		}
 	}()
 
@@ -263,18 +288,37 @@ func (c *session) rewrite(source string, response bool, req, raw []byte) []byte 
 	return out
 }
 
-// dropPage is Ratatoskr's answer to a dropped message.
-func dropPage(code int) []byte {
-	status := strconv.Itoa(code) + " " + http.StatusText(code)
+// dropPage is Ratatoskr's answer to a dropped message; method is the
+// client's. An interim (1xx) status is no final answer, so a 502 page follows
+// it (lead, 2026-11-19, T-105 review). A HEAD client gets no body.
+func dropPage(code int, method string) []byte {
+	var out []byte
+
+	if code < 200 {
+		out = []byte("HTTP/1.1 " + statusText(code) + "\r\n\r\n")
+		code = http.StatusBadGateway
+	}
+
+	status := statusText(code)
 	body := ""
 
-	if code >= 200 && code != http.StatusNoContent && code != http.StatusNotModified {
+	if code != http.StatusNoContent && code != http.StatusNotModified {
 		body = "<!doctype html><title>" + status + "</title><h1>" + status +
 			"</h1><p>Ratatoskr dropped this message in Intercept.</p>\n"
 	}
 
-	return []byte("HTTP/1.1 " + strings.TrimSpace(status) + "\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " +
-		strconv.Itoa(len(body)) + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n" + body)
+	out = append(out, "HTTP/1.1 "+status+"\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: "+
+		strconv.Itoa(len(body))+"\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"...)
+
+	if method == "HEAD" { // the fields a GET would get, without the content (RFC 9110 §9.3.2)
+		return out
+	}
+
+	return append(out, body...)
+}
+
+func statusText(code int) string {
+	return strings.TrimSpace(strconv.Itoa(code) + " " + http.StatusText(code))
 }
 
 // heldMessage is the query view of an exchange in flight (docs/04 §5).
@@ -352,18 +396,40 @@ func historySide(raw []byte, m *rawhttp.Message) history.Side {
 
 // edits is what the hooks did to one exchange.
 type edits struct {
-	// sent is the request as written upstream (before the origin-form
-	// rewrite): the client's request unless a hook changed it.
+	// sent is the request as the origin server sees it: the client's request
+	// unless a hook buffered it.
 	sent *rawhttp.Request
-	// sentRaw holds sent's bytes when they differ from the client's.
-	sentRaw []byte
+	// upRaw holds sent's bytes once known.
+	upRaw []byte
+	// changed is set when a hook changed the request bytes.
+	changed bool
 	// intercepted is set when a Forward in Intercept changed bytes.
 	intercepted bool
+	inTunnel    bool
+}
+
+// headChanged reports whether a hook made the request HEAD or took HEAD away:
+// the response then has a body the client does not expect, or lacks one it
+// waits for, so the client connection must close after it.
+func (x *edits) headChanged(client *rawhttp.Request) bool {
+	return (x.sent.Method() == "HEAD") != (client.Method() == "HEAD")
+}
+
+// upstreamRaw returns the request bytes as the origin server received them.
+func (c *session) upstreamRaw(x *edits, client *rawhttp.Request) []byte {
+	if x.upRaw == nil {
+		x.upRaw = client.Raw()
+		if b, _, err := c.s.upstreamBytes(client.Raw(), x.inTunnel); err == nil {
+			x.upRaw = b
+		}
+	}
+
+	return x.upRaw
 }
 
 // requestHooks runs M&R and Intercept on a fully buffered request raw and
 // returns what to write upstream. dropped means the client was answered.
-func (c *session) requestHooks(x *edits, id int64, entry *history.Entry, raw []byte, inTunnel bool) (out io.WriterTo, dropped bool, err error) {
+func (c *session) requestHooks(x *edits, id int64, entry *history.Entry, raw []byte) (out io.WriterTo, dropped bool, err error) {
 	sent := c.rewrite(sourceProxy, false, nil, raw)
 
 	if id != 0 && c.s.icpt != nil && c.s.icpt.WouldHold(intercept.Request) {
@@ -383,7 +449,7 @@ func (c *session) requestHooks(x *edits, id int64, entry *history.Entry, raw []b
 		}
 
 		if dec.DropStatusCode != 0 {
-			_, _ = c.conn.Write(dropPage(dec.DropStatusCode))
+			_, _ = c.conn.Write(dropPage(dec.DropStatusCode, entry.Method))
 			c.s.hc.CompleteDropped(c.ctx, id, nil)
 
 			return nil, true, nil
@@ -395,56 +461,64 @@ func (c *session) requestHooks(x *edits, id int64, entry *history.Entry, raw []b
 	}
 
 	// Edits may change the framing: the bytes are re-read before they go out.
-	b, r, err := c.s.upstreamBytes(sent, inTunnel)
+	b, r, err := c.s.upstreamBytes(sent, x.inTunnel)
 	if err != nil {
 		return nil, false, err
 	}
 
-	x.sent = r
-	if !bytes.Equal(sent, raw) {
-		x.sentRaw = sent
-	}
+	x.sent, x.upRaw, x.changed = r, b, !bytes.Equal(sent, raw)
 
 	return writeAll{b: b}, false, nil
 }
 
 // respondHooked delivers a response that M&R or Intercept may change and
-// reports whether the client connection stays usable.
+// reports whether the client connection stays usable. A 101 handshake enters
+// the tunnel only when the delivered response still switches protocols.
 func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *rawhttp.Request,
 	resp *rawhttp.Response, up *netx.Conn, answer *history.Response,
 ) bool {
 	data, full, err := c.s.buffer(&resp.Message)
-	if err != nil || !full {
+	if err != nil || !full { // never for 101, which has no body
 		var rest io.Reader
 		if err == nil {
 			rest = resp.Body()
 		}
 
 		_, copyErr := writeAll{b: data, r: rest}.WriteTo(c.conn)
-		owner := c.editOwner(id, x.sentRaw != nil)
+		owner := c.editOwner(id, x.changed)
 		c.finish(id, answer, resp)
 		c.storeEdited(owner, x, id, entry, answer)
 
-		return c.release(cmp.Or(err, copyErr), req, x.sent, resp, up)
+		return c.release(cmp.Or(err, copyErr), req, x.sent, resp, up) && !x.headChanged(req)
 	}
 
-	// The response is in memory: the upstream is free before any hold.
-	_ = c.release(nil, x.sent, x.sent, resp, up)
-
-	reqRaw := x.sentRaw
-	if reqRaw == nil {
-		reqRaw = req.Raw()
+	upgrade := resp.Status() == 101
+	if upgrade {
+		defer func() {
+			if up != nil {
+				_ = up.Close() // the upstream switched protocols: it is not reusable
+			}
+		}()
+	} else {
+		// The response is in memory: the upstream is free before any hold.
+		_ = c.release(nil, x.sent, x.sent, resp, up)
 	}
 
+	reqRaw := c.upstreamRaw(x, req)
 	delivered := c.rewrite(sourceProxy, true, reqRaw, data)
 
 	if id != 0 && c.s.icpt != nil && c.s.icpt.WouldHold(intercept.Response) {
 		if r, err := c.s.parseResponse(delivered, x.sent.Method()); err != nil {
 			c.s.log.Info("proxy: rewritten response does not parse; not holding", "component", "proxy", "error", err)
 		} else {
+			heldReq, heldHead := req.Raw(), req
+			if x.changed {
+				heldReq, heldHead = reqRaw, x.sent
+			}
+
 			msg := &heldMessage{
-				id: id, entry: *entry, method: x.sent.Method(), target: x.sent.Target(),
-				req:     querySide(reqRaw, &x.sent.Message),
+				id: id, entry: *entry, method: heldHead.Method(), target: heldHead.Target(),
+				req:     querySide(heldReq, &heldHead.Message),
 				resp:    &query.Response{Side: querySide(delivered, &r.Message), Code: r.Status(), RoundTrip: answer.RoundTrip},
 				created: entry.CreatedAt,
 			}
@@ -457,7 +531,7 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 
 				return false
 			case dec.DropStatusCode != 0:
-				_, _ = c.conn.Write(dropPage(dec.DropStatusCode))
+				_, _ = c.conn.Write(dropPage(dec.DropStatusCode, req.Method()))
 				answer.Side, answer.Truncated = sideOf(&resp.Message), resp.Truncated()
 				c.s.hc.CompleteDropped(c.ctx, id, answer)
 
@@ -468,10 +542,8 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 		}
 	}
 
-	_, copyErr := c.conn.Write(delivered)
-
 	changed := !bytes.Equal(delivered, data)
-	owner := c.editOwner(id, x.sentRaw != nil || changed)
+	owner := c.editOwner(id, x.changed || changed)
 	c.finish(id, answer, resp)
 
 	final := &resp.Message
@@ -485,7 +557,7 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 				RoundTrip: answer.RoundTrip, CreatedAt: answer.CreatedAt,
 			}
 		} else {
-			// Unparsable bytes still reached the client; store them as they went.
+			// Unparsable bytes still reach the client; store them as they went.
 			final = nil
 			edited = &history.Response{Raw: delivered, BodyOffset: len(delivered), Code: answer.Code,
 				RoundTrip: answer.RoundTrip, CreatedAt: answer.CreatedAt}
@@ -494,7 +566,17 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 
 	c.storeEdited(owner, x, id, entry, edited)
 
-	return copyErr == nil && final != nil && !req.Close() && !final.Close() && final.Framing() != rawhttp.FramingClose
+	if upgrade && final != nil && edited.Code == 101 {
+		u := up
+		up = nil // the relay owns it now
+
+		return c.upgrade(delivered, u)
+	}
+
+	_, copyErr := c.conn.Write(delivered)
+
+	return copyErr == nil && !upgrade && final != nil && !req.Close() && !final.Close() &&
+		final.Framing() != rawhttp.FramingClose && !x.headChanged(req)
 }
 
 // release returns up to the pool when it is reusable after the exchange and
@@ -535,9 +617,9 @@ func (c *session) storeEdited(owner *store.DB, x *edits, id int64, entry *histor
 		e.Source = sourceIntercept
 	}
 
-	if x.sentRaw != nil {
+	if x.changed { // the request as the origin server received it
 		e.Method, e.Target = x.sent.Method(), x.sent.Target()
-		e.Req, e.Truncated = historySide(x.sentRaw, &x.sent.Message), false
+		e.Req, e.Truncated = historySide(x.upRaw, &x.sent.Message), false
 	}
 
 	c.s.hc.Add(c.ctx, e)

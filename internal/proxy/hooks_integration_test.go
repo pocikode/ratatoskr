@@ -4,6 +4,7 @@ package proxy_test
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
@@ -83,9 +84,12 @@ func (f *fakeInterceptor) hold(ctx context.Context, kind intercept.Kind, db *sto
 // responses whose side is active.
 type fakeRewriter struct {
 	active map[string][2]bool // source → {request, response}
+	// edit replaces addHeader for requests when set.
+	edit func(raw []byte) []byte
 
-	mu    sync.Mutex
-	calls []string
+	mu       sync.Mutex
+	calls    []string
+	respReqs []string // req as given to Response
 }
 
 func (f *fakeRewriter) Active(source string, response bool) bool {
@@ -95,11 +99,19 @@ func (f *fakeRewriter) Active(source string, response bool) bool {
 func (f *fakeRewriter) Request(_ context.Context, source string, raw []byte) ([]byte, error) {
 	f.record("req:" + source)
 
+	if f.edit != nil {
+		return f.edit(raw), nil
+	}
+
 	return addHeader(raw, "X-Mr-"+source), nil
 }
 
-func (f *fakeRewriter) Response(_ context.Context, source string, _, resp []byte) ([]byte, error) {
+func (f *fakeRewriter) Response(_ context.Context, source string, req, resp []byte) ([]byte, error) {
 	f.record("resp:" + source)
+
+	f.mu.Lock()
+	f.respReqs = append(f.respReqs, string(req))
+	f.mu.Unlock()
 
 	return addHeader(resp, "X-Mr-"+source), nil
 }
@@ -137,6 +149,7 @@ type hookRig struct {
 	proxy  *rig
 	svc    *history.Service
 	up     *testutil.RawServer
+	addr   string // upstream address for send; up's when empty
 	events <-chan events.Msg[history.Event]
 	icpt   *fakeInterceptor
 }
@@ -207,7 +220,13 @@ func (h *hookRig) send(format string) (net.Conn, *bufio.Reader) {
 	return conn, bufio.NewReader(conn)
 }
 
-func (h *hookRig) upAddr() string { return fmt.Sprintf("%s:%d", h.up.Host, h.up.Port) }
+func (h *hookRig) upAddr() string {
+	if h.addr != "" {
+		return h.addr
+	}
+
+	return fmt.Sprintf("%s:%d", h.up.Host, h.up.Port)
+}
 
 // nextHold returns the next hold of kind.
 func (h *hookRig) nextHold(kind intercept.Kind) holdCall {
@@ -353,7 +372,7 @@ func TestInterceptRequestForwardWithEdits(t *testing.T) {
 	}{
 		{orig.ID, history.PartRequest, strings.ReplaceAll(sent, "%s", h.upAddr())},
 		{orig.ID, history.PartResponse, testutil.RawReply},
-		{ed.ID, history.PartRequest, edited},
+		{ed.ID, history.PartRequest, wantUp}, // as the origin server received it
 		{ed.ID, history.PartResponse, testutil.RawReply},
 	}
 	for _, c := range checks {
@@ -436,9 +455,15 @@ func TestInterceptResponseForwardWithEdits(t *testing.T) {
 }
 
 func TestInterceptClientGoneLeavesQueue(t *testing.T) {
+	for name, pipelined := range map[string]string{"idle": "", "pipelined": "GET http://%s/next HTTP/1.1\r\nHost: %s\r\n"} {
+		t.Run(name, func(t *testing.T) { testClientGone(t, pipelined) })
+	}
+}
+
+func testClientGone(t *testing.T, pipelined string) {
 	h := newHookRig(t, []intercept.Kind{intercept.Request}, nil, rawhttp.Limits{})
 
-	conn, _ := h.send("GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n")
+	conn, _ := h.send("GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n" + pipelined)
 	call := h.nextHold(intercept.Request)
 	_ = conn.Close()
 
@@ -562,5 +587,309 @@ func TestInterceptRulesRunOnlyAfterEditedForward(t *testing.T) {
 	recs := h.records(3, complete)
 	if ed := recs[2]; ed.EditedFrom == nil || *ed.EditedFrom != recs[1].ID || ed.Source != "intercept" {
 		t.Fatalf("edited = %+v", ed.Request)
+	}
+}
+
+// scripted is an upstream that answers each request with reply(request) and
+// records every byte each connection sent. A 101 reply turns the connection
+// into an echo.
+type scripted struct {
+	addr string
+
+	mu    sync.Mutex
+	conns []*bytes.Buffer
+	done  chan struct{} // one value per finished connection
+}
+
+func newScripted(t *testing.T, reply func(req *rawhttp.Request) string) *scripted {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	s := &scripted{addr: ln.Addr().String(), done: make(chan struct{}, 16)}
+
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+
+			in := &bytes.Buffer{}
+			s.mu.Lock()
+			s.conns = append(s.conns, in)
+			s.mu.Unlock()
+
+			go s.serve(c, in, reply)
+		}
+	}()
+
+	return s
+}
+
+func (s *scripted) serve(c net.Conn, in *bytes.Buffer, reply func(req *rawhttp.Request) string) {
+	defer func() { _ = c.Close(); s.done <- struct{}{} }()
+
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+
+	var mu sync.Mutex // in is read by the test only after done
+	br := bufio.NewReader(io.TeeReader(c, writerFunc(func(p []byte) { mu.Lock(); in.Write(p); mu.Unlock() })))
+
+	for {
+		req, err := rawhttp.ReadRequest(br, rawhttp.Limits{})
+		if err != nil {
+			_, _ = io.Copy(io.Discard, br) // keep recording until the proxy closes
+
+			return
+		}
+
+		_, _ = io.Copy(io.Discard, req.Body())
+
+		out := reply(req)
+		if _, err := io.WriteString(c, out); err != nil {
+			return
+		}
+
+		if strings.HasPrefix(out, "HTTP/1.1 101 ") {
+			_, _ = io.Copy(c, br)
+
+			return
+		}
+	}
+}
+
+// received waits for n connections to end and returns what each sent.
+func (s *scripted) received(t *testing.T, ctx context.Context, n int) []string {
+	t.Helper()
+
+	for range n {
+		select {
+		case <-s.done:
+		case <-ctx.Done():
+			t.Fatalf("waiting for upstream connections: %v", ctx.Err())
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var out []string
+	for _, b := range s.conns {
+		out = append(out, b.String())
+	}
+
+	return out
+}
+
+type writerFunc func(p []byte)
+
+func (f writerFunc) Write(p []byte) (int, error) { f(p); return len(p), nil }
+
+// readAll reads the client connection until the proxy closes it.
+func readAll(t *testing.T, br *bufio.Reader) string {
+	t.Helper()
+
+	b, err := io.ReadAll(br)
+	if err != nil {
+		t.Fatalf("client connection not closed: %v (read %q)", err, b)
+	}
+
+	return string(b)
+}
+
+// A Forward whose Content-Length is shorter than its body sends every byte as given.
+func TestInterceptEditedLengthSendsBytesAsGiven(t *testing.T) {
+	h := newHookRig(t, []intercept.Kind{intercept.Request}, nil, rawhttp.Limits{})
+	up := newScripted(t, func(*rawhttp.Request) string { return testutil.RawReply })
+	h.addr = up.addr
+
+	_, br := h.send("POST http://%s/a HTTP/1.1\r\nHost: %s\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbody")
+
+	edited := "POST http://%s/b HTTP/1.1\r\nHost: x\r\nProxy-Connection: keep-alive\r\nContent-Length: 2\r\nConnection: close\r\n\r\nedited"
+	h.nextHold(intercept.Request).reply <- intercept.Decision{Raw: []byte(strings.ReplaceAll(edited, "%s", up.addr)), Edited: true}
+
+	if got := h.response(br, "POST"); got != testutil.RawReply {
+		t.Fatalf("client got %q", got)
+	}
+
+	want := "POST /b HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\nConnection: close\r\n\r\nedited"
+	if got := up.received(t, h.ctx, 1); len(got) != 1 || got[0] != want {
+		t.Fatalf("upstream got %q, want [%q]", got, want)
+	}
+}
+
+// A hook that turns GET into HEAD: the origin answers HEAD, and the GET
+// client must not wait for the body the head announces.
+func TestMethodEditToHeadClosesClient(t *testing.T) {
+	toHead := func(raw []byte) []byte { return bytes.Replace(raw, []byte("GET "), []byte("HEAD "), 1) }
+	headReply := "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n"
+
+	for name, respActive := range map[string]bool{"streaming": false, "hooked": true} {
+		t.Run(name, func(t *testing.T) {
+			rw := &fakeRewriter{active: map[string][2]bool{"proxy": {true, respActive}}, edit: toHead}
+			h := newHookRig(t, nil, rw, rawhttp.Limits{})
+			up := newScripted(t, func(req *rawhttp.Request) string {
+				if req.Method() != "HEAD" {
+					return "HTTP/1.1 500 Not HEAD\r\nContent-Length: 0\r\n\r\n"
+				}
+
+				return headReply
+			})
+			h.addr = up.addr
+
+			_, br := h.send("GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n")
+
+			want := headReply
+			if respActive {
+				want = string(addHeader([]byte(headReply), "X-Mr-proxy")) // the response rule ran
+			}
+
+			if got := readAll(t, br); got != want {
+				t.Fatalf("client got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// Response rules see the request as the origin received it; a response-only
+// edit keeps the client's request bytes in both records.
+func TestResponseRulesSeeUpstreamRequest(t *testing.T) {
+	rw := &fakeRewriter{active: map[string][2]bool{"proxy": {false, true}}}
+	h := newHookRig(t, nil, rw, rawhttp.Limits{})
+
+	sent := "GET http://%s/p HTTP/1.1\r\nHost: %s\r\nProxy-Connection: keep-alive\r\n\r\n"
+	_, br := h.send(sent)
+	h.response(br, "GET")
+
+	wantUp := strings.Replace(strings.ReplaceAll(sent, "%s", h.upAddr()), "http://"+h.upAddr(), "", 1)
+	wantUp = strings.Replace(wantUp, "Proxy-Connection: keep-alive\r\n", "", 1)
+
+	rw.mu.Lock()
+	reqs := slices.Clone(rw.respReqs)
+	rw.mu.Unlock()
+
+	if len(reqs) != 1 || reqs[0] != wantUp {
+		t.Fatalf("response rule got request %q, want [%q]", reqs, wantUp)
+	}
+
+	recs := h.records(2, complete)
+	wantReq := strings.ReplaceAll(sent, "%s", h.upAddr())
+	if a, b := h.raw(recs[0].ID, history.PartRequest), h.raw(recs[1].ID, history.PartRequest); a != wantReq || b != wantReq {
+		t.Fatalf("request bytes: original %q, edited %q, want both %q", a, b, wantReq)
+	}
+}
+
+// Pipelined requests wait in order behind a held one and keep their bytes.
+func TestInterceptPipelinedRequestsKeepOrder(t *testing.T) {
+	h := newHookRig(t, []intercept.Kind{intercept.Request}, nil, rawhttp.Limits{})
+
+	_, br := h.send("GET http://%s/1 HTTP/1.1\r\nHost: %s\r\n\r\nGET http://%s/2 HTTP/1.1\r\nHost: %s\r\n\r\n")
+
+	for i := range 2 {
+		call := h.nextHold(intercept.Request)
+		if want := fmt.Sprintf("/%d", i+1); call.msg.Path() != want {
+			t.Fatalf("hold %d path = %q, want %q", i, call.msg.Path(), want)
+		}
+
+		call.reply <- intercept.Decision{Raw: call.msg.Request().Raw}
+
+		if got := h.response(br, "GET"); got != testutil.RawReply {
+			t.Fatalf("response %d = %q", i, got)
+		}
+	}
+}
+
+// A held 101 handshake: the tunnel starts only on a Forward that still switches.
+func TestInterceptUpgradeResponse(t *testing.T) {
+	handshake := "HTTP/1.1 101 Switching Protocols\r\nUpgrade: x\r\nConnection: Upgrade\r\n\r\n"
+	req := "GET http://%s/ws HTTP/1.1\r\nHost: %s\r\nUpgrade: x\r\nConnection: Upgrade\r\n\r\n"
+
+	tests := []struct {
+		name   string
+		dec    intercept.Decision
+		want   string // what the client reads before the tunnel or the close
+		tunnel bool
+	}{
+		{"forward", intercept.Decision{Raw: []byte(handshake)}, handshake, true},
+		{"edited", intercept.Decision{Raw: []byte("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n"), Edited: true},
+			"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n", false},
+		{"drop", intercept.Decision{DropStatusCode: 502}, "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHookRig(t, []intercept.Kind{intercept.Response}, nil, rawhttp.Limits{})
+			up := newScripted(t, func(*rawhttp.Request) string { return handshake })
+			h.addr = up.addr
+
+			conn, br := h.send(req)
+
+			call := h.nextHold(intercept.Response)
+			if call.msg.Response() == nil || call.msg.Response().Code != 101 {
+				t.Fatalf("held response = %+v", call.msg.Response())
+			}
+
+			call.reply <- tt.dec
+
+			if !tt.tunnel {
+				got := readAll(t, br)
+				if tt.want != "" && got != tt.want {
+					t.Fatalf("client got %q, want %q", got, tt.want)
+				}
+
+				if tt.want == "" && !strings.HasPrefix(got, "HTTP/1.1 502 Bad Gateway\r\n") {
+					t.Fatalf("client got %q", got)
+				}
+
+				up.received(t, h.ctx, 1) // the switched upstream is closed
+
+				return
+			}
+
+			if got := h.response(br, "GET"); got != handshake {
+				t.Fatalf("client got %q", got)
+			}
+
+			if _, err := io.WriteString(conn, "ping\n"); err != nil {
+				t.Fatal(err)
+			}
+
+			if line, err := br.ReadString('\n'); err != nil || line != "ping\n" {
+				t.Fatalf("tunnel echo = %q, %v", line, err)
+			}
+		})
+	}
+}
+
+// Drop pages: a HEAD client gets no body; a 1xx status is followed by a 502 page.
+func TestInterceptDropPages(t *testing.T) {
+	tests := []struct {
+		name, method string
+		code         int
+		check        func(t *testing.T, got string)
+	}{
+		{"head", "HEAD", 404, func(t *testing.T, got string) {
+			if !strings.HasPrefix(got, "HTTP/1.1 404 Not Found\r\n") || !strings.HasSuffix(got, "\r\n\r\n") || strings.Contains(got, "<") {
+				t.Fatalf("client got %q", got)
+			}
+		}},
+		{"interim", "GET", 100, func(t *testing.T, got string) {
+			if !strings.HasPrefix(got, "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 502 Bad Gateway\r\n") || !strings.Contains(got, "Ratatoskr") {
+				t.Fatalf("client got %q", got)
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHookRig(t, []intercept.Kind{intercept.Request}, nil, rawhttp.Limits{})
+
+			_, br := h.send(tt.method + " http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n")
+			h.nextHold(intercept.Request).reply <- intercept.Decision{DropStatusCode: tt.code}
+
+			tt.check(t, readAll(t, br))
+		})
 	}
 }
