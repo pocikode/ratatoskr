@@ -172,6 +172,10 @@ export function createInterceptMock(
     return items.length;
   };
 
+  // A fresh exchange that arrived just now: `makeRequest` adds `id * 1500` (+ < 1 s) to the
+  // base, so offset it back to keep `createdAt` at or before `heldAt`.
+  const arrival = (id: number) => makeRequest(id, Date.now() - id * 1500 - 1000);
+
   // Seeded on the first intercept operation, so clients that never use Intercept see the
   // history exactly as configured.
   let seeded = false;
@@ -181,7 +185,7 @@ export function createInterceptMock(
     for (const kind of ['REQUEST', 'REQUEST', 'RESPONSE'] as const)
       hold(
         kind,
-        history.addRecord((id) => prepare(kind, makeRequest(id, Date.now()))),
+        history.addRecord((id) => prepare(kind, arrival(id))),
       );
   };
 
@@ -190,7 +194,8 @@ export function createInterceptMock(
   const arrive = () => {
     let held = false;
     const request = history.addRecord((id) => {
-      const r = makeRequest(id, Date.now());
+      const r = arrival(id);
+      r.isDropped = false; // only a drop action marks traffic as dropped
       const scope = settings.scopeId ? scopeOf(settings.scopeId) : null;
       held =
         settings.queuing &&

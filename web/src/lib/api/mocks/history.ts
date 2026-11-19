@@ -287,6 +287,7 @@ export function createHistoryMock({ count = 500, liveIntervalMs = 2000 }: MockHi
   for (let k = 24; k < rows.length; k += 25) {
     const orig = rows[k - 1]!;
     orig.isDropped = false; // dropping discards edits, so a pair is never dropped
+    orig.source = 'PROXY'; // Automate and Replay traffic is never edited (F-HIST-4)
     const head = atob(orig.head).replace(/\r\n\r\n$/, '\r\nX-Edited: 1\r\n\r\n');
     rows[k] = {
       ...orig,

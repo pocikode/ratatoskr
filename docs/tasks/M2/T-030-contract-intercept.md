@@ -3,7 +3,7 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: []
 owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
@@ -104,6 +104,14 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
     head, keeps the response bytes, source `INTERCEPT`.
   - `InterceptItem` docs state that releases forward unchanged in FIFO order, before the new project's settings load.
   - Tests: mixed-queue FIFO release, timer query/scope filtering, pair byte fidelity. `make check` green (243 web tests).
+- Round 3 (review fixes):
+  - Seeded pair originals are `PROXY` (F-HIST-4 excludes Automate/Replay); the pair test asserts both sources.
+  - Timer arrivals clear the fixture's random drop flag; only a drop action marks traffic dropped.
+  - Intercept fixtures use the arrival time (`arrival(id)` offsets `makeRequest`'s row-ID term), so
+    `createdAt ≤ heldAt`; tested with 500 rows for seeded and timer items. Each new test fails without its fix.
+  - Not changed: the trailing whitespace in generated `schema.graphql` comes from the `schema-ast` printer indenting
+    blank lines inside descriptions (main already has 3 such lines). Generated files are not edited by hand.
+  - `make check` green (244 web tests).
 - Follow-ups (proposed tasks): none. T-031 replaces `stubs_intercept.go`; T-100 replaces `stubs_history_edited.go`.
 
 ## Review (reviewer)
@@ -131,13 +139,13 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
 
 ### Round 2 (`05af50d`)
 
-- [ ] [major] web/src/lib/api/mocks/history.ts:288 — The seeded pair shares one exchange, but original row `24` still has
+- [x] [major] web/src/lib/api/mocks/history.ts:288 — The seeded pair shares one exchange, but original row `24` still has
   source `AUTOMATE` and links to edited row `25` with source `INTERCEPT`. F-HIST-4 excludes Automate and Replay from
   edited pairs. → Set the original fixture's source to `PROXY` and assert both sources in the existing pair test.
-- [ ] [minor] web/src/lib/api/mocks/intercept.ts:200 — With queuing off, the timer can add a request marked as dropped by
+- [x] [minor] web/src/lib/api/mocks/intercept.ts:200 — With queuing off, the timer can add a request marked as dropped by
   Intercept without any drop action. Starting with `count: 12`, the first timer arrival (`16`) has `isDropped: true`
   and the queue stays empty. → Clear the generated drop flag for timer arrivals before deciding whether to hold them.
-- [ ] [minor] web/src/lib/api/mocks/intercept.ts:184 — The held exchange can appear in history after the time it entered
+- [x] [minor] web/src/lib/api/mocks/intercept.ts:184 — The held exchange can appear in history after the time it entered
   the queue. `makeRequest` adds a row-ID offset to `Date.now()`, so with the default 500 history rows, the first held
   request's `createdAt` is more than 12 minutes ahead of `heldAt`. → Use the arrival time for intercept fixtures and
   assert that a request's `createdAt` is at or before `heldAt` for seeded and timer arrivals.

@@ -207,6 +207,23 @@ describe('intercept mock', () => {
     ch.unsubscribe();
   });
 
+  it('timer arrivals are never marked dropped while they pass through', async () => {
+    // With 12 rows, the first arrival (16) is generated as dropped by the history fixture.
+    const c = createMockClient({ count: 12, liveIntervalMs: 0, interceptLiveIntervalMs: 5 });
+    await update(c, { queuing: false });
+    const ch = changes(c);
+    const added: boolean[] = [];
+    const sub = pipe(
+      c.subscription(`subscription { requestAdded { isDropped } }`, {}),
+      subscribe((r) => added.push(r.data.requestAdded.isDropped)),
+    );
+    await vi.waitFor(() => expect(added.length).toBeGreaterThanOrEqual(3));
+    expect(added.every((d) => !d)).toBe(true);
+    expect(await queue(c)).toEqual([]);
+    sub.unsubscribe();
+    ch.unsubscribe();
+  });
+
   it('turning responses off releases only responses', async () => {
     const c = client();
     await queue(c);
@@ -215,12 +232,19 @@ describe('intercept mock', () => {
   });
 
   it('holds new requests on a timer only when opted in', async () => {
-    const c = createMockClient({ count: 10, liveIntervalMs: 0, interceptLiveIntervalMs: 10 });
+    // 500 rows: the default history size, where row-ID offsets used to push createdAt past heldAt.
+    const c = createMockClient({ count: 500, liveIntervalMs: 0, interceptLiveIntervalMs: 10 });
     const ch = changes(c);
     await vi.waitFor(() =>
       expect(ch.out.filter((e) => e.kind === 'ADDED').length).toBeGreaterThanOrEqual(2),
     );
     ch.unsubscribe();
+    const held = (
+      await c.query(`{ interceptQueue { kind heldAt request { createdAt } } }`, {}).toPromise()
+    ).data.interceptQueue as { kind: string; heldAt: string; request: { createdAt: string } }[];
+    expect(held.length).toBeGreaterThanOrEqual(5); // 3 seeded + timer arrivals
+    for (const i of held)
+      expect(Date.parse(i.request.createdAt)).toBeLessThanOrEqual(Date.parse(i.heldAt));
 
     const off = client();
     const quiet = changes(off);
@@ -252,6 +276,7 @@ describe('history mock edited pairs', () => {
     const [orig, edited] = [await get('24'), await get('25')];
     for (const k of ['host', 'port', 'tls', 'method', 'path', 'query'])
       expect(edited[k]).toEqual(orig[k]);
+    expect(orig.source).toBe('PROXY');
     expect(edited.source).toBe('INTERCEPT');
     expect(atob(edited.head)).toBe(atob(orig.head).replace(/\r\n\r\n$/, '\r\nX-Edited: 1\r\n\r\n'));
     expect(edited.response).toEqual(orig.response);
