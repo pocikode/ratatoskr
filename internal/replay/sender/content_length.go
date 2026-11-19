@@ -19,20 +19,28 @@ func UpdateContentLength(raw []byte) []byte {
 	if err != nil || slices.Contains(req.Warnings(), rawhttp.WarnMalformedHeader) {
 		return raw
 	}
-	if _, ok := req.Header("Transfer-Encoding"); ok {
+
+	bodyAt := len(raw) - input.Len() - reader.Buffered()
+
+	return UpdateParsedContentLength(raw, &req.Message, bodyAt)
+}
+
+// UpdateParsedContentLength applies the editor length rule to a parsed head.
+// bodyAt is the offset just after the head, including any leading blank lines.
+func UpdateParsedContentLength(raw []byte, msg *rawhttp.Message, bodyAt int) []byte {
+	if _, ok := msg.Header("Transfer-Encoding"); ok {
 		return raw
 	}
-
 	// The editor body is everything after the head, regardless of the old length.
-	bodyAt := len(raw) - input.Len() - reader.Buffered()
 	body := raw[bodyAt:]
-	lengths := req.HeaderValues("Content-Length")
+	lengths := msg.HeaderValues("Content-Length")
 	if len(lengths) == 0 && len(body) == 0 || len(lengths) == 1 && lengths[0] == strconv.Itoa(len(body)) {
 		return raw
 	}
 
 	var updated bytes.Buffer
-	updated.Write(raw[:bodyAt-len(req.Head())])
-	_, _ = req.Builder().SetBody(body).WriteTo(&updated)
+	updated.Grow(len(raw))
+	updated.Write(raw[:bodyAt-len(msg.Head())])
+	_, _ = msg.Builder().SetBody(body).WriteTo(&updated)
 	return updated.Bytes()
 }

@@ -14,21 +14,24 @@ import (
 
 	"github.com/pocikode/ratatoskr/internal/apperr"
 	"github.com/pocikode/ratatoskr/internal/query"
+	"github.com/pocikode/ratatoskr/internal/query/core"
 	"github.com/pocikode/ratatoskr/internal/scope"
 	"github.com/pocikode/ratatoskr/internal/store"
 )
 
 type message struct {
 	query.Message
-	id   int64
-	path string
-	req  query.Side
-	resp query.Response
+	id     int64
+	method string
+	path   string
+	req    query.Side
+	resp   query.Response
 }
 
 func (m message) ID() int64                 { return m.id }
 func (m message) Host() string              { return "example.test" }
 func (m message) Port() int                 { return 80 }
+func (m message) Method() string            { return m.method }
 func (m message) Path() string              { return m.path }
 func (m message) Request() query.Side       { return m.req }
 func (m message) Response() *query.Response { return &m.resp }
@@ -363,4 +366,151 @@ func TestForwardLimitAndRetainsRejectedItems(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestQueueLimits(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name        string
+		count, size int
+	}{
+		{"count", 1_000, 1},
+		{"bytes", 4, 64 << 20},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			db := projectDB(t)
+			// The holds can share a backing slice because their bytes are immutable.
+			side := query.Side{Raw: make([]byte, tt.size)}
+			synctest.Test(t, func(t *testing.T) {
+				s := service(t, func() *store.DB { return db })
+				updateSettings(t, s, Update{Queuing: new(true), Responses: new(true)})
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				events := s.SubscribeQueue(ctx)
+				for i := range tt.count {
+					kind := Request
+					if i%2 == 1 {
+						kind = Response
+					}
+					startHold(ctx, t, s, db, kind, message{
+						id: int64(i + 1), req: side, resp: query.Response{Side: side},
+					})
+					select {
+					case event := <-events:
+						if !event.Added || event.Item.RequestID != int64(i+1) {
+							t.Fatalf("unexpected add event for item %d", i+1)
+						}
+					default:
+						t.Fatalf("no add event for item %d", i+1)
+					}
+				}
+				extra := []byte("x")
+				msg := message{id: int64(tt.count + 1), req: query.Side{Raw: extra}}
+				result := startHold(ctx, t, s, db, Request, msg)
+				assertPassThrough(t, result, extra)
+				select {
+				case <-events:
+					t.Fatal("queue overflow emitted an event")
+				default:
+				}
+				queue := s.Queue("")
+				if len(queue) != tt.count || queue[0].RequestID != 1 || queue[len(queue)-1].RequestID != int64(tt.count) {
+					t.Fatalf("overflow changed the queue of %d items", tt.count)
+				}
+				if err := s.Forward(queue[0].ID, nil, false); err != nil {
+					t.Fatal(err)
+				}
+				client, disconnect := context.WithCancel(ctx)
+				defer disconnect()
+				result = startHold(client, t, s, db, Request, msg)
+				if got := len(s.Queue("")); got != tt.count {
+					t.Fatalf("queue after refilling = %d, want %d", got, tt.count)
+				}
+				disconnect()
+				synctest.Wait()
+				if got := <-result; !errors.Is(got.err, context.Canceled) {
+					t.Fatalf("canceled hold: %v", got.err)
+				}
+				if got := s.ReleaseAll("", false); got != tt.count-1 || s.queueBytes != 0 {
+					t.Fatalf("bulk release removed %d items, leaving %d bytes", got, s.queueBytes)
+				}
+			})
+		})
+	}
+}
+
+func TestForwardResponseContentLength(t *testing.T) {
+	t.Parallel()
+	db := projectDB(t)
+	s := service(t, func() *store.DB { return db })
+	updateSettings(t, s, Update{Queuing: new(true), Responses: new(true)})
+	for _, tt := range []struct {
+		method, status, wantLength string
+	}{
+		{"HEAD", "200 OK", "1234"},
+		{"GET", "103 Early Hints", "1234"},
+		{"GET", "204 No Content", "1234"},
+		{"GET", "304 Not Modified", "1234"},
+		{"GET", "200 OK", "0"},
+	} {
+		t.Run(tt.method+" "+tt.status, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				head := "HTTP/1.1 " + tt.status + "\r\n"
+				original := []byte(head + "\r\n")
+				edited := []byte(head + "Content-Length: 1234\r\n\r\n")
+				want := head + "Content-Length: " + tt.wantLength + "\r\n\r\n"
+				result := startHold(t.Context(), t, s, db, Response, message{
+					id: 1, method: tt.method, resp: query.Response{Side: query.Side{Raw: original}},
+				})
+				if err := s.Forward(s.Queue("")[0].ID, edited, true); err != nil {
+					t.Fatal(err)
+				}
+				if got := <-result; got.err != nil || !got.Edited || string(got.Raw) != want {
+					t.Fatalf("edited response = %q, edited=%v, err=%v; want %q", got.Raw, got.Edited, got.err, want)
+				}
+			})
+		})
+	}
+}
+
+func TestHoldPassesThroughOnConditionError(t *testing.T) {
+	t.Parallel()
+	db := projectDB(t)
+	selected := func() *store.DB { return db }
+	scopes := scope.New(selected)
+	preset, err := scopes.Create(t.Context(), scope.Preset{Name: "Active scope"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := service(t, selected)
+	updateSettings(t, s, Update{Queuing: new(true), ScopeID: &preset.ID})
+	if err := scopes.Delete(t.Context(), preset.ID); err != nil {
+		t.Fatal(err)
+	}
+	check := func(t *testing.T) {
+		t.Helper()
+		synctest.Test(t, func(t *testing.T) {
+			raw := []byte("original")
+			result := startHold(t.Context(), t, s, db, Request, message{id: 1, req: query.Side{Raw: raw}})
+			assertPassThrough(t, result, raw)
+		})
+	}
+	t.Run("deleted scope", check)
+	rules := *s.rules.Load()
+	rules.settings.ScopeID = 0
+	rules.requestQuery = &core.Preset{Name: "unexpanded"}
+	s.rules.Store(&rules)
+	t.Run("evaluation error", check)
+}
+
+func assertPassThrough(t *testing.T, result <-chan outcome, raw []byte) {
+	t.Helper()
+	select {
+	case got := <-result:
+		if got.err != nil || got.Edited || got.DropStatusCode != 0 || !bytes.Equal(got.Raw, raw) {
+			t.Fatalf("pass-through decision = %+v", got)
+		}
+	default:
+		t.Fatal("hold blocked instead of passing through")
+	}
 }

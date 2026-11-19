@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"slices"
-	"strconv"
 
 	"github.com/pocikode/ratatoskr/internal/apperr"
 	"github.com/pocikode/ratatoskr/internal/rawhttp"
@@ -14,29 +13,26 @@ import (
 // MaxEditBytes is the limit for both an edited item and its replacement.
 const MaxEditBytes = 16 << 20
 
-func replacement(kind Kind, raw []byte, updateLength bool) ([]byte, error) {
+func replacement(kind Kind, method string, raw []byte, updateLength bool) ([]byte, error) {
 	input := bytes.NewReader(raw)
 	reader := bufio.NewReader(input)
+	var msg *rawhttp.Message
+	var version string
 	if kind == Request {
 		req, err := rawhttp.ReadRequest(reader, rawhttp.Limits{})
 		if err != nil {
 			return nil, apperr.New(apperr.BadInput, "invalid replacement request: %w", err)
 		}
-		if err := validateHead(&req.Message, req.Version()); err != nil {
-			return nil, err
+		msg, version = &req.Message, req.Version()
+	} else {
+		resp, err := rawhttp.ReadResponse(reader, method, rawhttp.Limits{})
+		if err != nil {
+			return nil, apperr.New(apperr.BadInput, "invalid replacement response: %w", err)
 		}
-		if updateLength {
-			return sender.UpdateContentLength(raw), nil
-		}
-
-		return raw, nil
+		msg, version = &resp.Message, resp.Version()
+		updateLength = updateLength && resp.Framing() != rawhttp.FramingNone
 	}
-
-	resp, err := rawhttp.ReadResponse(reader, "", rawhttp.Limits{})
-	if err != nil {
-		return nil, apperr.New(apperr.BadInput, "invalid replacement response: %w", err)
-	}
-	if err := validateHead(&resp.Message, resp.Version()); err != nil {
+	if err := validateHead(msg, version); err != nil {
 		return nil, err
 	}
 	if !updateLength {
@@ -45,7 +41,7 @@ func replacement(kind Kind, raw []byte, updateLength bool) ([]byte, error) {
 
 	bodyAt := len(raw) - input.Len() - reader.Buffered()
 
-	return updateResponseLength(raw, &resp.Message, bodyAt), nil
+	return sender.UpdateParsedContentLength(raw, msg, bodyAt), nil
 }
 
 func validateHead(msg *rawhttp.Message, version string) error {
@@ -57,22 +53,4 @@ func validateHead(msg *rawhttp.Message, version string) error {
 	}
 
 	return nil
-}
-
-func updateResponseLength(raw []byte, msg *rawhttp.Message, bodyAt int) []byte {
-	if _, ok := msg.Header("Transfer-Encoding"); ok {
-		return raw
-	}
-	body := raw[bodyAt:]
-	lengths := msg.HeaderValues("Content-Length")
-	if len(lengths) == 0 && len(body) == 0 || len(lengths) == 1 && lengths[0] == strconv.Itoa(len(body)) {
-		return raw
-	}
-
-	var updated bytes.Buffer
-	updated.Grow(len(raw))
-	updated.Write(raw[:bodyAt-len(msg.Head())])
-	_, _ = msg.Builder().SetBody(body).WriteTo(&updated)
-
-	return updated.Bytes()
 }

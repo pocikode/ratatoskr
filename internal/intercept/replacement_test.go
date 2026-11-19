@@ -21,7 +21,7 @@ func TestReplacementContentLength(t *testing.T) {
 				Request: "POST / HTTP/1.1\r\n", Response: "HTTP/1.1 200 OK\r\n",
 			} {
 				prefix := "\r\n" + line
-				got, err := replacement(kind, []byte(prefix+tt.input), tt.update)
+				got, err := replacement(kind, "POST", []byte(prefix+tt.input), tt.update)
 				if err != nil || string(got) != prefix+tt.want {
 					t.Errorf("%s replacement = %q, %v, want %q", kind, got, err, prefix+tt.want)
 				}

@@ -3,6 +3,7 @@ package intercept
 
 import (
 	"context"
+	"log/slog"
 	"slices"
 	"strconv"
 	"sync"
@@ -25,6 +26,11 @@ type Kind string
 const (
 	Request  Kind = "REQUEST"
 	Response Kind = "RESPONSE"
+)
+
+const (
+	maxQueueItems = 1_000
+	maxQueueBytes = 256 << 20
 )
 
 // Item is a held message. Raw is read-only and includes the entire message.
@@ -61,6 +67,7 @@ type settingsChange struct {
 
 type held struct {
 	Item
+	method string
 	result chan Decision
 }
 
@@ -83,6 +90,7 @@ type Service struct {
 	mu          sync.Mutex
 	projectDone chan struct{}
 	queue       []*held
+	queueBytes  int
 	sequence    uint64
 	events      events.Bus[QueueChange]
 	changes     events.Bus[settingsChange]
@@ -183,6 +191,7 @@ func (s *Service) hold(ctx context.Context, db *store.DB, kind Kind, msg query.M
 
 		if i := slices.Index(s.queue, h); i >= 0 {
 			s.queue = slices.Delete(s.queue, i, i+1)
+			s.queueBytes -= len(h.Raw)
 			s.publishRemoval(h)
 		}
 
@@ -206,7 +215,12 @@ func (s *Service) enqueue(ctx context.Context, db *store.DB, kind Kind, msg quer
 			s.mu.Unlock()
 			continue
 		}
-		item := s.add(db, kind, msg.ID(), raw)
+		if len(s.queue) >= maxQueueItems || len(raw) > maxQueueBytes-s.queueBytes {
+			s.mu.Unlock()
+			slog.InfoContext(ctx, "intercept queue limit reached; forwarding unchanged", "kind", kind, "request_id", msg.ID())
+			return nil
+		}
+		item := s.add(db, kind, msg, raw)
 		s.mu.Unlock()
 
 		return item
@@ -218,7 +232,12 @@ func (r *holdRules) matches(ctx context.Context, kind Kind, msg query.Message) b
 	if kind == Response {
 		node = r.responseQuery
 	}
-	if matched, err := httpql.Eval(node, msg); err != nil || !matched {
+	matched, err := httpql.Eval(node, msg)
+	if err != nil {
+		slog.WarnContext(ctx, "intercept query evaluation failed", "error", err)
+		return false
+	}
+	if !matched {
 		return false
 	}
 	if r.settings.ScopeID == 0 {
@@ -227,14 +246,20 @@ func (r *holdRules) matches(ctx context.Context, kind Kind, msg query.Message) b
 
 	preset, err := scope.New(func() *store.DB { return r.db }).Get(ctx, r.settings.ScopeID)
 	if err != nil {
+		slog.WarnContext(ctx, "intercept scope lookup failed", "scope_id", r.settings.ScopeID, "error", err)
 		return false
 	}
 	matcher, err := preset.Matcher()
+	if err != nil {
+		slog.WarnContext(ctx, "intercept scope matcher failed", "scope_id", r.settings.ScopeID, "error", err)
+		return false
+	}
 
-	return err == nil && matcher.InScope(msg.Host(), msg.Port(), msg.Path())
+	return matcher.InScope(msg.Host(), msg.Port(), msg.Path())
 }
 
-func (s *Service) add(db *store.DB, kind Kind, id int64, raw []byte) *held {
+func (s *Service) add(db *store.DB, kind Kind, msg query.Message, raw []byte) *held {
+	id := msg.ID()
 	s.sequence++
 	h := &held{
 		ID:   string(kind) + ":" + strconv.FormatInt(id, 10) + ":" + strconv.FormatUint(s.sequence, 10),
@@ -242,7 +267,11 @@ func (s *Service) add(db *store.DB, kind Kind, id int64, raw []byte) *held {
 		projectDone: s.projectDone,
 		result:      make(chan Decision, 1),
 	}
+	if kind == Response {
+		h.method = msg.Method()
+	}
 	s.queue = append(s.queue, h)
+	s.queueBytes += len(raw)
 	s.events.Publish(QueueChange{Item: h.Item, Added: true})
 
 	return h
@@ -288,7 +317,7 @@ func (s *Service) releaseOne(id string, raw []byte, updateLength, drop bool) err
 				return apperr.New(apperr.BadInput, "intercept edits are limited to %d bytes", MaxEditBytes)
 			}
 			var err error
-			if raw, err = replacement(h.Kind, raw, updateLength); err != nil {
+			if raw, err = replacement(h.Kind, h.method, raw, updateLength); err != nil {
 				return err
 			}
 			result = Decision{Raw: raw, Edited: true}
@@ -298,6 +327,7 @@ func (s *Service) releaseOne(id string, raw []byte, updateLength, drop bool) err
 		}
 
 		s.queue = slices.Delete(s.queue, i, i+1)
+		s.queueBytes -= len(h.Raw)
 		s.publishRemoval(h)
 		h.result <- result
 
@@ -325,6 +355,7 @@ func (s *Service) releaseMatching(db *store.DB, match func(*held) bool, drop, no
 		if notify {
 			s.publishRemoval(h)
 		}
+		s.queueBytes -= len(h.Raw)
 		h.result <- s.decision(h, drop)
 	}
 	count := len(s.queue) - len(kept)
