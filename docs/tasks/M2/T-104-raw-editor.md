@@ -3,7 +3,7 @@ id: T-104
 title: RawEditor - byte-preserving editable HTTP editor with {{var}} highlighting
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: []
 owner: "claude-sonnet-5.5"
 branch: task/T-104-raw-editor
@@ -57,5 +57,13 @@ changes bytes the user did not edit.
 - Follow-ups (proposed tasks):
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Reviewed `6643ecd` against `main`. Assumed one operator editing a message in the browser, with the documented 5 MB editor budget.
+- Verdict: changes_requested
 - Findings:
+  1. [ ] [major] web/src/lib/editor/RawEditor.svelte:126 — Replacing the `value` prop records an undo event. After loading a second message in the same editor, Ctrl/⌘+Z restores and emits the first message under the current selection. Reset editor history when genuinely replacing the document and test that undo after a prop change cannot emit the old bytes.
+  2. [ ] [major] web/src/lib/editor/RawEditor.svelte:91 — The default editing keys see CRLF as two separate characters. Backspace at the start of the next line deletes only LF and leaves a hidden CR. Shift+Enter also falls through to CodeMirror and inserts a bare LF. Treat CRLF as one editing boundary, bind Shift+Enter to the CRLF command, and assert emitted bytes for both cases.
+  3. [ ] [major] web/src/lib/editor/RawEditor.test.ts:21 — CodeMirror measurement can run while the test editor is mounted, and jsdom lacks the range geometry API it calls. Both the full web run and a focused rerun reported `TypeError: textRange(...).getClientRects is not a function` from this file. Provide the missing range geometry in the component test setup, as in `web/src/pages/filters/FiltersPage.test.ts:8`.
+  4. [ ] [minor] web/src/lib/editor/http.ts:27 — For LF-only messages CodeMirror invokes `blankLine` at the separator instead of calling `token`. A body line like `name: body` then receives header highlighting. Add a `blankLine` handler that moves the lexer into the body and test LF and CRLF against the same message.
+  5. [ ] [minor] web/src/lib/editor/bytes.test.ts:16 — The round-trip tests only pass data through TextDecoder and TextEncoder. Removing the editor's explicit LF separator could normalize lone CR and still pass those tests. Add a component test that edits one character in a message with mixed endings and checks that the remaining bytes are identical.
+- Verification: `make check` passed Go lint, race tests, and frontend static checks after retrying with cache access. Vitest failed with the editor geometry error above and `Error: Test timed out in 5000ms.` in `SitemapPage.test.ts:33` and `sitemap.svelte.test.ts:132`. The targeted rerun passed all 17 assertions and reproduced the editor geometry error.
+- Browser E2E and 5 MB interaction timings were outside the checks run for this review.
