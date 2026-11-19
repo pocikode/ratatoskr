@@ -3,7 +3,7 @@ id: T-037
 title: Environment backend - Global and project environments, sealed secrets, interpolation, resolvers
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "Codex (GPT-6)"
 branch: task/T-037-environment-backend
@@ -102,5 +102,26 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   No new follow-up tasks proposed.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested (reviewer, 2026-11-19)
+- Checked: all 12 changed files are inside `paths`. `make check` is green (exit 0). `make test-int` was not run because
+  proxy/store/rawhttp did not change. Every AC has a test (raw-row secret check in both DBs, rollback after a real SQL
+  failure, Interpolate table incl. `{{{a}}}` and non-UTF-8 bytes, legacy CA ciphertext, concurrent key creation).
+  Resolvers are thin and match the schema's error codes. SQL is parameterized. Project DB nil handling is the same as in
+  `scope`/`filterpreset`.
 - Findings:
+  - [ ] [major] internal/secret/secret.go:67 — `syscall.Flock`/`syscall.LOCK_EX` only exist on Unix, so
+    `GOOS=windows go build ./...` now fails (`undefined: syscall.Flock`). It passes on `main`. CI only runs on
+    Linux/macOS, so nothing catches this. No doc says Windows is unsupported; the Handoff only assumes it. → Fix:
+    make key creation portable without a file lock. Write the key to a temp file in `root` (O_EXCL), `Sync`, then
+    `root.Link(tmp, "secret.key")`; on `os.ErrExist`, read the existing file instead, and `root.Remove(tmp)` in both
+    cases. Readers never see a half-written key. Keep the old "empty file → generate" path for legacy files. The other
+    option is a `//go:build unix` file plus a Windows lock file. If the lead decides Windows is unsupported, record it
+    in docs/03 and drop this to minor.
+  - [ ] [minor] internal/environment/service.go:366 — `regexp.MustCompile` runs on every `Interpolate` call. Replay and,
+    later, Automate (thousands of requests) call it once per request. → Move it to a package-level
+    `var tokenRE = regexp.MustCompile(...)`.
+  - [ ] [nit] internal/environment/service.go:366 — the token allows `\t\r\n` inside the braces, but the spec says
+    "spaces". This works, but T-103/T-106 editors that mark unknown names must use the same rule. → Write the exact
+    rule (`[ \t\r\n]*`) in the `Interpolate` doc comment so the frontend can copy it.
+  - [ ] [nit] internal/ca/ca.go:114 — the hard-coded `"secret.key"` log value duplicates `secret.secretFile`. → Export
+    `secret.File` and use it here and in `secret_compat_test.go`.
