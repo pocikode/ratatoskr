@@ -47,6 +47,101 @@ enum CompletionKind {
 }
 
 """
+A new session: either copied from a history request (`fromRequestId`) or from
+scratch (`connection` and `raw`). Giving both or neither is `BAD_INPUT`.
+"""
+input CreateReplaySessionInput {
+  """
+  Collection to add the session to, placed last; null for the Default collection.
+  """
+  collectionId: ID
+
+  """Connection for a session from scratch."""
+  connection: ReplayConnectionInput
+
+  """
+  History request to copy: its stored request bytes and connection. `NOT_FOUND`
+  when unknown; `BAD_INPUT` when its stored request was truncated or is larger
+  than 16 MiB (checked before the body is read).
+  """
+  fromRequestId: ID
+
+  """
+  Name; null for `METHOD path` (see `ReplaySession.name` for the name rules).
+  """
+  name: String
+
+  """
+  Request bytes for a session from scratch. The URL dialog sends
+  `GET <path> HTTP/1.1` with a `Host` header. At most 16 MiB (16777216 bytes)
+  decoded, else `BAD_INPUT`; stored exactly as given.
+  """
+  raw: Bytes
+}
+
+"""
+A set of variables. Lookup for `{{name}}` uses the selected project
+environment, then Global. Unknown names stay verbatim; substituted values are
+not interpolated again.
+"""
+type Environment implements Node {
+  """Opaque identifier; Global has the same ID in every project."""
+  id: ID!
+
+  """
+  Whether this is the instance-wide Global environment (cannot be renamed or deleted).
+  """
+  isGlobal: Boolean!
+
+  """
+  Display name: trimmed, 1-200 characters, unique per project. `Global` is
+  reserved for the instance-wide environment.
+  """
+  name: String!
+
+  """
+  Whether this project environment is the selected one; at most one is. Always
+  false for Global, which is always used after the selected environment.
+  """
+  selected: Boolean!
+
+  """Variables in the order last set by `setEnvironmentVariables`."""
+  variables: [EnvironmentVariable!]!
+}
+
+"""One variable, used as `{{name}}` in Replay, Automate and workflows."""
+type EnvironmentVariable {
+  """
+  Matches `[A-Za-z_][A-Za-z0-9_.-]*`, at most 100 characters; unique per environment (case-sensitive).
+  """
+  name: String!
+
+  """
+  Whether the value is a secret: sealed at rest with `secret.key`, masked in
+  the UI, and left out of exports (M3) and the Assistant (M6).
+  """
+  secret: Boolean!
+
+  """
+  Value, at most 1 MiB (1048576 bytes of UTF-8). Secret values are returned to
+  authenticated clients too; the UI masks them behind a reveal toggle.
+  """
+  value: String!
+}
+
+"""A variable to store; same rules as `EnvironmentVariable`."""
+input EnvironmentVariableInput {
+  """Variable name (see `EnvironmentVariable.name`)."""
+  name: String!
+
+  """Whether the value is a secret. Default false."""
+  secret: Boolean! = false
+
+  """Value, at most 1 MiB."""
+  value: String!
+}
+
+"""
 Values of `extensions.code` on GraphQL errors. Errors produced by the server's
 GraphQL layer itself use `GRAPHQL_PARSE_FAILED` or `GRAPHQL_VALIDATION_FAILED`
 instead. `BAD_QUERY` errors also carry `extensions.span = {start, end}`: byte
@@ -413,6 +508,22 @@ input InterceptSettingsInput {
 """Mutations. Other schema files extend this type."""
 type Mutation {
   """
+  Cancels the session's in-flight send, which then returns an entry with error
+  `cancelled`. Returns true when a send was cancelled, false when none was in
+  flight. `NOT_FOUND` for an unknown ID.
+  """
+  cancelReplaySend(id: ID!): Boolean!
+
+  """
+  Creates an empty, unselected project environment.
+  
+  Errors: `BAD_INPUT` for a name empty, longer than 200 characters or with
+  control characters after trimming; `CONFLICT` when the name is `Global` or
+  already used in this project.
+  """
+  createEnvironment(name: String!): Environment!
+
+  """
   Creates a filter preset, placed last in preset order. `name`, `alias` and
   `query` are trimmed; an empty or null `alias` means none.
   
@@ -434,6 +545,23 @@ type Mutation {
   createProject(name: String!, select: Boolean! = false): Project!
 
   """
+  Creates an empty collection, placed last. `BAD_INPUT` for an invalid name (see `ReplayCollection.name`).
+  """
+  createReplayCollection(name: String!): ReplayCollection!
+
+  """
+  Creates an HTTP session with default options and no colour, placed last in
+  its collection.
+  
+  Errors:
+  - `BAD_INPUT`: both or neither of `fromRequestId` and `connection`+`raw`;
+    only one of `connection` and `raw`; an invalid connection, name or `raw`;
+    the history request was truncated or is larger than 16 MiB.
+  - `NOT_FOUND`: unknown `collectionId` or `fromRequestId`.
+  """
+  createReplaySession(input: CreateReplaySessionInput!): ReplaySession!
+
+  """
   Creates a scope preset, placed last in preset order.
   
   Errors:
@@ -444,6 +572,14 @@ type Mutation {
   - `CONFLICT`: another scope preset already has this name (exact match after trimming).
   """
   createScopePreset(allow: [String!]! = [], deny: [String!]! = [], name: String!): ScopePreset!
+
+  """
+  Deletes a project environment and its variables, and returns its ID. When it
+  was selected, no environment is selected afterwards.
+  
+  Errors: `CONFLICT` for Global; `NOT_FOUND` for an unknown ID.
+  """
+  deleteEnvironment(id: ID!): ID!
 
   """
   Deletes a preset and returns its ID. Presets that reference it are kept;
@@ -458,6 +594,21 @@ type Mutation {
   deleted one was the default or no default exists. `NOT_FOUND` for an unknown ID.
   """
   deleteProject(id: ID!): ID!
+
+  """
+  Deletes a collection with its sessions and their entries, and returns its ID.
+  In-flight sends of those sessions are cancelled. Request records stay in
+  HTTP History.
+  
+  Errors: `CONFLICT` for the Default collection; `NOT_FOUND` for an unknown ID.
+  """
+  deleteReplayCollection(id: ID!): ID!
+
+  """
+  Deletes a session with its entries and returns its ID; an in-flight send is
+  cancelled. Request records stay in HTTP History. `NOT_FOUND` for an unknown ID.
+  """
+  deleteReplaySession(id: ID!): ID!
 
   """
   Deletes requests with their responses, either the given `ids` (unknown IDs
@@ -497,6 +648,13 @@ type Mutation {
   source name with a " (copy)" suffix. `NOT_FOUND` for an unknown ID.
   """
   duplicateProject(id: ID!, name: String): Project!
+
+  """
+  Copies draft, connection, options and colour (not entries) into a new session
+  named `<name> (copy)` (the source name cut to 193 characters first), placed
+  right after the source in its collection. `NOT_FOUND` for an unknown ID.
+  """
+  duplicateReplaySession(id: ID!): ReplaySession!
 
   """
   Copies a preset's rules into a new preset named `<name> (copy)`, or
@@ -555,10 +713,31 @@ type Mutation {
   importFilterPresets(json: String!): Int!
 
   """
+  Moves a session to position `index` (0-based) of `collectionId`, which may be
+  its own collection. An `index` past the end places it last.
+  
+  Errors: `BAD_INPUT` for a negative `index`; `NOT_FOUND` for an unknown ID or
+  `collectionId`.
+  """
+  moveReplaySession(collectionId: ID!, id: ID!, index: Int!): ReplaySession!
+
+  """
+  Renames a project environment. Same name rules and errors as
+  `createEnvironment` (keeping its own name is not a conflict); `CONFLICT` for
+  Global; `NOT_FOUND` for an unknown ID.
+  """
+  renameEnvironment(id: ID!, name: String!): Environment!
+
+  """
   Renames a project and, if it was temporary, saves it. `name` is trimmed and
   must not be empty (`BAD_INPUT`). `NOT_FOUND` for an unknown ID.
   """
   renameProject(id: ID!, name: String!): Project!
+
+  """
+  Renames a collection (Default included). `BAD_INPUT` for an invalid name (see `ReplayCollection.name`), `NOT_FOUND` for an unknown ID.
+  """
+  renameReplayCollection(id: ID!, name: String!): ReplayCollection!
 
   """
   Sets the preset order and returns all presets in the new order. `ids` must
@@ -568,11 +747,28 @@ type Mutation {
   reorderFilterPresets(ids: [ID!]!): [FilterPreset!]!
 
   """
+  Sets the collection order and returns all collections in the new order.
+  `ids` must list every collection exactly once: a missing, extra, unknown or
+  repeated ID is `BAD_INPUT` and nothing changes.
+  """
+  reorderReplayCollections(ids: [ID!]!): [ReplayCollection!]!
+
+  """
   Sets the preset order and returns all presets in the new order. `ids` must
   list every current scope preset exactly once: a missing, extra, unknown or
   repeated ID is `BAD_INPUT` and nothing changes.
   """
   reorderScopePresets(ids: [ID!]!): [ScopePreset!]!
+
+  """
+  Selects a project environment for the selected project, or none with
+  `id: null` (only Global is used then). Returns the selected environment, or
+  null when none is.
+  
+  Errors: `BAD_INPUT` for Global's ID (Global is always used; pass null);
+  `NOT_FOUND` for an unknown ID.
+  """
+  selectEnvironment(id: ID): Environment
 
   """
   Selects a project: the old project's database is closed, the new one opened,
@@ -582,11 +778,54 @@ type Mutation {
   selectProject(id: ID!): Project!
 
   """
+  Sends the request and returns the stored entry once the response is
+  complete, the timeout passes or the send is cancelled (`cancelReplaySend`).
+  
+  1. `raw`, `connection` and `options` are validated, then saved on the session
+     (draft first, so nothing typed is lost even when the send fails).
+  2. `{{var}}` interpolation with the selected environment, then Global
+     (F-ENV-1).
+  3. Match & Replace (source `replay`) when `applyMatchReplace` is on.
+  4. Content-Length update when `updateContentLength` is on.
+  5. The result must parse as an HTTP/1.x request head; the body is every byte
+     after the blank line and is not checked against `Content-Length`.
+  6. Written on a fresh connection (no pooling, closed after the exchange):
+     TLS without certificate verification, SNI per `ReplayConnection.sni`,
+     ALPN `http/1.1`. The timeout covers dial to the last response byte.
+     Responses are read up to the 64 MiB capture cap, then cut (`isTruncated`).
+  7. Redirects are followed per F-REP-2 when `followRedirects` is on.
+  
+  Each send stores one request record per hop (source `REPLAY`, the bytes as
+  sent) and one entry. Dial, TLS, timeout and cancel failures are not GraphQL
+  errors: they return an entry with `error` and no response.
+  
+  Errors (no entry is stored):
+  - `CONFLICT`: a send of this session is already in flight.
+  - `BAD_INPUT`: invalid `raw`, connection or options (nothing is saved); the
+    bytes after steps 2-4 do not parse (the message quotes the parse error; the
+    draft stays saved).
+  - `NOT_FOUND`: unknown ID.
+  """
+  sendReplaySession(id: ID!, input: SendReplaySessionInput!): ReplayEntry!
+
+  """
   Makes this project the default (opened at start), clearing the flag on any
   other project. Passing `id: null` clears the default. Temporary projects cannot
   be the default (`BAD_INPUT`). `NOT_FOUND` for an unknown ID.
   """
   setDefaultProject(id: ID): Project
+
+  """
+  Replaces the whole variable list of an environment (Global included) and
+  returns it. Nothing changes on error.
+  
+  Errors: `BAD_INPUT` for an invalid or duplicate name (the message quotes it)
+  or a value over 1 MiB; `NOT_FOUND` for an unknown ID.
+  """
+  setEnvironmentVariables(id: ID!, variables: [EnvironmentVariableInput!]!): Environment!
+
+  """Sets the tag colour; null clears it. `NOT_FOUND` for an unknown ID."""
+  setReplaySessionColor(color: RequestColor, id: ID!): ReplaySession!
 
   """
   Sets (or with `color: null` clears) the row colour of each request. Unknown
@@ -620,6 +859,15 @@ type Mutation {
   - `BAD_INPUT`: `dropStatusCode` outside 100-599.
   """
   updateInterceptSettings(input: InterceptSettingsInput!): InterceptSettings!
+
+  """
+  Saves name, connection, options or draft. Allowed while sending; the send in
+  flight keeps the values it started with.
+  
+  Errors: `BAD_INPUT` for an invalid field (nothing changes); `NOT_FOUND` for
+  an unknown ID.
+  """
+  updateReplaySession(id: ID!, input: UpdateReplaySessionInput!): ReplaySession!
 
   """
   Replaces a preset's name and both rule lists; its position is kept. Same
@@ -729,6 +977,16 @@ type Query {
   currentProject: Project!
 
   """
+  One environment (Global or of the selected project), or null if none has this ID.
+  """
+  environment(id: ID!): Environment
+
+  """
+  Global first, then the selected project's environments in name order. Not paginated.
+  """
+  environments: [Environment!]!
+
+  """
   All filter presets as a JSON document, in preset order, for download:
   `{"version":1,"presets":[{"name":"…","alias":"…","query":"…"}, …]}`
   (`alias` is omitted when null). `importFilterPresets` reads the same format.
@@ -766,6 +1024,16 @@ type Query {
   unparsable `text`: it completes what can be inferred.
   """
   queryCompletions(cursor: Int!, language: QueryLanguage!, text: String!): QueryCompletions!
+
+  """
+  All collections of the selected project in collection order (see
+  `reorderReplayCollections`), each with its sessions in position order. Never
+  empty: the Default collection is created on first use. Not paginated.
+  """
+  replayCollections: [ReplayCollection!]!
+
+  """One session, or null if no session has this ID."""
+  replaySession(id: ID!): ReplaySession
 
   """One request, or null if no request has this ID."""
   request(id: ID!): HttpRequest
@@ -830,6 +1098,214 @@ enum QueryLanguage {
 
   """WebSocket message filters (docs/04-query-language.md §6)."""
   STREAMQL
+}
+
+"""
+A folder of sessions. The "Default" collection is created with the project's
+first Replay use, so `replayCollections` never returns an empty list.
+"""
+type ReplayCollection implements Node {
+  """Opaque identifier."""
+  id: ID!
+
+  """
+  Whether this is the Default collection: it can be renamed but not deleted,
+  and it receives new sessions created without `collectionId`.
+  """
+  isDefault: Boolean!
+
+  """
+  Display name. Names are trimmed; empty, longer than 200 characters or containing control
+  characters is `BAD_INPUT`. Names need not be unique.
+  """
+  name: String!
+
+  """
+  Sessions of this collection in position order (see `moveReplaySession`).
+  """
+  sessions: [ReplaySession!]!
+}
+
+"""
+Where a session's request goes. Editing `Host` in the request never changes it.
+"""
+type ReplayConnection {
+  """Host name or IP address to dial."""
+  host: String!
+
+  """TCP port, 1-65535."""
+  port: Int!
+
+  """
+  SNI override for TLS; null sends `host` as SNI when it is a name and no SNI
+  for an IP address.
+  """
+  sni: String
+
+  """Whether to speak TLS (certificates are not verified; ALPN `http/1.1`)."""
+  tls: Boolean!
+}
+
+"""
+A connection to store or send to. Errors: `BAD_INPUT` for an empty `host` or
+one containing whitespace or control characters, a `port` outside 1-65535, or
+an empty `sni` (use null for no override).
+"""
+input ReplayConnectionInput {
+  """Host name or IP address to dial."""
+  host: String!
+
+  """TCP port, 1-65535."""
+  port: Int!
+
+  """SNI override; null (or omitted) for none."""
+  sni: String
+
+  """Whether to speak TLS."""
+  tls: Boolean!
+}
+
+"""One send of a session."""
+type ReplayEntry implements Node {
+  """When the send started."""
+  createdAt: Time!
+
+  """
+  Why the send failed (dial, TLS, timeout or cancel), as a short readable
+  message, e.g. `timeout after 60000 ms` or `cancelled`; null on success. A
+  failed send has no response.
+  """
+  error: String
+
+  """Opaque identifier."""
+  id: ID!
+
+  """
+  The request record as sent (source `REPLAY`), with its response. After
+  followed redirects it is the last hop; every hop is its own record in HTTP
+  History. Failed sends have a record without a response.
+  """
+  request: HttpRequest!
+}
+
+"""A page of entries, newest first."""
+type ReplayEntryConnection {
+  """Entries of this page."""
+  edges: [ReplayEntryEdge!]!
+
+  """Cursors and whether more pages exist."""
+  pageInfo: PageInfo!
+
+  """Number of entries of the session."""
+  totalCount: Int!
+}
+
+"""One entry in a `ReplaySession.entries` connection."""
+type ReplayEntryEdge {
+  """Opaque cursor of this position; valid for the same session only."""
+  cursor: String!
+
+  """The entry at this position."""
+  node: ReplayEntry!
+}
+
+"""Send options of a session."""
+type ReplayOptions {
+  """
+  Run Match & Replace rules (source `replay`) on the request before sending. Default false.
+  """
+  applyMatchReplace: Boolean!
+
+  """Follow up to 10 redirects (F-REP-2). Default false."""
+  followRedirects: Boolean!
+
+  """
+  Time allowed from dial to the last response byte, 1000-300000 ms. Default 60000.
+  """
+  timeoutMs: Int!
+
+  """
+  Set `Content-Length` to the body size before sending (same rule as
+  Intercept: only when there is no `Transfer-Encoding` and there is a body or a
+  `Content-Length` header). Default true.
+  """
+  updateContentLength: Boolean!
+}
+
+"""
+Changes to `ReplayOptions`. Omitted or null fields keep their value. `BAD_INPUT`
+for `timeoutMs` outside 1000-300000; nothing changes then.
+"""
+input ReplayOptionsInput {
+  """See `ReplayOptions.applyMatchReplace`."""
+  applyMatchReplace: Boolean
+
+  """See `ReplayOptions.followRedirects`."""
+  followRedirects: Boolean
+
+  """See `ReplayOptions.timeoutMs`; 1000-300000."""
+  timeoutMs: Int
+
+  """See `ReplayOptions.updateContentLength`."""
+  updateContentLength: Boolean
+}
+
+"""
+One Replay tab: a request draft, where it goes, and the sends made from it.
+"""
+type ReplaySession implements Node {
+  """The collection holding the session."""
+  collection: ReplayCollection!
+
+  """Tag colour shown on the tab; null when none."""
+  color: RequestColor
+
+  """Where the request goes."""
+  connection: ReplayConnection!
+
+  """When the session was created."""
+  createdAt: Time!
+
+  """
+  The request bytes the editor shows: exactly as last saved by
+  `updateReplaySession` or `sendReplaySession` (before interpolation, Match &
+  Replace or Content-Length update). At most 16 MiB (16777216 bytes).
+  """
+  draft: Bytes!
+
+  """
+  Sends made from this session, newest first. `first` is 1..1000 (`BAD_INPUT`
+  otherwise); `after` is a cursor from a previous page.
+  """
+  entries(after: String, first: Int! = 100): ReplayEntryConnection!
+
+  """Opaque identifier."""
+  id: ID!
+
+  """Always `HTTP` in M2."""
+  kind: ReplaySessionKind!
+
+  """
+  Display name. New sessions are named `METHOD path` from the request line,
+  cut to 60 characters (`Untitled` when the bytes do not start with an
+  HTTP/1.x request line, `METHOD target HTTP/1.x`). Names are trimmed; empty, longer than 200 characters or containing control
+  characters is `BAD_INPUT`. Names need not be unique.
+  """
+  name: String!
+
+  """Send options."""
+  options: ReplayOptions!
+
+  """Whether a send is in flight (see `sendReplaySession`)."""
+  sending: Boolean!
+}
+
+"""
+What a Replay session sends. WebSocket (M4) and Pipeline (M7) sessions add values then.
+"""
+enum ReplaySessionKind {
+  """Raw HTTP/1.x request and response."""
+  HTTP
 }
 
 """
@@ -966,6 +1442,22 @@ type ScopePreset implements Node {
 
   """Display name: trimmed, 1-200 characters, unique among scope presets."""
   name: String!
+}
+
+"""
+What to send. The values are first saved on the session, as `updateReplaySession` would.
+"""
+input SendReplaySessionInput {
+  """Saved as the session's connection."""
+  connection: ReplayConnectionInput!
+
+  """Merged into the session's options; null keeps them."""
+  options: ReplayOptionsInput
+
+  """
+  The editor's bytes; saved as the draft. At most 16 MiB (16777216 bytes) decoded, else `BAD_INPUT`.
+  """
+  raw: Bytes!
 }
 
 """Build and runtime facts about the running instance."""
@@ -1124,3 +1616,22 @@ An instant in time, serialized as an RFC 3339 string with nanoseconds in UTC,
 e.g. `2026-11-18T09:30:00.123456789Z`. Inputs accept any RFC 3339 offset.
 """
 scalar Time
+
+"""
+Changes to a session. Omitted or null fields keep their value; nothing changes when any field is invalid.
+"""
+input UpdateReplaySessionInput {
+  """Replaces the whole connection."""
+  connection: ReplayConnectionInput
+
+  """
+  Replaces the draft bytes: at most 16 MiB (16777216 bytes) decoded, else `BAD_INPUT`; stored exactly as given.
+  """
+  draft: Bytes
+
+  """New name; see `ReplaySession.name` for the name rules."""
+  name: String
+
+  """Merged into the current options."""
+  options: ReplayOptionsInput
+}

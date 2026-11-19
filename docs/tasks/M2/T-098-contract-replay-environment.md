@@ -3,9 +3,9 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: todo
+status: done
 depends_on: [T-030]
-owner: ""
+owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
 paths:
   - internal/api/graphql/schema/replay.graphqls
@@ -53,29 +53,165 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 - Out: WS/Pipeline sessions, HTTP/2, subscriptions (pages refetch after their own mutations).
 
 ## Acceptance criteria
-- [ ] Every type/field/argument documented with the F-REP-1/F-REP-2/F-ENV-1 contract rules and error codes: `CONFLICT`
+- [x] Every type/field/argument documented with the F-REP-1/F-REP-2/F-ENV-1 contract rules and error codes: `CONFLICT`
       (delete Default collection, send while sending, rename/delete Global, duplicate environment name), `BAD_INPUT` (empty or
       long names, timeout outside 1000–300000 ms, port outside 1–65535, truncated source request, invalid variable name,
       duplicate variable name, value > 1 MiB, reorder ids not the exact set), `NOT_FOUND` (unknown IDs).
-- [ ] Send semantics documented on the field: draft saved first, blocking until done/timeout/cancel, interpolation → M&R →
+- [x] Send semantics documented on the field: draft saved first, blocking until done/timeout/cancel, interpolation → M&R →
       Content-Length order, fresh connection, failures as entries with `error`.
-- [ ] `make gen` clean; stubs compile; `make check` green.
-- [ ] Mocks cover CRUD, move, duplicate `(copy)`, send + cancel, env select/variables (vitest).
+- [x] `make gen` clean; stubs compile; `make check` green.
+- [x] Mocks cover CRUD, move, duplicate `(copy)`, send + cancel, env select/variables (vitest).
 
 ## Notes from lead
 - Default collection: created lazily by the service, so `replayCollections` never returns an empty list.
 - Keep `draft`/`raw` as `Bytes` (byte fidelity); the UI decodes for the editor (T-104).
 
 ## Plan (implementer, ≤15 lines)
+1. `replay.graphqls`: kinds, collection/session/entry types, connection/options + inputs, entry connection (reuses
+   `PageInfo`), queries, mutations; every field documents defaults, limits and error codes from F-REP-1/F-REP-2.
+2. `environment.graphqls`: variable + input, environment, queries, mutations with F-ENV-1 rules/codes.
+3. `gqlgen.yml`: lazy field resolvers for `ReplayCollection.sessions`, `ReplaySession.collection/entries`,
+   `ReplayEntry.request` so list queries stay cheap; `omittable` fields where null ≠ omitted.
+4. Stubs: `stubs_replay.go` (CRUD + field resolvers), `stubs_replay_send.go` (send/cancel), `stubs_environment.go`;
+   `Deps.Replay`, `Deps.ReplaySend`, `Deps.Environment` placeholder interfaces. `make gen`.
+5. Mocks: `replay.ts`, `environment.ts` (+ vitest), merged in `exchange.ts`. `make check`.
 
 ## Out-of-scope change needed (if any)
+- `docs/01-feature-spec.md` (not in `paths`): the contract settles these details, which should be copied into the
+  F-REP-1/F-REP-2/F-ENV-1 contract bullets in a docs task. Schema descriptions are authoritative until then.
+  - Collection and session names: trimmed, 1–200 characters, no control characters, need not be unique;
+    `(copy)` names cut the source to 193 characters. Default name `Untitled` when the bytes have no request line.
+  - `draft`/`raw` at most 16 MiB decoded (`BAD_INPUT`). Send requires the bytes after interpolation, M&R and
+    Content-Length update to parse as an HTTP/1.x request head (`BAD_INPUT`, no entry, draft stays saved);
+    the body is every byte after the blank line.
+  - Deleting a session or collection cancels in-flight sends. `moveReplaySession` index is 0-based; past the end
+    appends; negative is `BAD_INPUT`. `updateReplaySession` is allowed while sending.
+  - `cancelReplaySend` returns false when nothing is in flight; the cancelled send returns an entry with error `cancelled`.
+  - `Environment.selected` is always false for Global; `selectEnvironment(<Global id>)` is `BAD_INPUT` (pass null).
+    Deleting the selected environment leaves none selected. Connection `sni: ""` is `BAD_INPUT` (null = no override).
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `replay.graphqls` and `environment.graphqls` (every type, field and argument documented, with the
+  error codes from the acceptance criteria and the send pipeline on `sendReplaySession`). `gqlgen.yml`: lazy field
+  resolvers for `ReplayCollection.sessions`, `ReplaySession.collection/entries`, `ReplayEntry.request`. Stubs:
+  `stubs_replay.go` (CRUD + field resolvers, T-033), `stubs_replay_send.go` (send/cancel, T-106),
+  `stubs_environment.go` (T-037); `Deps.Replay`, `Deps.ReplaySend`, `Deps.Environment` placeholder interfaces.
+  Mocks: `mocks/replay.ts`, `mocks/environment.ts` merged into the mock exchange (`replaySendDelayMs` option,
+  default 300 ms); send runs `{{var}}` interpolation from the environment mock; `mocks/replay.test.ts`.
+  Review fixes: sends record the connection captured before the wait; `interpolate` works on byte strings and
+  inserts values as UTF-8; Replay records use the History `slicer` (offset/limit honoured) and `extOf(path)`;
+  `rawOf` reads every 4 MiB chunk. Tests cover each case in `mocks/replay.test.ts`.
+  Second review fixes: records split head/body at the first LF or CRLF blank line; `fromRequestId` copies over
+  16 MiB are `BAD_INPUT` before the body is read (documented on the input and mutation); default names decode
+  UTF-8; `Bytes` inputs must be padded standard base64 like the server scalar. Each has a test.
+  Third review fixes: the request-line check accepts any RFC 9110 method token (`M-SEARCH`); the wait ends at
+  `min(replaySendDelayMs, timeoutMs)` and a timeout gives an entry with `timeout after N ms` and no response;
+  the query keeps everything after the first `?`; `ReplayEntry.createdAt` is the send start; `Bytes` inputs drop
+  CR/LF and come back in canonical padded form (`YR==` → `YQ==`). Each has a test.
+  Escalation fixes: non-string `Bytes` variables (number, array) are `BAD_INPUT`; record path/query use the
+  History `requestRow` split (fragment dropped, first `?`, absolute-form origin stripped: `http://h/docs?q` →
+  `/docs`). Each has a test.
+  Recheck fixes: one `REQUEST_LINE` regex (`METHOD target HTTP/1.x`) drives the send check, the default name
+  (`hello world` → `Untitled`) and record metadata; the target is decoded as UTF-8 before the path/query split
+  (`/café?q=東京` is found by a History search for `café`). The name rules and the 16 MiB limit moved from the
+  file comment into field/argument descriptions, so they reach the generated SDL and introspection. Each mock fix
+  has a test.
+  `2a6195f` recheck fixes: `REQUEST_LINE` delimits the target with `[^ \r\n]` instead of `\S`, so UTF-8 byte 0xA0
+  (`GET /à`) stays in the target (name, path, head bytes tested). The History record's `createdAt` is the send start;
+  the response `createdAt` is completion and `roundtripMs` is their difference (tested).
+  `ceaa58c` recheck fix: `entries` drops entries whose History request was deleted (`deleteRequests`), matching the
+  SQLite cascade; `totalCount` follows (tested).
+  `6c841b1` recheck fix: `after` bounds the page by entry send order (ids grow with sends), so a deleted cursor
+  entry no longer restarts paging at zero (tested).
+- How to verify: `make gen` (no diff), `make check`, `cd web && bun run test -- src/lib/api/mocks`.
+- Known limitations: the replay mock skips Match & Replace, Content-Length update and redirects, and checks only the
+  request line (marked `shortcut:`). The generated models keep the lazy fields (e.g. `ReplayEntry.Request`) as plain
+  struct fields; T-033/T-106 can set the ID there for the field resolver to load.
+- Follow-ups (proposed tasks): docs task to copy the decisions above into `docs/01-feature-spec.md`.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
 - Findings:
+  - [x] [major] `web/src/lib/api/mocks/replay.ts:425` — Updating the session connection during a send makes the completed entry report the new host and port. The send contract keeps the starting values. Pass the connection captured before the wait to the record builder and test an update during a pending send.
+  - [x] [major] `web/src/lib/api/mocks/replay.ts:412` — Interpolation inserts JavaScript text into a byte string. A variable set to `é` produces `6Q==`. UTF-8 encodes it as `w6k=`. Reading the body with `東京` returns a GraphQL error. Encode the replacement values as UTF-8 bytes while preserving the untouched draft bytes. Test a non-ASCII value and compare the recorded bytes.
+  - [x] [major] `web/src/lib/api/mocks/replay.ts:122` — The request and response body resolvers ignore `offset` and `limit`. A one-byte read at the end of a 4 MiB + 1 byte request returns the entire body. Reuse the History mock's body slicer, and update `rawOf` at line 165 to read all chunks so creating a Replay session from that record preserves its draft. Test both the last-byte read and the full copy.
+  - [x] [minor] `web/src/lib/api/mocks/replay.ts:135` — Replay records inherit a file extension from an unrelated History fixture. A seeded `/api/v1/users` record reports `.js`, which gives the wrong result when sorting by extension. Derive `ext` from the recorded path using the same rule as History.
+- `make check` passed, including all 303 web tests. `make gen` reproduced the committed output in a temporary checkout. GraphQL spot checks reproduced all four findings using the in-memory mocks. Review assumes one local frontend developer using the mock exchange. Live traffic and persistence belong to the backend follow-up tasks.
+
+### Second review
+
+- Reviewed `ed052f8`. The four findings above are resolved.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:127` — Sending an LF-only request with a body puts the body in `head` and returns an empty `body`. The raw HTTP parser accepts bare LF, and the contract puts every byte after the blank line in the body. Find the first blank line with either LF or CRLF, preserve its original bytes, and test the two fields.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:353` — Copying a History request bypasses the 16 MiB draft limit. A mock send expanded to a 17 MiB body can be copied successfully, then the resulting draft is rejected when saved or sent. Check the combined head and body size before reading body chunks, return `BAD_INPUT`, and document the limit for `fromRequestId`.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:118` — A UTF-8 request target of `/café` produces the default name `GET /cafÃ©`. Decode the extracted name as UTF-8 before truncating it. Test the name and confirm that the original draft bytes still round-trip.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:108` — The mock accepts unpadded `YQ` and returns it as a draft. The server's `Bytes` scalar requires standard padded base64. Match the scalar's input rules in the mock and emit padded base64 in returned drafts.
+- `make check` passed, including 306 web tests. `make gen` reproduced both generated directories in a temporary checkout. GraphQL spot checks confirmed all four new findings. `git diff --check main...HEAD` flagged trailing whitespace emitted by the web schema generator. Review assumes one frontend developer using the in-memory mock.
+
+### Third review
+
+- Reviewed `4b8c6dd`. The four second-round cases are covered by regression tests. The `Bytes` finding below covers additional inputs accepted by the server.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:427` — The request-line check rejects valid method tokens containing a hyphen. `M-SEARCH / HTTP/1.1` returns `BAD_INPUT`. The raw HTTP parser accepts `M-SEARCH` as the method. Accept the full method token syntax in the existing lightweight check and test that Replay records the method unchanged.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:431` — A mock response delay of 1250 ms with `timeoutMs: 1000` returns a successful response after the deadline. Time the wait against the smaller of the response delay and the session timeout, and return a timeout entry with no response when the deadline wins. Test this alongside cancellation.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:133` — Sending `/search?q=a?b` records `query: "q=a"`. The History contract returns the full query and the server splits at the first `?`. Keep the whole suffix so History filters and Replay metadata see `q=a?b`.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:256` — `ReplayEntry.createdAt` records completion. With a 1250 ms mock wait, it is about 1250 ms later than the start time promised by the schema. Capture the timestamp before the wait and pass it to the entry builder so the editor can display the start time.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:108` — The mock rejects padded `Bytes` containing CR/LF, which the Go decoder ignores. It also echoes `YR==` unchanged. The server re-encodes those bytes as `YQ==`. Strip CR/LF, validate and decode, then return the canonical padded representation. Keep the unpadded-input rejection test and cover the accepted forms.
+- Default `make check` failed twice in `src/pages/sitemap/sitemap.svelte.test.ts:132`, “drops a stale expansion result when filters change and supports loading beyond the first page.” Vitest reported `Error: Test timed out in 5000ms.` Both runs passed the other 308 web tests and all Go checks. `VITEST_MAX_WORKERS=2 make check` passed all 309 web tests and all Go checks.
+- Review assumes one frontend developer using the in-memory mock exchange. `make gen` reproduced both generated directories. The proxy, store and raw HTTP packages were outside the diff, so `make test-int` was skipped.
+- This is the third review round. Escalated to the lead under `docs/07-agent-workflow.md` §7.
+
+### Follow-up after escalation
+
+Reviewed `147ce74` against `main`. T-098 defines the Replay and Environments GraphQL contracts and supplies server stubs and in-memory mocks for frontend development. The five third-round cases are covered by passing regression tests.
+
+- Verdict: changes_requested
+- [x] [major] `web/src/lib/api/mocks/replay.ts:107` — The mock coerces non-string `Bytes` values before validating them. Creating a session with the JSON number `1234` saves a draft of `"1234"`, while the server returns `BAD_INPUT`. A single-element array containing `"YQ=="` also succeeds. Require a string before stripping CR/LF, and test both invalid variable types. The same validator handles create, update and send, so one fix keeps those flows consistent.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:136` — A Replay request with the target `http://example.test/docs?q=abc` records `path: "http://example.test/docs"`. History capture records `path: "/docs"` for the same target (`internal/history/capture.go:277`). Match History's path and query extraction for absolute URLs while preserving the request bytes, and add a regression test. Otherwise a History path filter for `/docs` misses the mock record.
+- `make check` passed, including all 312 web tests. `make gen` in a temporary checkout reproduced both generated directories. Both findings were reproduced with GraphQL against the in-memory mock resolvers. `git diff --check main...HEAD` flags trailing whitespace in the generated web schema.
+- Review assumes one frontend developer using the in-memory mock. `make test-int` was outside this review because the branch changes no proxy, store or raw HTTP code.
+
+### Recheck after escalation fixes
+
+Reviewed `fa48f63` against `main`. T-098 defines the Replay and Environments GraphQL contracts and gives frontend developers server stubs and an in-memory mock. The regression tests for non-string `Bytes` and absolute-form targets both pass.
+
+- Verdict: changes_requested
+- [x] [major] `web/src/lib/api/mocks/replay.ts:136` — A send with a UTF-8 target of `/café?q=東京` stores garbled path and query text. A History search for `café` returns zero rows even though the request head contains the correct bytes. Decode the extracted target as UTF-8 before assigning the metadata, preserve the original head bytes, and test both the record and a History query.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:120` — Creating a session with the draft `hello world` names it `hello world`. The schema specifies `Untitled` when the draft has no request line. Check for an HTTP request line before deriving the name and test the fallback while preserving the draft.
+- [x] [minor] `internal/api/graphql/schema/replay.graphqls:27` — The generated web SDL and GraphQL introspection omit the source comments that define the shared name and byte limits. A frontend developer reading the generated schema sees a reference to missing name rules and cannot find the 16 MiB limit for an editor draft. Put the rules in schema descriptions and regenerate both outputs.
+- `make check` passed, including all 314 web tests. `make gen` reproduced both generated directories in a temporary checkout. GraphQL spot checks reproduced both mock findings. The branch diff has trailing whitespace in the generated web SDL.
+- Review assumes one frontend developer using the in-memory exchange. `make test-int` was skipped because the branch changes no proxy, store or raw HTTP code. The task remains with the lead under the escalation in the third review.
+
+### Recheck of `2a6195f`
+
+T-098 gives the Replay and Environments teams a shared GraphQL contract, Go stubs, and an in-memory mock for local frontend development. The tests for `/café?q=東京` and the malformed draft pass, and the name and byte limits are present in the generated schema.
+
+- Verdict: changes_requested
+- [x] [major] `web/src/lib/api/mocks/replay.ts:117` — The request-line regex applies JavaScript's Unicode whitespace rules to a string that holds one character per byte. In `GET /à HTTP/1.1`, the UTF-8 continuation byte `0xA0` is treated as whitespace. The mock names the draft `Untitled` and rejects the send with `BAD_INPUT`. The Go parser reads the target as `/à`. Match the target using byte delimiters and add a regression test that checks the default name, recorded path, and unchanged request bytes.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:133` — New History records inherit a synthetic timestamp from `makeRequest`. One zero-delay send reported `request.createdAt` 550 ms before the entry's start and a 42 ms round trip despite a 551 ms gap between the request and response timestamps. History sorts by this field. Reuse the captured send start for the History request and derive the round trip from the same request and response timestamps.
+- `make check` passed, including all 316 web tests. `make gen` reproduced both generated directories in a temporary checkout. In-memory GraphQL checks reproduced both findings. `git diff --check main...HEAD` still reports trailing whitespace emitted in the generated web SDL.
+- Review assumes one frontend developer using the in-memory exchange. The branch changes no proxy, store, or raw HTTP code, so the review did not run `make test-int`. Both findings go to the lead under the existing escalation.
+
+### Recheck of `ceaa58c`
+
+T-098 defines the Replay and Environments GraphQL contracts and supplies Go stubs and mocks for one frontend developer working locally. The tests for the `/à` target and the send-start timestamps pass.
+
+- Verdict: `changes_requested`.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:253` — Deleting a Replay request through `deleteRequests` removes it from History, but Replay still returns the entry and the deleted request through `entries`. SQLite deletes the entry with its request under `internal/store/migrations/project/0001_init.sql:145`. Remove matching entries when the shared History mock deletes their requests, and test that a Replay refetch drops the entry and updates `totalCount`. Otherwise the mock teaches the editor to keep displaying a result that disappears with the real backend.
+- `make check` passed with 318 web tests. `make gen` reproduced both generated directories in a temporary checkout. An in-memory GraphQL check reproduced the stale entry, and a SQLite check using the checked-in migration confirmed the cascade. `git diff --check main...HEAD` reported trailing whitespace in the generated web SDL only.
+- The branch changes no proxy, store, or raw HTTP code, so this review skipped `make test-int`. The finding goes to the lead under the existing escalation.
+
+### Recheck of `6c841b1`
+
+T-098 defines the Replay and Environments GraphQL contracts and provides Go stubs and an in-memory mock for one frontend developer working locally. The new regression test confirms that deleting a History request removes its Replay entry from a fresh page and updates `totalCount`.
+
+- Verdict: `changes_requested`.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:255` — Deleting the History request for the last entry on a page makes the next page repeat entries. With the seeded session, `first: 2` returns `re6` and `re5`. After deleting `re5`'s request, `after: "re5"` returns `re6` again alongside `re4` because `findIndex` returns `-1` and paging restarts at zero. Use the cursor's entry order as the page boundary even when the entry is gone, and test a deletion between page loads. Otherwise an editor appending pages can display the same send twice.
+- `make check` passed with 319 web tests. `make gen` reproduced both generated directories in an isolated snapshot. An in-memory GraphQL query reproduced the duplicate entry. All changed files are in scope. `git diff --check main...HEAD` reports trailing whitespace in the generated web SDL.
+- The branch changes no proxy, store, or raw HTTP code, so this review skipped `make test-int`. The finding goes to the lead under the existing escalation.
+
+### Recheck of `2d5acc0`
+
+T-098 defines the Replay and Environments GraphQL contracts and supplies Go stubs and an in-memory exchange for one frontend developer working locally. Replay now uses the cursor's send order to continue paging when its request is deleted from History.
+
+- Verdict: `approve`. The previous major finding is resolved. The GraphQL regression test deletes the request at the end of the first page and confirms the next page contains only the remaining older entry.
+- `make check` passed with 320 web tests. `make gen` reproduced both generated directories in an isolated snapshot. All changed files are in scope. `git diff --check main...HEAD` still reports trailing whitespace from the web schema generator.
+- The branch changes no proxy, store, or raw HTTP code, so this review skipped `make test-int`.

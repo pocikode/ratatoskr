@@ -32,6 +32,67 @@ type Completion struct {
 	IsExtension bool `json:"isExtension"`
 }
 
+// A new session: either copied from a history request (`fromRequestId`) or from
+// scratch (`connection` and `raw`). Giving both or neither is `BAD_INPUT`.
+type CreateReplaySessionInput struct {
+	// Collection to add the session to, placed last; null for the Default collection.
+	CollectionID *string `json:"collectionId,omitempty"`
+	// History request to copy: its stored request bytes and connection. `NOT_FOUND`
+	// when unknown; `BAD_INPUT` when its stored request was truncated or is larger
+	// than 16 MiB (checked before the body is read).
+	FromRequestID *string `json:"fromRequestId,omitempty"`
+	// Connection for a session from scratch.
+	Connection *ReplayConnectionInput `json:"connection,omitempty"`
+	// Request bytes for a session from scratch. The URL dialog sends
+	// `GET <path> HTTP/1.1` with a `Host` header. At most 16 MiB (16777216 bytes)
+	// decoded, else `BAD_INPUT`; stored exactly as given.
+	Raw []byte `json:"raw,omitempty"`
+	// Name; null for `METHOD path` (see `ReplaySession.name` for the name rules).
+	Name *string `json:"name,omitempty"`
+}
+
+// A set of variables. Lookup for `{{name}}` uses the selected project
+// environment, then Global. Unknown names stay verbatim; substituted values are
+// not interpolated again.
+type Environment struct {
+	// Opaque identifier; Global has the same ID in every project.
+	ID string `json:"id"`
+	// Display name: trimmed, 1-200 characters, unique per project. `Global` is
+	// reserved for the instance-wide environment.
+	Name string `json:"name"`
+	// Whether this is the instance-wide Global environment (cannot be renamed or deleted).
+	IsGlobal bool `json:"isGlobal"`
+	// Whether this project environment is the selected one; at most one is. Always
+	// false for Global, which is always used after the selected environment.
+	Selected bool `json:"selected"`
+	// Variables in the order last set by `setEnvironmentVariables`.
+	Variables []EnvironmentVariable `json:"variables"`
+}
+
+func (Environment) IsNode() {}
+
+// One variable, used as `{{name}}` in Replay, Automate and workflows.
+type EnvironmentVariable struct {
+	// Matches `[A-Za-z_][A-Za-z0-9_.-]*`, at most 100 characters; unique per environment (case-sensitive).
+	Name string `json:"name"`
+	// Value, at most 1 MiB (1048576 bytes of UTF-8). Secret values are returned to
+	// authenticated clients too; the UI masks them behind a reveal toggle.
+	Value string `json:"value"`
+	// Whether the value is a secret: sealed at rest with `secret.key`, masked in
+	// the UI, and left out of exports (M3) and the Assistant (M6).
+	Secret bool `json:"secret"`
+}
+
+// A variable to store; same rules as `EnvironmentVariable`.
+type EnvironmentVariableInput struct {
+	// Variable name (see `EnvironmentVariable.name`).
+	Name string `json:"name"`
+	// Value, at most 1 MiB.
+	Value string `json:"value"`
+	// Whether the value is a secret. Default false.
+	Secret bool `json:"secret"`
+}
+
 // A named HTTPQL query that other queries reference as `preset:"Name"` or
 // `preset:alias`. A reference is resolved by exact name first, then by alias.
 // References may nest (up to depth 8) but must not form a cycle.
@@ -303,6 +364,147 @@ type QueryCompletions struct {
 	Items []Completion `json:"items"`
 }
 
+// A folder of sessions. The "Default" collection is created with the project's
+// first Replay use, so `replayCollections` never returns an empty list.
+type ReplayCollection struct {
+	// Opaque identifier.
+	ID string `json:"id"`
+	// Display name. Names are trimmed; empty, longer than 200 characters or containing control
+	// characters is `BAD_INPUT`. Names need not be unique.
+	Name string `json:"name"`
+	// Whether this is the Default collection: it can be renamed but not deleted,
+	// and it receives new sessions created without `collectionId`.
+	IsDefault bool `json:"isDefault"`
+	// Sessions of this collection in position order (see `moveReplaySession`).
+	Sessions []ReplaySession `json:"sessions"`
+}
+
+func (ReplayCollection) IsNode() {}
+
+// Where a session's request goes. Editing `Host` in the request never changes it.
+type ReplayConnection struct {
+	// Host name or IP address to dial.
+	Host string `json:"host"`
+	// TCP port, 1-65535.
+	Port int `json:"port"`
+	// Whether to speak TLS (certificates are not verified; ALPN `http/1.1`).
+	TLS bool `json:"tls"`
+	// SNI override for TLS; null sends `host` as SNI when it is a name and no SNI
+	// for an IP address.
+	Sni *string `json:"sni,omitempty"`
+}
+
+// A connection to store or send to. Errors: `BAD_INPUT` for an empty `host` or
+// one containing whitespace or control characters, a `port` outside 1-65535, or
+// an empty `sni` (use null for no override).
+type ReplayConnectionInput struct {
+	// Host name or IP address to dial.
+	Host string `json:"host"`
+	// TCP port, 1-65535.
+	Port int `json:"port"`
+	// Whether to speak TLS.
+	TLS bool `json:"tls"`
+	// SNI override; null (or omitted) for none.
+	Sni *string `json:"sni,omitempty"`
+}
+
+// One send of a session.
+type ReplayEntry struct {
+	// Opaque identifier.
+	ID string `json:"id"`
+	// The request record as sent (source `REPLAY`), with its response. After
+	// followed redirects it is the last hop; every hop is its own record in HTTP
+	// History. Failed sends have a record without a response.
+	Request *HTTPRequest `json:"request"`
+	// Why the send failed (dial, TLS, timeout or cancel), as a short readable
+	// message, e.g. `timeout after 60000 ms` or `cancelled`; null on success. A
+	// failed send has no response.
+	Error *string `json:"error,omitempty"`
+	// When the send started.
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+func (ReplayEntry) IsNode() {}
+
+// A page of entries, newest first.
+type ReplayEntryConnection struct {
+	// Entries of this page.
+	Edges []ReplayEntryEdge `json:"edges"`
+	// Cursors and whether more pages exist.
+	PageInfo *PageInfo `json:"pageInfo"`
+	// Number of entries of the session.
+	TotalCount int `json:"totalCount"`
+}
+
+// One entry in a `ReplaySession.entries` connection.
+type ReplayEntryEdge struct {
+	// Opaque cursor of this position; valid for the same session only.
+	Cursor string `json:"cursor"`
+	// The entry at this position.
+	Node *ReplayEntry `json:"node"`
+}
+
+// Send options of a session.
+type ReplayOptions struct {
+	// Follow up to 10 redirects (F-REP-2). Default false.
+	FollowRedirects bool `json:"followRedirects"`
+	// Set `Content-Length` to the body size before sending (same rule as
+	// Intercept: only when there is no `Transfer-Encoding` and there is a body or a
+	// `Content-Length` header). Default true.
+	UpdateContentLength bool `json:"updateContentLength"`
+	// Time allowed from dial to the last response byte, 1000-300000 ms. Default 60000.
+	TimeoutMs int `json:"timeoutMs"`
+	// Run Match & Replace rules (source `replay`) on the request before sending. Default false.
+	ApplyMatchReplace bool `json:"applyMatchReplace"`
+}
+
+// Changes to `ReplayOptions`. Omitted or null fields keep their value. `BAD_INPUT`
+// for `timeoutMs` outside 1000-300000; nothing changes then.
+type ReplayOptionsInput struct {
+	// See `ReplayOptions.followRedirects`.
+	FollowRedirects *bool `json:"followRedirects,omitempty"`
+	// See `ReplayOptions.updateContentLength`.
+	UpdateContentLength *bool `json:"updateContentLength,omitempty"`
+	// See `ReplayOptions.timeoutMs`; 1000-300000.
+	TimeoutMs *int `json:"timeoutMs,omitempty"`
+	// See `ReplayOptions.applyMatchReplace`.
+	ApplyMatchReplace *bool `json:"applyMatchReplace,omitempty"`
+}
+
+// One Replay tab: a request draft, where it goes, and the sends made from it.
+type ReplaySession struct {
+	// Opaque identifier.
+	ID string `json:"id"`
+	// Always `HTTP` in M2.
+	Kind ReplaySessionKind `json:"kind"`
+	// Display name. New sessions are named `METHOD path` from the request line,
+	// cut to 60 characters (`Untitled` when the bytes do not start with an
+	// HTTP/1.x request line, `METHOD target HTTP/1.x`). Names are trimmed; empty, longer than 200 characters or containing control
+	// characters is `BAD_INPUT`. Names need not be unique.
+	Name string `json:"name"`
+	// Tag colour shown on the tab; null when none.
+	Color *RequestColor `json:"color,omitempty"`
+	// The collection holding the session.
+	Collection *ReplayCollection `json:"collection"`
+	// Where the request goes.
+	Connection *ReplayConnection `json:"connection"`
+	// Send options.
+	Options *ReplayOptions `json:"options"`
+	// The request bytes the editor shows: exactly as last saved by
+	// `updateReplaySession` or `sendReplaySession` (before interpolation, Match &
+	// Replace or Content-Length update). At most 16 MiB (16777216 bytes).
+	Draft []byte `json:"draft"`
+	// Whether a send is in flight (see `sendReplaySession`).
+	Sending bool `json:"sending"`
+	// When the session was created.
+	CreatedAt time.Time `json:"createdAt"`
+	// Sends made from this session, newest first. `first` is 1..1000 (`BAD_INPUT`
+	// otherwise); `after` is a cursor from a previous page.
+	Entries *ReplayEntryConnection `json:"entries"`
+}
+
+func (ReplaySession) IsNode() {}
+
 // Order of a `requests` connection. Ties are always broken by ID in the same
 // direction, so the order is total and cursors stay stable.
 type RequestSort struct {
@@ -354,6 +556,16 @@ type ScopePreset struct {
 }
 
 func (ScopePreset) IsNode() {}
+
+// What to send. The values are first saved on the session, as `updateReplaySession` would.
+type SendReplaySessionInput struct {
+	// The editor's bytes; saved as the draft. At most 16 MiB (16777216 bytes) decoded, else `BAD_INPUT`.
+	Raw []byte `json:"raw"`
+	// Saved as the session's connection.
+	Connection *ReplayConnectionInput `json:"connection"`
+	// Merged into the session's options; null keeps them.
+	Options *ReplayOptionsInput `json:"options,omitempty"`
+}
 
 // Build and runtime facts about the running instance.
 type ServerInfo struct {
@@ -408,6 +620,18 @@ type SitemapNode struct {
 }
 
 type Subscription struct {
+}
+
+// Changes to a session. Omitted or null fields keep their value; nothing changes when any field is invalid.
+type UpdateReplaySessionInput struct {
+	// New name; see `ReplaySession.name` for the name rules.
+	Name *string `json:"name,omitempty"`
+	// Replaces the whole connection.
+	Connection *ReplayConnectionInput `json:"connection,omitempty"`
+	// Merged into the current options.
+	Options *ReplayOptionsInput `json:"options,omitempty"`
+	// Replaces the draft bytes: at most 16 MiB (16777216 bytes) decoded, else `BAD_INPUT`; stored exactly as given.
+	Draft []byte `json:"draft,omitempty"`
 }
 
 // What a completion inserts.
@@ -787,6 +1011,61 @@ func (e *QueryLanguage) UnmarshalJSON(b []byte) error {
 }
 
 func (e QueryLanguage) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What a Replay session sends. WebSocket (M4) and Pipeline (M7) sessions add values then.
+type ReplaySessionKind string
+
+const (
+	// Raw HTTP/1.x request and response.
+	ReplaySessionKindHTTP ReplaySessionKind = "HTTP"
+)
+
+var AllReplaySessionKind = []ReplaySessionKind{
+	ReplaySessionKindHTTP,
+}
+
+func (e ReplaySessionKind) IsValid() bool {
+	switch e {
+	case ReplaySessionKindHTTP:
+		return true
+	}
+	return false
+}
+
+func (e ReplaySessionKind) String() string {
+	return string(e)
+}
+
+func (e *ReplaySessionKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ReplaySessionKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ReplaySessionKind", str)
+	}
+	return nil
+}
+
+func (e ReplaySessionKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *ReplaySessionKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e ReplaySessionKind) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

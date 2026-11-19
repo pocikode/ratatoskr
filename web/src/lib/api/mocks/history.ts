@@ -95,7 +95,7 @@ function badInput(message: string): GraphQLError {
   return new GraphQLError(message, { extensions: { code: 'BAD_INPUT' } });
 }
 
-function slicer(body: Uint8Array): (args: BodyArgs) => string {
+export function slicer(body: Uint8Array): (args: BodyArgs) => string {
   return ({ offset, limit }) => {
     const start = Number(offset);
     if (start < 0) throw badInput('offset must be >= 0');
@@ -129,6 +129,12 @@ function responseBody(path: string, code: number, i: number): Uint8Array {
 }
 
 /** Builds one fake record; `i` is the 1-based row ID. */
+/** File extension of the last path segment, with the dot; empty when there is none. */
+export function extOf(path: string): string {
+  const dot = path.lastIndexOf('.');
+  return dot > path.lastIndexOf('/') ? path.slice(dot) : '';
+}
+
 export function makeRequest(i: number, base = Date.UTC(2026, 10, 18, 9, 0, 0)): MockRequest {
   const r = rng(i);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
@@ -138,8 +144,7 @@ export function makeRequest(i: number, base = Date.UTC(2026, 10, 18, 9, 0, 0)): 
   const path = pick(PATHS);
   const query =
     path.startsWith('/api') && r() < 0.5 ? `page=${1 + Math.floor(r() * 9)}&sort=name` : '';
-  const dot = path.lastIndexOf('.');
-  const ext = dot > path.lastIndexOf('/') ? path.slice(dot) : '';
+  const ext = extOf(path);
   const reqBody =
     method === 'POST' || method === 'PUT'
       ? enc.encode(JSON.stringify({ name: `item ${i}` }))
