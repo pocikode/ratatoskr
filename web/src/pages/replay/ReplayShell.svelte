@@ -75,13 +75,20 @@
       : undefined,
   );
   const linked = $derived(routed === staleHash ? undefined : routed);
+  // Tabs → route waits for the latest lookup, or a saved tab written meanwhile would replace the link;
+  // a newer tab choice still wins inside `replay.open`.
+  let lookup = 0;
   $effect(() => {
     if (!replay.loaded) return;
     const id = linked;
     untrack(() => {
-      if (id) void replay.open(id);
+      const run = ++lookup;
+      const done = () => {
+        if (run === lookup) synced = true;
+      };
       staleHash = undefined;
-      synced = true;
+      if (id) void replay.open(id).finally(done);
+      else done();
     });
   });
   // Tabs → route, once the deep link has been applied.

@@ -265,3 +265,23 @@ Browser E2E and the live Replay service remain unverified.
   is focused again wherever it now lives. `ReplayShell` returns `replay.move(...)`. Test: gated failing move in
   `ReplayPage.test.ts` ends with focus on the row in its original collection.
 - Both new tests fail with their fix reverted. `make check` green (359 frontend tests).
+
+### Re-review of `7b80fdf`
+
+Verdict requires changes. Reviewed for one local operator with saved Replay tabs. `make check` passed with 359 frontend tests.
+
+- [x] [major] web/src/pages/replay/ReplayShell.svelte:82 — **A saved tab can replace a valid startup deep link.**
+  When the initial tree lacks the linked session, `open` starts a refresh. The shell marks the route as synchronized
+  before the refresh finishes and writes the saved tab to the URL. That hash change is processed as a newer tab choice,
+  so the linked session never opens even when the refresh finds it. A delayed-query component probe reproduced this.
+  Wait for the current route lookup to settle before writing a fallback URL, while letting an explicit newer tab choice
+  supersede it. Add a component regression test with a saved tab and a linked session returned by the second query.
+
+Browser E2E and the live Replay backend were outside this verification.
+
+### Implementer reply (round 9)
+- Fixed: the route → tabs effect only marks the shell synchronized once the latest deep-link `open` settles
+  (a per-run counter drops older lookups), so no saved tab is written to the URL meanwhile. A newer tab choice
+  still supersedes the link via `ReplayState`'s navigation counter; its URL is written when the lookup settles.
+- Test in `ReplayPage.test.ts`: saved tab `rs7`, link `rs3` missing from the first load and returned by a gated
+  second load; ends on the `rs3` tab and hash. Fails without the fix. `make check` green (360 frontend tests).

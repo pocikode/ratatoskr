@@ -5,6 +5,8 @@ import {
   CreateReplayCollectionDocument,
   CreateReplaySessionDocument,
   MoveReplaySessionDocument,
+  ReplayCollectionsDocument,
+  type ReplayCollectionsQuery,
 } from '$lib/api/generated/graphql';
 import { router } from '$lib/router/router.svelte';
 import { projects, type Project } from '$lib/stores/project.svelte';
@@ -94,6 +96,46 @@ describe('ReplayPage', () => {
       'aria-selected',
       'true',
     );
+  });
+
+  it('keeps a startup deep link the first load lacks over a saved tab', async () => {
+    localStorage.setItem('replay.tabs.p1', JSON.stringify({ open: ['rs7'], active: 'rs7' }));
+    window.location.hash = '#/replay/session/rs3';
+    await waitFor(() => expect(router.location.params).toEqual(['session', 'rs3']));
+    const client = createMockClient({ count: 5, liveIntervalMs: 0 });
+    const real = client.query.bind(client);
+    let calls = 0;
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    client.query = ((query, vars, ctx) => {
+      if (query !== ReplayCollectionsDocument) return real(query, vars, ctx);
+      const n = ++calls;
+      return {
+        toPromise: async () => {
+          const r = await real(query, vars, ctx).toPromise();
+          if (n > 1) {
+            await gate;
+            return r;
+          }
+          // First load: rs3 does not exist yet (e.g. created elsewhere a moment ago).
+          const cols = (r.data as ReplayCollectionsQuery).replayCollections.map((c) => ({
+            ...c,
+            sessions: c.sessions.filter((s) => s.id !== 'rs3'),
+          }));
+          return { ...r, data: { replayCollections: cols } };
+        },
+      };
+    }) as typeof client.query;
+    render(ReplayPage, { client, projectId: 'p1' });
+    await tree();
+    await waitFor(() => expect(calls).toBe(2));
+    await new Promise((r) => setTimeout(r, 20));
+    release();
+    expect(await screen.findByRole('tab', { name: 'GET /api/v1/users' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(window.location.hash).toBe('#/replay/session/rs3');
   });
 
   it('keeps a startup deep link until the project list has loaded', async () => {
