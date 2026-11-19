@@ -3,7 +3,7 @@ id: T-034
 title: Replay page shell - session sidebar, collections, tab strip
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-sonnet-5.5"
 branch: task/T-034-replay-shell
@@ -66,5 +66,58 @@ session body.
 - Follow-ups (proposed tasks): wire `openInReplay` + `history.sendToReplay` in T-107; tab drag reorder; Automate reuses both shared components.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
-- Findings:
+What this change does: Adds the Replay collections sidebar, session tabs, URL dialog and project-scoped tab persistence. Shared components use callbacks, while Replay state owns GraphQL operations; the editor remains a placeholder.
+
+- Verdict: changes_requested
+- Reviewed against `main...HEAD`, F-REP-1 including the M2 contract, docs/02 §§2/3.7/4 and frontend conventions. Assumed load: one local operator with a project containing multiple collections and sessions.
+- Verification: `make check` passed (Go fix/vet/lint/race tests, Svelte check, ESLint, formatting, 44 frontend test files / 340 tests). Read connected commands, context menus, router, project store, mock mutations and generated operations. Bun probes confirmed finding 1's wrong rename target and finding 4's encoding exception; traced filtered-drop indices against the mock's splice semantics for finding 2.
+
+### Must fix
+
+- [ ] [major] web/src/pages/replay/commands.ts:72 — **1. Sidebar rename targets a tab.**
+  - **What this is:** The sidebar menu passes a session target without `from`; tab menus pass `from: 'tab'`.
+  - **Problem:** Both become `from: 'tab'`. Right-clicking a closed session and choosing Rename creates no input anywhere; an open session edits its tab instead of its sidebar row.
+  - **Fix:** Preserve the sidebar target's missing `from`; default to `'tab'` only when there is no explicit menu target. Add a component test renaming a closed session through its sidebar menu.
+  - **If we skip it:** A required sidebar action silently does nothing.
+
+- [ ] [major] web/src/lib/components/SessionSidebar/SessionSidebar.svelte:100 — **2. Search changes the saved drop position.**
+  - **What this is:** The sidebar computes a move index from `g.items`, supplied from `replay.filtered` in ReplayShell.
+  - **Problem:** For server order `[hidden, match-b, match-a]`, search hides `hidden`; dropping `match-a` before `match-b` sends index 0 instead of 1. The saved order becomes `[match-a, hidden, match-b]` instead of `[hidden, match-a, match-b]`. Dropping on a group header also uses the filtered length.
+  - **Fix:** Translate the destination item (or append intent) into an index in the full destination collection before calling the mutation. Test a filtered move with a hidden predecessor.
+  - **If we skip it:** Dragging search results unexpectedly reorders hidden sessions too.
+
+- [ ] [major] web/src/pages/replay/replay.svelte.ts:220 — **3. Failed moves do not reliably revert.**
+  - **What this is:** `move` changes the tree immediately; `#run` relies on a subsequent query to restore it.
+  - **Problem:** When the connection drops, both the mutation and the refetch fail. `load` returns without changing collections, so the uncommitted move remains visible indefinitely. This violates the explicit failure-revert acceptance criterion.
+  - **Fix:** Keep the previous collections and restore them when the move mutation fails, without depending on a successful query. Test both mutation and refetch failing.
+  - **If we skip it:** The tree claims a move was saved when the server never accepted it.
+
+- [ ] [major] web/src/pages/replay/replay.svelte.ts:179 — **4. Accepted Unicode paths crash creation.**
+  - **What this is:** The URL builder accepts non-ASCII path text; creation calls `btoa` directly on the resulting JavaScript string.
+  - **Problem:** A path of `/東京` passes validation but throws `InvalidCharacterError` before any mutation. The submit handler does not catch it, so the dialog displays no error. Latin-1 text is also encoded as Latin-1 rather than UTF-8.
+  - **Fix:** Convert the request text to explicit bytes before base64 encoding (reuse `encodeText` in `web/src/lib/editor/bytes.ts`), or validate unsupported input and return an error. Test a path outside Latin-1 through creation.
+  - **If we skip it:** Pasted international paths fail without useful feedback.
+
+- [ ] [major] web/src/lib/components/SessionSidebar/SessionSidebar.svelte:81 — **5. Moving sessions requires a mouse.**
+  - **What this is:** Keyboard handlers support selection, expansion and rename; only native drag events invoke `onmove`.
+  - **Problem:** A keyboard-only user cannot move a session to another collection or reorder it. Neither the row menu nor registered commands provide an alternative, despite the acceptance criterion requiring the tree to be operable without a mouse.
+  - **Fix:** Add a minimal keyboard-accessible move/reorder action using the existing callback and command/menu patterns, and test it without pointer events.
+  - **If we skip it:** Part of the required tree functionality remains inaccessible.
+
+- [ ] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **6. Generated output falls outside the declared paths.**
+  - **What this is:** The branch also changes `web/src/lib/api/generated/gql.ts` and `graphql.ts`.
+  - **Problem:** Neither matches this task's allowed paths, and the out-of-scope section is empty. The handoff says these were regenerated; there is no evidence of manual editing, but AGENTS.md hard rule 1 still requires the scope to include them.
+  - **Fix:** Have the lead explicitly include the required generated outputs in the task's allowed paths and document the scope adjustment.
+  - **If we skip it:** The branch violates the repository's mandatory scope rule.
+
+### Should fix
+
+- [ ] [minor] web/src/pages/replay/ReplayPage.test.ts:117 — **7. Several acceptance behaviors have no test.**
+  - **What this is:** The sole move test calls the array helper directly; the page tests cover only part of the required behavior.
+  - **Problem:** Wrong mutation indices or failed rollback can pass every existing test. Collection create/rename/delete, close-other/right tabs, colour changes and keyboard operation also lack coverage; the handoff acknowledges no E2E coverage.
+  - **Fix:** Add focused mock component tests for the missing acceptance behaviors, including actual move mutation arguments and failure restoration; resolve the required E2E scope with the lead rather than silently deferring it.
+  - **If we skip it:** Green checks will continue to miss failures in the task's main interactions.
+
+Verdict: fix 1–6 first; add the missing acceptance coverage in 7 before re-review.
+
+Not checked: browser E2E, real Replay backend integration and load benchmarks; no source files changed during review. Integration tests were not required because proxy/store/rawhttp did not change.
