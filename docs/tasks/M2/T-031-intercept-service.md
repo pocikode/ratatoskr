@@ -3,7 +3,7 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: in_review
+status: done
 depends_on: [T-030]
 owner: "Codex"
 branch: task/T-031-intercept-service
