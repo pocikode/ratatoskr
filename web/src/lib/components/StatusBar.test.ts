@@ -67,4 +67,20 @@ describe('StatusBar', () => {
     await vi.waitFor(() => expect(trigger).toHaveTextContent('env: No environment'));
     expect(env.selected).toBeNull();
   });
+
+  it('shows the error when a switch fails and keeps the old selection', async () => {
+    const { env } = renderWith(() => {});
+    const trigger = await screen.findByRole('button', { name: 'Environment' });
+    await vi.waitFor(() => expect(trigger).toHaveTextContent('env: Staging'));
+
+    vi.spyOn(env, 'select').mockImplementation(async () => {
+      env.error = 'environment env2 not found';
+      return false;
+    });
+    await userEvent.click(trigger);
+    await fireEvent.click(await screen.findByText('Production'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('environment env2 not found');
+    expect(trigger).toHaveTextContent('env: Staging');
+  });
 });

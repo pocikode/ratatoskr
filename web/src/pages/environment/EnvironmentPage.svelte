@@ -1,6 +1,7 @@
 <script lang="ts">
   // Environment page (F-ENV-1, docs/02 §3.12): env list on the left (Global pinned first),
   // variables grid on the right. The whole grid is saved with one `setEnvironmentVariables`.
+  // The status bar owns `store.start()`, so the page only reads the shared store.
   import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import {
@@ -20,21 +21,28 @@
   /** Name quoted by the last `BAD_INPUT`, so every row with it is highlighted. */
   let errorName = $state<string | null>(null);
   let newName = $state<string | null>(null);
-  let renaming = $state<string | null>(null);
+  /** The environment whose rename form is open, and its draft name. */
+  let renamingId = $state<string | null>(null);
+  let renameName = $state('');
+  let confirmingDelete = $state(false);
 
   const active = $derived(
     store.environments.find((e) => e.id === editingId) ?? store.environments[0] ?? null,
   );
 
-  $effect(() => store.start());
-
-  // The grid follows the open environment and the server data after every refetch.
+  // The grid follows the open environment, not every refetch: a status-bar selection change
+  // refetches the list and must not drop unsaved edits.
+  let shownId: string | null = null;
   $effect(() => {
     const env = active;
     untrack(() => {
+      if (env?.id === shownId) return;
+      shownId = env?.id ?? null;
       rows = env ? env.variables.map((v) => ({ ...v })) : [];
       revealed.clear();
       errorName = null;
+      renamingId = null;
+      confirmingDelete = false;
     });
   });
 
@@ -56,14 +64,16 @@
 
   function removeRow(index: number) {
     rows.splice(index, 1);
+    revealed.clear(); // indexes shift: a revealed secret must not surface on the row that moves up
     errorName = null;
   }
 
   async function save(env: Environment) {
     const saved = await store.saveVariables(env.id, rows);
-    if (saved) return;
-    // `BAD_INPUT` quotes the offending name; point at that row.
-    errorName = /"([^"]*)"/.exec(store.error ?? '')?.[1] ?? null;
+    // `BAD_INPUT` quotes the offending variable name; only those phrases point at a row.
+    errorName = saved
+      ? null
+      : (/(?:variable name|value of) "([^"]*)"/.exec(store.error ?? '')?.[1] ?? null);
   }
 
   async function create(event: SubmitEvent) {
@@ -76,13 +86,18 @@
     }
   }
 
-  async function rename(event: SubmitEvent, env: Environment) {
+  async function rename(event: SubmitEvent) {
     event.preventDefault();
-    if (renaming !== null && (await store.rename(env.id, renaming))) renaming = null;
+    const id = renamingId;
+    if (id !== null && (await store.rename(id, renameName))) renamingId = null;
+  }
+
+  async function remove(env: Environment) {
+    if (await store.remove(env.id)) confirmingDelete = false;
   }
 </script>
 
-<div class="flex h-[calc(100vh-140px)] flex-col gap-2">
+<div class="flex h-full min-h-0 flex-col gap-2">
   <div class="flex min-h-0 flex-1 gap-2">
     <section
       aria-label="Environments"
@@ -139,12 +154,12 @@
         class="flex min-w-0 flex-1 flex-col gap-2 rounded-token border border-line p-2"
       >
         <header class="flex items-center gap-2">
-          {#if renaming !== null && !active.isGlobal}
-            <form class="flex items-center gap-1" onsubmit={(e) => void rename(e, active)}>
+          {#if renamingId === active.id}
+            <form class="flex items-center gap-1" onsubmit={rename}>
               <input
                 class="rounded-token border border-line bg-elevated px-2 py-0.5 text-sm"
                 aria-label="Environment name"
-                bind:value={renaming}
+                bind:value={renameName}
               />
               <button type="submit" class="rounded-token border border-line px-2 py-0.5 text-xs">
                 Save name
@@ -152,7 +167,7 @@
               <button
                 type="button"
                 class="rounded-token border border-line px-2 py-0.5 text-xs hover:bg-hover"
-                onclick={() => (renaming = null)}
+                onclick={() => (renamingId = null)}
               >
                 Cancel
               </button>
@@ -163,17 +178,38 @@
               <button
                 type="button"
                 class="rounded-token border border-line px-2 py-0.5 text-xs hover:bg-hover"
-                onclick={() => (renaming = active.name)}
+                onclick={() => {
+                  renamingId = active.id;
+                  renameName = active.name;
+                }}
               >
                 Rename
               </button>
-              <button
-                type="button"
-                class="rounded-token border border-line px-2 py-0.5 text-xs text-danger hover:bg-hover"
-                onclick={() => void store.remove(active.id)}
-              >
-                Delete
-              </button>
+              {#if confirmingDelete}
+                <span class="text-xs text-muted">Delete “{active.name}” and its variables?</span>
+                <button
+                  type="button"
+                  class="rounded-token border border-line px-2 py-0.5 text-xs text-danger hover:bg-hover"
+                  onclick={() => void remove(active)}
+                >
+                  Confirm delete
+                </button>
+                <button
+                  type="button"
+                  class="rounded-token border border-line px-2 py-0.5 text-xs hover:bg-hover"
+                  onclick={() => (confirmingDelete = false)}
+                >
+                  Cancel
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  class="rounded-token border border-line px-2 py-0.5 text-xs text-danger hover:bg-hover"
+                  onclick={() => (confirmingDelete = true)}
+                >
+                  Delete
+                </button>
+              {/if}
             {/if}
           {/if}
         </header>
@@ -264,11 +300,11 @@
           >
             Save
           </button>
+          {#if store.error}
+            <p role="alert" class="min-w-0 text-xs text-danger">{store.error}</p>
+          {/if}
         </footer>
       </section>
     {/if}
   </div>
-  {#if store.error}
-    <p role="alert" class="text-xs text-danger">{store.error}</p>
-  {/if}
 </div>

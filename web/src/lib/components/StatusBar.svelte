@@ -17,6 +17,13 @@
   $effect(() => start());
   $effect(() => env.start());
 
+  /** Why the last switch failed; the old selection stays until a switch succeeds. */
+  let error = $state<string | null>(null);
+
+  async function select(id: string | null) {
+    error = (await env.select(id)) ? null : env.error;
+  }
+
   const projectEnvs = $derived(env.environments.filter((e) => !e.isGlobal));
 
   const LABELS = {
@@ -59,7 +66,7 @@
       >
         <DropdownMenu.Item
           class="flex cursor-default items-center justify-between rounded-token px-2 py-1 outline-none data-highlighted:bg-hover"
-          onSelect={() => void env.select(null)}
+          onSelect={() => void select(null)}
         >
           No environment
           {#if !env.selected}<span aria-label="current">✓</span>{/if}
@@ -67,7 +74,7 @@
         {#each projectEnvs as e (e.id)}
           <DropdownMenu.Item
             class="flex cursor-default items-center justify-between rounded-token px-2 py-1 outline-none data-highlighted:bg-hover"
-            onSelect={() => void env.select(e.id)}
+            onSelect={() => void select(e.id)}
           >
             {e.name}
             {#if e.selected}<span aria-label="current">✓</span>{/if}
@@ -76,6 +83,10 @@
       </DropdownMenu.Content>
     </DropdownMenu.Portal>
   </DropdownMenu.Root>
+
+  {#if error}
+    <span role="alert" class="min-w-0 truncate text-danger" title={error}>{error}</span>
+  {/if}
 
   {#if conn.server}
     <span

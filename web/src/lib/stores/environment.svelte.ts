@@ -34,6 +34,8 @@ export class EnvironmentStore {
   });
 
   readonly getClient: () => Client;
+  /** Refresh sequence: an older answer must not overwrite a newer list. */
+  #request = 0;
 
   constructor(getClient: () => Client = () => getApi().client) {
     this.getClient = getClient;
@@ -46,9 +48,11 @@ export class EnvironmentStore {
   }
 
   async refresh(): Promise<void> {
+    const request = ++this.#request;
     const r = await this.getClient()
       .query(EnvironmentsDocument, {}, { requestPolicy: 'network-only' })
       .toPromise();
+    if (request !== this.#request) return; // a newer refresh already answered
     if (r.data) {
       this.environments = r.data.environments;
       this.error = null;

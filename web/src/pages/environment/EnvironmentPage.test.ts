@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createMockClient } from '$lib/api/mocks/exchange';
 import { EnvironmentStore } from '$lib/stores/environment.svelte';
 import EnvironmentPage from './EnvironmentPage.svelte';
@@ -8,6 +8,8 @@ import EnvironmentPage from './EnvironmentPage.svelte';
 function page() {
   const client = createMockClient();
   const store = new EnvironmentStore(() => client);
+  // The status bar owns `store.start()` in the app; here the page gets a loaded store.
+  void store.refresh();
   render(EnvironmentPage, { store });
   return store;
 }
@@ -79,6 +81,62 @@ describe('EnvironmentPage', () => {
     for (const name of names) expect(name).toHaveAttribute('aria-invalid', 'true');
   });
 
+  it('keeps the rename form with the environment it was opened on', async () => {
+    page();
+    const list = await envList();
+    await userEvent.click(within(list).getByRole('button', { name: /^Staging/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Rename' }));
+
+    await userEvent.click(within(list).getByRole('button', { name: /^Production/ }));
+    expect(screen.queryByRole('button', { name: 'Save name' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Variables' })).toHaveTextContent('Production');
+  });
+
+  it('keeps unsaved edits when the list refetches', async () => {
+    const store = page();
+    const list = await envList();
+    await userEvent.click(within(list).getByRole('button', { name: /^Staging/ }));
+
+    const value = screen.getByLabelText('Value of host');
+    await userEvent.clear(value);
+    await userEvent.type(value, 'qa.example.test');
+
+    await store.select('env2'); // a status-bar switch refetches the list
+    expect(screen.getByLabelText('Value of host')).toHaveValue('qa.example.test');
+  });
+
+  it('masks a secret again when a remove shifts its row', async () => {
+    page();
+    const list = await envList();
+    await userEvent.click(within(list).getByRole('button', { name: /^Staging/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Reveal value of token' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add variable' }));
+    await userEvent.type(screen.getByLabelText('Name of variable 3'), 'other');
+    await userEvent.type(screen.getByLabelText('Value of other'), 'third-secret');
+    await userEvent.click(screen.getByLabelText('Secret other'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove host' }));
+    // `other` moves onto the index the reveal used; it was never revealed.
+    expect(screen.getByLabelText('Value of other')).toHaveAttribute('type', 'password');
+    expect(screen.getByLabelText('Value of token')).toHaveAttribute('type', 'password');
+  });
+
+  it('shows a BAD_INPUT that names no variable without highlighting a row', async () => {
+    const store = page();
+    const list = await envList();
+    await userEvent.click(within(list).getByRole('button', { name: /^Staging/ }));
+
+    vi.spyOn(store, 'saveVariables').mockImplementation(async () => {
+      store.error = 'variables must be unique';
+      return false;
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('variables must be unique');
+    expect(screen.getByLabelText('Name of host')).not.toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('creates, renames and deletes a project environment', async () => {
     page();
     const list = await envList();
@@ -95,7 +153,10 @@ describe('EnvironmentPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save name' }));
     expect(await within(list).findByRole('button', { name: /^QA 2/ })).toBeInTheDocument();
 
+    // Deleting takes a second click: the environment and its secrets go with it.
     await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(within(list).getByRole('button', { name: /^QA 2/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm delete' }));
     await waitFor(() => expect(within(list).queryByRole('button', { name: /^QA 2/ })).toBeNull());
   });
 });

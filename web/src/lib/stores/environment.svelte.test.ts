@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { Client } from '@urql/core';
 import { createMockClient } from '$lib/api/mocks/exchange';
 import { projects } from './project.svelte';
 import { EnvironmentStore } from './environment.svelte';
@@ -73,5 +74,29 @@ describe('EnvironmentStore', () => {
 
     stop();
     onReset.mockRestore();
+  });
+
+  it('ignores a refresh that answers after a newer one', async () => {
+    const answers: (() => void)[] = [];
+    let calls = 0;
+    const client = {
+      query: () => {
+        const id = ++calls;
+        let resolve!: (value: unknown) => void;
+        const result = new Promise((r) => (resolve = r));
+        answers.push(() => resolve({ data: { environments: [{ id: `env${id}` }] } }));
+        return { toPromise: () => result };
+      },
+    } as unknown as Client;
+    const env = new EnvironmentStore(() => client);
+
+    const older = env.refresh();
+    const newer = env.refresh();
+    answers[1]!();
+    await newer;
+    answers[0]!(); // the older answer arrives last and must not overwrite the newer list
+    await older;
+
+    expect(env.environments.map((e) => e.id)).toEqual(['env2']);
   });
 });
