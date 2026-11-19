@@ -3,7 +3,7 @@ id: T-037
 title: Environment backend - Global and project environments, sealed secrets, interpolation, resolvers
 milestone: M2
 role: backend
-status: in_review
+status: done
 depends_on: [T-098]
 owner: "Codex (GPT-6)"
 branch: task/T-037-environment-backend
