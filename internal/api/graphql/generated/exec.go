@@ -3605,8 +3605,10 @@ extend type Mutation {
   Errors: ` + "`" + `BAD_INPUT` + "`" + ` for an invalid rule, a rule section for the other ` + "`" + `kind` + "`" + `,
   ` + "`" + `raw` + "`" + ` over 12 MiB (so the request fits the 32 MiB API cap; larger messages
   cannot be tested), ` + "`" + `raw` + "`" + ` that is not an HTTP/1.x message of ` + "`" + `kind` + "`" + ` (including
-a body whose length differs from ` + "`" + `Content-Length` + "`" + ` without ` + "`" + `Transfer-Encoding` + "`" + `;
-a response with no body may declare any length, as a reply to ` + "`" + `HEAD` + "`" + `), or an
+a ` + "`" + `Content-Length` + "`" + ` that is not decimal or disagrees with another, or a body
+whose length differs from ` + "`" + `Content-Length` + "`" + ` without ` + "`" + `Transfer-Encoding` + "`" + `; a
+response with no body may declare any length, as a reply to ` + "`" + `HEAD` + "`" + `, and body
+rules leave such a response unchanged), or an
   ` + "`" + `output` + "`" + ` that would exceed 16 MiB (checked while replacing, before the result
   is built; no partial output is returned);
   ` + "`" + `BAD_QUERY` + "`" + ` with span for

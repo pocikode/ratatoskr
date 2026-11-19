@@ -337,9 +337,22 @@ describe('match & replace mock', () => {
       'POST / HTTP/1.1\r\nContent-Length: x\r\n\r\na',
     ])
       expect(code(await m(TEST, { r: reqBB, k: 'REQUEST', raw: btoa(partial) }))).toBe('BAD_INPUT');
-    // A response with no body keeps its length (reply to HEAD).
+    // Length syntax and agreement are checked even when the body-size check is waived.
+    for (const bad of [
+      'HTTP/1.1 200 OK\r\nContent-Length: x\r\n\r\n',
+      'HTTP/1.1 200 OK\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\n',
+    ])
+      expect(code(await m(TEST, { r: fullBB, k: 'RESPONSE', raw: btoa(bad) }))).toBe('BAD_INPUT');
+    // A response with no body keeps its length (reply to HEAD); body rules leave it unchanged.
     const head = btoa('HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n');
     expect((await m(TEST, { r: body, k: 'RESPONSE', raw: head })).error).toBeUndefined();
+    const headFull = (await m(TEST, { r: fullBB, k: 'RESPONSE', raw: head })).data!
+      .testMatchReplace;
+    expect(headFull).toMatchObject({ output: head, changed: false });
+    // An empty 200 with length 0 is a real empty body: a FULL rule fills it.
+    const empty = btoa('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+    const filled = (await m(TEST, { r: fullBB, k: 'RESPONSE', raw: empty })).data!.testMatchReplace;
+    expect(atob(filled.output)).toBe('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nbb');
     expect(code(await m(TEST, { r: body, k: 'REQUEST', raw: req }))).toBe('BAD_INPUT');
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe('BAD_INPUT');
     // A bare CR inside the status line is malformed, not a line end.

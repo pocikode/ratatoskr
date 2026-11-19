@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -380,17 +380,23 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 ### Review of `bdb885e`
 
 - Verdict is `changes_requested`. Escalate to the lead under the review round limit.
-- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:512 — The empty-response exception skips
+- [x] [major] web/src/lib/api/mocks/matchreplace.ts:512 — The empty-response exception skips
   all length-field validation. An empty 200 response with `Content-Length: x` or conflicting
   lengths of 4 and 5 succeeds through GraphQL. A FULL body draft even rewrites either case
   to length 2 and reports a change. Validate length syntax and agreement between duplicates
   before waiving the body-size comparison, as the wire parser does at
   `internal/rawhttp/read.go:346`. Add both rejection cases.
-- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:225 — The mock accepts an empty 200
+  → Lead decision (escalation): every `Content-Length` must be decimal and all must agree, always (`BAD_INPUT`);
+  only the body-size comparison is waived for an empty response. In the schema and F-MR-1. Tests: `x` and 4/5 on an
+  empty 200 rejected.
+- [x] [major] web/src/lib/api/mocks/matchreplace.ts:225 — The mock accepts an empty 200
   response with length 4 under the documented HEAD exception, then a FULL body draft adds
   `bb` and rewrites the length to 2. For the length-mismatch case admitted by this exception,
   preserve the response bytes on body drafts and document the policy for T-102. Extend the
   HEAD fixture to assert the result of a FULL draft.
+  → Lead decision (escalation): an empty response declaring a non-zero length is treated as a `HEAD` reply; body rules
+  leave it unchanged (`changed: false`). Binding for T-102 via F-MR-1 API details and the `testMatchReplace` doc. An
+  empty 200 with `Content-Length: 0` is a real empty body and a FULL rule fills it. Both cases tested.
 - Both findings were reproduced through graphql-js against the generated schema with
   synthetic messages. Review assumed one desktop user within the documented tester limits.
   `make check` passed (43 Vitest files, 353 tests). `make gen` left the tree clean.

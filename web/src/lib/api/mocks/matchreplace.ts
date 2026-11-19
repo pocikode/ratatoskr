@@ -222,8 +222,15 @@ function applyRule(rule: MockRuleInput, raw: string): string {
     if (headers.some((h) => /^(transfer|content)-encoding:/i.test(h))) return raw;
     // 1xx, 204 and 304 responses have no body on the wire (internal/rawhttp/read.go).
     if (/^HTTP\/\S+ (1\d\d|204|304)(\s|$)/.test(start!)) return raw;
-    const len = measure(body);
     const isCL = (h: string) => /^content-length:/i.test(h);
+    // Empty response declaring a non-zero length is a HEAD reply: it has no body to rewrite.
+    if (
+      start!.startsWith('HTTP/') &&
+      !body &&
+      headers.some((h) => isCL(h) && Number(h.slice(15)) !== 0)
+    )
+      return raw;
+    const len = measure(body);
     const i = headers.findIndex(isCL);
     // One correct length replaces every Content-Length; a request gaining a body needs one too.
     const emit = i >= 0 || (!start!.startsWith('HTTP/') && len > 0);
@@ -505,16 +512,21 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
             : /^HTTP\/1\.[01] \d{3}(?: [^\r\n]*)?\r\n/;
         if (!line.test(text) || !text.includes('\r\n\r\n'))
           throw fail('BAD_INPUT', `raw is not an HTTP/1.x ${String(kind).toLowerCase()}`);
-        // A fixed-length body must be complete; a response with no body may keep any length (HEAD, 304).
+        // Lengths must be decimal and agree (internal/rawhttp/read.go contentLength), always.
         const sep = text.indexOf('\r\n\r\n');
         const fields = text.slice(0, sep).split('\r\n');
         const bodyLen = text.length - sep - 4;
+        const lens = fields
+          .filter((h) => /^content-length:/i.test(h))
+          .map((h) => h.slice(15).trim());
+        if (lens.some((l) => !/^\d+$/.test(l) || Number(l) !== Number(lens[0])))
+          throw fail('BAD_INPUT', 'raw has an invalid or conflicting Content-Length');
+        // A fixed-length body must be complete; a response with no body may keep any length (HEAD, 304).
         if (
+          lens.length &&
           !fields.some((h) => /^transfer-encoding:/i.test(h)) &&
           (kind === 'REQUEST' || bodyLen > 0) &&
-          fields
-            .filter((h) => /^content-length:/i.test(h))
-            .some((h) => !/^\d+$/.test(h.slice(15).trim()) || Number(h.slice(15)) !== bodyLen)
+          Number(lens[0]) !== bodyLen
         )
           throw fail('BAD_INPUT', 'raw body length does not match Content-Length');
         const out = applyRule(draft, text);
