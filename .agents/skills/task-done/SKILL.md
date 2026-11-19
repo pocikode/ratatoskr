@@ -7,7 +7,7 @@ description: "Mark an approved task done and open its PR"
 
 Mark the task done and open its PR. Task: $ARGUMENTS (if empty, read the id from the current branch `task/T-###-*`).
 
-1. Read `docs/tasks/T-###-*.md`. Look at the **last** reviewer verdict in `## Review`. If it is not **approve**, stop and say why. Do not change anything.
+1. Read `docs/tasks/*/T-###-*.md`. Look at the **last** reviewer verdict in `## Review`. If it is not **approve**, stop and say why. Do not change anything.
 2. Make sure the working tree is clean and you are on the task branch, not `main`.
 3. Set `status: done` in the front matter. Commit only that file: `docs(T-###): mark done`.
 4. Push the branch: `git push -u origin HEAD`.

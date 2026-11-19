@@ -17,7 +17,7 @@ paths:
   - web/src/lib/api/generated/**
   - web/src/lib/api/mocks/**
   - gqlgen.yml
-  - docs/tasks/T-030-contract-intercept.md
+  - docs/tasks/M2/T-030-contract-intercept.md
 spec:
   - docs/01-feature-spec.md#F-INT-1 (incl. "Contract (lead, 2026-11-19, M2)")
   - docs/01-feature-spec.md#F-HIST-4

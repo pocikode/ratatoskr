@@ -18,7 +18,7 @@ paths:
   - web/src/lib/api/generated/**
   - web/src/lib/api/mocks/**
   - gqlgen.yml
-  - docs/tasks/T-098-contract-replay-environment.md
+  - docs/tasks/M2/T-098-contract-replay-environment.md
 spec:
   - docs/01-feature-spec.md#F-REP-1, #F-REP-2 (incl. M2 contracts)
   - docs/01-feature-spec.md#F-ENV-1 (incl. M2 contract)

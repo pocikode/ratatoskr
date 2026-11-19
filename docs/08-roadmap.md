@@ -1,7 +1,7 @@
 # 08 — Roadmap & Task Index
 
 Milestones are sequential; tasks inside a milestone run in parallel where `depends_on` allows.
-Only **M0, M1 and M2** have full task files in `docs/tasks/`. The lead expands the next milestone into task files
+Only **M0, M1 and M2** have full task files in `docs/tasks/M#/`. The lead expands the next milestone into task files
 (from `TEMPLATE.md`) when the current one is ~70% done — specs evolve, so don't pre-write everything.
 
 Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each task file.

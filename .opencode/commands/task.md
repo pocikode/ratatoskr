@@ -4,7 +4,7 @@ description: "Start or continue a Ratatoskr task: /task T-###"
 
 Work on task $ARGUMENTS.
 
-1. Open `docs/tasks/$ARGUMENTS-*.md`. If it does not exist, stop and say so.
+1. Open `docs/tasks/*/$ARGUMENTS-*.md`. If it does not exist, stop and say so.
 2. Read AGENTS.md (already loaded) and only the spec sections listed in the task's `spec` field.
 3. Check `depends_on` tasks are merged on main (`git log main --oneline | grep T-0xx` or their status is done). If not, stop.
 4. If status is `todo`: set `status: in_progress`, `owner` (your tool/model), write the Plan section, commit `chore($ARGUMENTS): start`.

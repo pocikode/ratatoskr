@@ -6,7 +6,7 @@ These rules apply to every AI agent (Claude Code, OpenCode, Codex, any model). T
 
 ## Read before doing anything
 1. This file (always).
-2. Your task file `docs/tasks/T-###-*.md` — it lists your role, allowed `paths`, dependencies and the spec sections to read.
+2. Your task file `docs/tasks/*/T-###-*.md` — it lists your role, allowed `paths`, dependencies and the spec sections to read.
 3. Only the spec sections your task links. Doc map: `docs/00-overview.md §6`.
 Do not start coding without a task file. If you were asked to do something with no task file, ask the operator for one or
 (lead role only) create it from `docs/tasks/TEMPLATE.md`.

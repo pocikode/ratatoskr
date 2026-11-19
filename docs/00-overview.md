@@ -77,6 +77,6 @@ Feature parity means **re-implementing behaviour**, not copying a product.
 | `docs/06-frontend-conventions.md` | frontend | Svelte 5 runes, Bun, Vite, state, API client, components, tests. |
 | `docs/07-agent-workflow.md` | lead | Multi-agent process: roles, worktrees, task lifecycle, review. |
 | `docs/08-roadmap.md` | lead | Milestones M0–M7 and the task index. |
-| `docs/tasks/` | everyone | One file per task (`T-###-slug.md`) + `TEMPLATE.md`. |
+| `docs/tasks/` | everyone | One folder per milestone (`M#/T-###-slug.md`) + `TEMPLATE.md`. |
 | `docs/adr/` | lead | Architecture Decision Records. Change a decision = new ADR. |
 | `docs/PANDUAN.md` | human | Indonesian guide for the human operator. |

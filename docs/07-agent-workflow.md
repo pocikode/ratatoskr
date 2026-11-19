@@ -21,7 +21,7 @@ Cross-model review is mandatory: if Claude implemented it, a non-Claude model re
 - Each agent session loads only: `AGENTS.md` + its task file + the spec sections the task links. Don't read all docs.
 
 ## 3. Task files
-- One file per task: `docs/tasks/T-###-slug.md`, created by the lead from `docs/tasks/TEMPLATE.md`.
+- One file per task: `docs/tasks/M#/T-###-slug.md` (one folder per milestone), created by the lead from `docs/tasks/TEMPLATE.md`.
 - Frontmatter: `id, title, milestone, role, status, depends_on, owner, branch, paths, spec`.
 - `status` lifecycle: `todo → in_progress → in_review → changes_requested → in_review → done` (or `blocked`).
 - `paths` = the files/dirs the task may modify (**ownership**). Touching anything else requires a note in the task file
@@ -61,7 +61,7 @@ cd ../ratatoskr-T-014 && claude        # or: opencode, codex
 
 ## 8. Pull request & merge (operator / lead)
 - When a task reaches `in_review`, the implementer pushes the branch and opens a PR **on our fork only**:
-  `gh pr create --repo OWNER/ratatoskr --base main --title "T-014: <title>" --body-file <(sed -n '/## Handoff/,$p' docs/tasks/T-014-*.md)`.
+  `gh pr create --repo OWNER/ratatoskr --base main --title "T-014: <title>" --body-file <(sed -n '/## Handoff/,$p' docs/tasks/*/T-014-*.md)`.
 - CI must be green. CI skips docs-only changes (`docs/**`, root `*.md`) and draft PRs, and runs macOS only on `main` or a
   manual run (`gh workflow run CI --repo OWNER/ratatoskr --ref <branch>`); trigger it manually when a PR is macOS-sensitive.
   The reviewer agent writes findings in the task file (source of truth) and may mirror the summary as a PR comment
