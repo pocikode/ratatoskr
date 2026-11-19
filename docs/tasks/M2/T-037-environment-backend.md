@@ -3,7 +3,7 @@ id: T-037
 title: Environment backend - Global and project environments, sealed secrets, interpolation, resolvers
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "Codex (GPT-6)"
 branch: task/T-037-environment-backend
@@ -112,6 +112,15 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
 - No UI E2E or integration rerun for these review fixes; the previous implementation's integration run passed.
   Windows/macOS binaries were cross-built only, not executed.
 
+### Re-review fix (implementer, 2026-11-19)
+- Windows key locking now calls `LockFileEx` through the Go standard library. This preserves serialization for
+  both missing and empty key files and removes the direct `golang.org/x/sys` import.
+- `make check`, `go mod tidy -diff`, the Windows cross-build, and Windows vet for `internal/secret` passed.
+  `make test-int` passed on a standalone rerun after the first run exceeded the proxy's latency budget.
+- The Windows test binary ran the missing- and empty-file concurrency cases 10 times under Wine with a temporary
+  overlay omitting the Unix-only file-mode assertion. The unmodified assertion also fails with the previous lock
+  implementation under Wine. Native Windows and UI E2E were not run.
+
 ## Review (reviewer)
 - Verdict: changes_requested (reviewer, 2026-11-19)
 - Checked: all 12 changed files are inside `paths`. `make check` is green (exit 0). `make test-int` was not run because
@@ -148,7 +157,7 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   locking logic is right: `O_EXCL` create, then lock, then re-stat, so a reader that arrives before the first write still
   waits. The empty-file test covers this. `make test-int` was not rerun because proxy/store/rawhttp did not change.
 - Findings:
-  - [ ] [major] internal/secret/lock_windows.go:6 — imports `golang.org/x/sys/windows`. That module is not on the
+  - [x] [major] internal/secret/lock_windows.go:6 — imports `golang.org/x/sys/windows`. That module is not on the
     approved list (docs/05 §2: "anything else needs an ADR"), so this breaks hard rule 8. Also, `go.mod` still marks
     it `// indirect`: `go mod tidy -diff` now fails on this branch but passes on `main`, and `go.mod` is outside
     `paths`. → Pick one: (a) use only the stdlib, with no lock. Write the new key to a temp file in `root` with
@@ -157,3 +166,5 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
     same path. Readers never see a half-written key, and the code is the same on every OS. Or (b) write an
     "Out-of-scope change needed" request asking the lead to add `golang.org/x/sys` to docs/05 §2 and `go.mod` to
     `paths`, then run `go mod tidy`.
+    Implementer: replaced the import with a standard-library call to `LockFileEx`. The lock protects legacy empty
+    files from the stat/remove race where a second opener could remove a newly initialized key. `go mod tidy -diff` passes.
