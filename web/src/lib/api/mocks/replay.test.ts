@@ -272,6 +272,38 @@ describe('replay mock', () => {
     ]);
   });
 
+  it('reads a target holding UTF-8 byte 0xA0 (à) as part of the target', async () => {
+    const { m } = run(client());
+    const head = String.fromCharCode(
+      ...new TextEncoder().encode('GET /à HTTP/1.1\r\nHost: example.test\r\n\r\n'),
+    );
+    const created = await m(
+      `mutation ($c: ReplayConnectionInput, $raw: Bytes) { createReplaySession(input: { connection: $c, raw: $raw }) { id name } }`,
+      { c: CONN, raw: btoa(head) },
+    );
+    expect(created.data!.createReplaySession.name).toBe('GET /à');
+    const res = await m(
+      `mutation ($id: ID!, $c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: $id, input: { raw: $raw, connection: $c }) { request { path head } } }`,
+      { id: created.data!.createReplaySession.id, c: CONN, raw: btoa(head) },
+    );
+    const r = res.data!.sendReplaySession.request;
+    expect(r.path).toBe('/à');
+    expect(atob(r.head)).toBe(head);
+  });
+
+  it('times the history record from the send start', async () => {
+    const { m } = run(client());
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { createdAt request { createdAt response { createdAt roundtripMs } } } }`,
+      { c: CONN, raw: RAW },
+    );
+    const e = res.data!.sendReplaySession;
+    expect(e.request.createdAt).toBe(e.createdAt);
+    const gap = Date.parse(e.request.response.createdAt) - Date.parse(e.request.createdAt);
+    expect(e.request.response.roundtripMs).toBe(gap);
+    expect(gap).toBeGreaterThanOrEqual(40);
+  });
+
   it('names a session Untitled when the draft has no request line', async () => {
     const { m } = run(client());
     const raw = btoa('hello world');

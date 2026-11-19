@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -116,6 +116,9 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
   (`/café?q=東京` is found by a History search for `café`). The name rules and the 16 MiB limit moved from the
   file comment into field/argument descriptions, so they reach the generated SDL and introspection. Each mock fix
   has a test.
+  `2a6195f` recheck fixes: `REQUEST_LINE` delimits the target with `[^ \r\n]` instead of `\S`, so UTF-8 byte 0xA0
+  (`GET /à`) stays in the target (name, path, head bytes tested). The History record's `createdAt` is the send start;
+  the response `createdAt` is completion and `roundtripMs` is their difference (tested).
 - How to verify: `make gen` (no diff), `make check`, `cd web && bun run test -- src/lib/api/mocks`.
 - Known limitations: the replay mock skips Match & Replace, Content-Length update and redirects, and checks only the
   request line (marked `shortcut:`). The generated models keep the lazy fields (e.g. `ReplayEntry.Request`) as plain
@@ -178,7 +181,7 @@ Reviewed `fa48f63` against `main`. T-098 defines the Replay and Environments Gra
 T-098 gives the Replay and Environments teams a shared GraphQL contract, Go stubs, and an in-memory mock for local frontend development. The tests for `/café?q=東京` and the malformed draft pass, and the name and byte limits are present in the generated schema.
 
 - Verdict: changes_requested
-- [ ] [major] `web/src/lib/api/mocks/replay.ts:117` — The request-line regex applies JavaScript's Unicode whitespace rules to a string that holds one character per byte. In `GET /à HTTP/1.1`, the UTF-8 continuation byte `0xA0` is treated as whitespace. The mock names the draft `Untitled` and rejects the send with `BAD_INPUT`. The Go parser reads the target as `/à`. Match the target using byte delimiters and add a regression test that checks the default name, recorded path, and unchanged request bytes.
-- [ ] [minor] `web/src/lib/api/mocks/replay.ts:133` — New History records inherit a synthetic timestamp from `makeRequest`. One zero-delay send reported `request.createdAt` 550 ms before the entry's start and a 42 ms round trip despite a 551 ms gap between the request and response timestamps. History sorts by this field. Reuse the captured send start for the History request and derive the round trip from the same request and response timestamps.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:117` — The request-line regex applies JavaScript's Unicode whitespace rules to a string that holds one character per byte. In `GET /à HTTP/1.1`, the UTF-8 continuation byte `0xA0` is treated as whitespace. The mock names the draft `Untitled` and rejects the send with `BAD_INPUT`. The Go parser reads the target as `/à`. Match the target using byte delimiters and add a regression test that checks the default name, recorded path, and unchanged request bytes.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:133` — New History records inherit a synthetic timestamp from `makeRequest`. One zero-delay send reported `request.createdAt` 550 ms before the entry's start and a 42 ms round trip despite a 551 ms gap between the request and response timestamps. History sorts by this field. Reuse the captured send start for the History request and derive the round trip from the same request and response timestamps.
 - `make check` passed, including all 316 web tests. `make gen` reproduced both generated directories in a temporary checkout. In-memory GraphQL checks reproduced both findings. `git diff --check main...HEAD` still reports trailing whitespace emitted in the generated web SDL.
 - Review assumes one frontend developer using the in-memory exchange. The branch changes no proxy, store, or raw HTTP code, so the review did not run `make test-int`. Both findings go to the lead under the existing escalation.

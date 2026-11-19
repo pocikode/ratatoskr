@@ -114,7 +114,8 @@ function checkBytes(b64: unknown): string {
 }
 
 /** HTTP/1.x request line; the method is an RFC 9110 token, e.g. M-SEARCH. */
-const REQUEST_LINE = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+) (\S+) HTTP\/1\.[01]\r?\n/;
+// The target is delimited by bytes, not \s: JS treats UTF-8 continuation byte 0xA0 (in `à`) as whitespace.
+const REQUEST_LINE = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+) ([^ \r\n]+) HTTP\/1\.[01]\r?\n/;
 
 /** Latin1 byte string → text, decoded as UTF-8. */
 const utf8 = (bytes: string) =>
@@ -128,9 +129,16 @@ function defaultName(b64: string): string {
 
 const body = (s: string) => slicer(Uint8Array.from(s, (ch) => ch.charCodeAt(0)));
 
-/** A REPLAY record carrying exactly `raw` (latin1 text), with a canned 200 unless `failed`. */
-function record(id: number, raw: string, c: Connection, failed: boolean): MockRequest {
-  const r = makeRequest(id, Date.now() - id * 1500 - 1000);
+/** A REPLAY record carrying exactly `raw` (latin1 text) sent at `startMs`, with a canned 200 unless `failed`. */
+function record(
+  id: number,
+  raw: string,
+  c: Connection,
+  failed: boolean,
+  startMs: number,
+): MockRequest {
+  const r = makeRequest(id, 0);
+  const doneMs = Math.max(Date.now(), startMs);
   // The head ends at the first blank line, LF or CRLF, like the rawhttp parser.
   const blank = /\r?\n\r?\n/.exec(raw);
   const end = blank ? blank.index + blank[0].length : raw.length;
@@ -153,6 +161,7 @@ function record(id: number, raw: string, c: Connection, failed: boolean): MockRe
   return {
     ...r,
     source: 'REPLAY',
+    createdAt: new Date(startMs).toISOString(),
     host: c.host,
     port: c.port,
     tls: c.tls,
@@ -172,8 +181,8 @@ function record(id: number, raw: string, c: Connection, failed: boolean): MockRe
       : {
           code: 200,
           length: String(respHead.length + respBody.length),
-          roundtripMs: 42,
-          createdAt: new Date().toISOString(),
+          roundtripMs: doneMs - startMs,
+          createdAt: new Date(doneMs).toISOString(),
           head: btoa(respHead),
           bodyLength: String(respBody.length),
           body: body(respBody),
@@ -269,7 +278,9 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
   ): MockReplayEntry => {
     const e: MockReplayEntry = {
       id: `re${next++}`,
-      request: deps.addRecord((id) => record(id, raw, connection, error != null)),
+      request: deps.addRecord((id) =>
+        record(id, raw, connection, error != null, Date.parse(createdAt)),
+      ),
       error,
       createdAt,
     };
