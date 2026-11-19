@@ -3,7 +3,7 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: todo
+status: blocked
 depends_on: [T-030]
 owner: ""
 branch: task/T-031-intercept-service
@@ -57,11 +57,17 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
 
 ## Out-of-scope change needed (if any)
 
+- Lead clarification needed in F-INT-1. The Forward contract requires `BAD_INPUT` when replacement bytes fail to
+  parse. It also says an unparseable head, explicitly including conflicting duplicate `Content-Length` values,
+  goes out byte-for-byte. Both `rawhttp.ReadRequest` and `rawhttp.ReadResponse` reject conflicting lengths
+  during head parsing. Does the pass-through rule apply only to the Content-Length helper, with Forward
+  still rejecting invalid replacements and keeping the item held?
+
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: Recorded the conflicting Forward requirements. T-030 is merged on main.
+- How to verify: Compare F-INT-1 and the Forward mutation contract with `contentLength` in `internal/rawhttp/read.go`.
+- Known limitations: Implementation and `make check` are pending.
+- Follow-ups (proposed tasks): Resolve the Forward contract before implementing T-031.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
