@@ -68,6 +68,19 @@ unlimited projects/plugins) are **free and unlimited** here.
 - Project switch is instant for the UI (all stores reset + re-subscribe).
 - Unlimited projects.
 - AC: deleting a project removes its directory; switching projects never shows stale rows.
+- Rules (contract: `project.graphqls`):
+  - Names are trimmed; empty, longer than 200 characters, or containing control characters → `BAD_INPUT`. Names need
+    not be unique.
+  - Renaming a temporary project saves it (it stops being temporary).
+  - A temporary project cannot be the default (`BAD_INPUT`). At most one project is the default; `setDefaultProject(null)`
+    clears it.
+  - Duplicating without a name (or a blank one) names the copy `<source name> (copy)`; the copy is not selected.
+  - The project list is ordered by most recently opened first (never-opened projects by creation time).
+  - Deleting the selected project selects the default project, or a new temporary project when the deleted one was the
+    default or there is no default.
+- AC: `renameProject` on a temporary project returns `isTemporary: false`; `setDefaultProject` on a temporary project →
+  `BAD_INPUT`; `duplicateProject(id)` without a name → `"<name> (copy)"`; `projects` is ordered by last opened, newest
+  first; `createProject(name: "  ")` → `BAD_INPUT` and `createProject(name: " a ")` → `"a"`.
 
 ### F-WSP-2 Backups
 - Create backup of a project (zip: `project.db` + `files/` + manifest JSON), list, download, restore as new project, delete.
