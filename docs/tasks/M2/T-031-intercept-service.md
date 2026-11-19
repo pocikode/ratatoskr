@@ -3,7 +3,7 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: blocked
+status: todo
 depends_on: [T-030]
 owner: ""
 branch: task/T-031-intercept-service
@@ -32,8 +32,9 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
 
 ## Acceptance criteria
 - [ ] Hold blocks until Forward/Drop; Forward with bytes returns them (parsed with `rawhttp`, else `BAD_INPUT` with the
-      parse error), Forward without bytes returns the held bytes; Content-Length rule table-tested (TE present, body without
-      CL, CL present and wrong, no body no CL, `updateContentLength: false`).
+      parse error), Forward without bytes returns the held bytes unchanged (`updateContentLength` ignored); Content-Length
+      rule table-tested (TE present, body without CL, CL present and wrong, no body no CL, identical duplicate CL,
+      `updateContentLength: false`); replacement with conflicting duplicate CL → `BAD_INPUT`, item stays held.
 - [ ] Replacement `raw` over 16 MiB (decoded) → `BAD_INPUT`, item stays held (F-INT-1); exactly 16 MiB is accepted.
 - [ ] Any replacement `raw` for a held message over 16 MiB → `BAD_INPUT`, item stays held; forwarding it unchanged and
       dropping it work; `InterceptItem.raw` returns the whole held message.
@@ -62,6 +63,12 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
   goes out byte-for-byte. Both `rawhttp.ReadRequest` and `rawhttp.ReadResponse` reject conflicting lengths
   during head parsing. Does the pass-through rule apply only to the Content-Length helper, with Forward
   still rejecting invalid replacements and keeping the item held?
+
+- **Resolved (lead, 2026-11-19):** yes. Forward parses replacement bytes with `rawhttp` first; any parse failure,
+  conflicting `Content-Length` values included, is `BAD_INPUT` and the item stays held. The pass-through clause describes
+  the Content-Length helper itself (shared with Replay, which sends unparsed bytes); keep that behaviour in the helper
+  (unparseable input → returned unchanged) but Intercept never calls it on such bytes. Without `raw`, the held bytes go
+  out unchanged and `updateContentLength` is ignored. F-INT-1 and the `forwardInterceptItem` description updated.
 
 ## Handoff (implementer)
 - What changed: Recorded the conflicting Forward requirements. T-030 is merged on main.

@@ -2888,13 +2888,15 @@ extend type Mutation {
   an edited record linked to the original (F-HIST-4). With
   ` + "`" + `updateContentLength` + "`" + `, ` + "`" + `Content-Length` + "`" + ` is set to the body size when the
   message has no ` + "`" + `Transfer-Encoding` + "`" + ` and has a body or a ` + "`" + `Content-Length` + "`" + `
-  header; otherwise the bytes go out exactly as given. Editing ` + "`" + `Host` + "`" + ` or the
+  header; otherwise the bytes go out exactly as given. Without ` + "`" + `raw` + "`" + ` the held
+  message goes out unchanged and ` + "`" + `updateContentLength` + "`" + ` is ignored. Editing ` + "`" + `Host` + "`" + ` or the
   request target never changes the destination: the request goes to the
   original connection's host, port and TLS.
 
   Errors:
   - ` + "`" + `NOT_FOUND` + "`" + `: unknown ID or item already released.
-  - ` + "`" + `BAD_INPUT` + "`" + `: ` + "`" + `raw` + "`" + ` does not parse (the message quotes the parse error), is
+  - ` + "`" + `BAD_INPUT` + "`" + `: ` + "`" + `raw` + "`" + ` does not parse (the message quotes the parse error;
+    duplicate ` + "`" + `Content-Length` + "`" + ` headers with different values do not parse), is
     over 16 MiB, or is given for a held message over 16 MiB; the item stays
     held. An API request whose declared ` + "`" + `Content-Length` + "`" + ` exceeds the cap gets
     HTTP 413 before this mutation runs; a longer body without one (chunked)
