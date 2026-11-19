@@ -3,9 +3,9 @@ id: T-034
 title: Replay page shell - session sidebar, collections, tab strip
 milestone: M2
 role: frontend
-status: todo
+status: in_progress
 depends_on: [T-098]
-owner: ""
+owner: "claude-sonnet-5.5"
 branch: task/T-034-replay-shell
 paths:
   - web/src/pages/replay/*.svelte
@@ -48,6 +48,14 @@ session body.
 - Docs/02 §2 lists `SessionSidebar` and `TabStrip` as shared components; keep Replay-specific GraphQL out of them (props + callbacks).
 
 ## Plan (implementer, ≤15 lines)
+- `replay.graphql` (+codegen) → `replay.svelte.ts` `ReplayState` (collections, CRUD, move w/ revert, tabs, per-project localStorage).
+- Shared `SessionSidebar` (ARIA tree, search, native DnD, inline rename; generic groups/items props + callbacks) and
+  `TabStrip` (tablist, rename, colour dot, overflow menu); neither imports Replay GraphQL.
+- Menus/shortcuts via the registry: `replay.*` and `tab.next/prev/close` registered while the page is mounted; context
+  menus use the shared `ContextMenu` with a `replay` target on the command context.
+- `NewSessionDialog` + `url.ts` (builds `GET <path> HTTP/1.1` + `Host`, port omitted when default); `openInReplay.ts`.
+- `ReplayPage` loads collections, restores tabs, syncs `#/replay/session/<id>`; placeholder `session/SessionEditor.svelte`.
+- Tests: state/url unit tests + page component test against the mock client.
 
 ## Out-of-scope change needed (if any)
 
