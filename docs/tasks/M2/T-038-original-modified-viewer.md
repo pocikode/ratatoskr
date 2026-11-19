@@ -72,6 +72,11 @@ Both records of an edited pair are marked in history, and the viewer switches bo
   - History page: an Original / Modified switch (`role=group`, `aria-pressed` buttons) from either record, loading the
     sibling via `HistoryRequestDocument`; both panes plus the preview URL follow the shown record. The switch flips only
     once the other record's bytes have arrived, so the pressed state never disagrees with the panes.
+- Review fixes (2026-11-19):
+  - A selection change clears `chosen` / `sibling` and bumps `siblingToken` (an `$effect` on `Selection.anchor`), so a
+    reselected row starts on its own record and a slow sibling fetch for the previous row is dropped, error message
+    included. Regression test: "starts a reselected row on its own record after switching elsewhere" (fails without the
+    fix).
 - How to verify: `cd web && bun run test`; or `bun run dev`, open `/?mock=history` (or `localStorage['history.mock']=1`),
   and pick a row whose Edited column shows `✎` (ids 24/25 with the 500-row mock). `make check` green.
 - Known limitations: the sibling is fetched on click, so the swap waits for one round trip; the switch is a pair of
@@ -84,6 +89,6 @@ Both records of an edited pair are marked in history, and the viewer switches bo
 - Verdict: changes_requested
 - Checks: diff is inside `paths` (generated files come from `make gen`). `make check` green (Go cached; web check, 303 unit tests pass).
 - Findings:
-- [ ] [major] web/src/pages/http-history/HttpHistoryPage.svelte:63-78 — `chosen` is never cleared. Click 24, press Modified (`chosen={from:24,id:25}`), click row 3, click 24 again: `chosen.from === detail.id` and `sibling.id === 25`, so the panes show Modified for a row the user just clicked as Original. This breaks "starting on the clicked row" (spec F-HIST-4/Scope). → reset `chosen = null; sibling = null` (and bump `siblingToken`) when the selected id changes, e.g. in an `$effect` on `history.detail?.id`, or key `chosen` on a per-selection counter. Add a test: switch, select another row, reselect the first, expect Original pressed.
-- [ ] [minor] web/src/pages/http-history/HttpHistoryPage.svelte:83-93 — `showRecord` is not cancelled when the selection changes. A slow response for row A that lands after the user picked row B still writes `history.message` on error and replaces `sibling`. The same reset as above (bump `siblingToken` on selection change) fixes it.
-- [ ] [nit] web/src/pages/http-history/HttpHistoryPage.svelte — the switch uses `aria-pressed` buttons, so the state is announced. This is accepted (see Handoff), no change needed.
+- [x] [major] web/src/pages/http-history/HttpHistoryPage.svelte:63-78 — `chosen` is never cleared. Click 24, press Modified (`chosen={from:24,id:25}`), click row 3, click 24 again: `chosen.from === detail.id` and `sibling.id === 25`, so the panes show Modified for a row the user just clicked as Original. This breaks "starting on the clicked row" (spec F-HIST-4/Scope). → reset `chosen = null; sibling = null` (and bump `siblingToken`) when the selected id changes, e.g. in an `$effect` on `history.detail?.id`, or key `chosen` on a per-selection counter. Add a test: switch, select another row, reselect the first, expect Original pressed.
+- [x] [minor] web/src/pages/http-history/HttpHistoryPage.svelte:83-93 — `showRecord` is not cancelled when the selection changes. A slow response for row A that lands after the user picked row B still writes `history.message` on error and replaces `sibling`. The same reset as above (bump `siblingToken` on selection change) fixes it.
+- [x] [nit] web/src/pages/http-history/HttpHistoryPage.svelte — the switch uses `aria-pressed` buttons, so the state is announced. This is accepted (see Handoff), no change needed.

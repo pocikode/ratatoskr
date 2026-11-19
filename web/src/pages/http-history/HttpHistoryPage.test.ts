@@ -194,6 +194,34 @@ describe('HttpHistoryPage', () => {
     await waitFor(() => expect(request).toHaveTextContent('X-Edited: 1'));
   });
 
+  it('starts a reselected row on its own record after switching elsewhere', async () => {
+    const user = userEvent.setup();
+    render(HttpHistoryPage, { client: createMockClient({ count: 30, liveIntervalMs: 0 }) });
+    await screen.findByText('30 rows');
+    const grid = within(screen.getByRole('grid', { name: 'HTTP History' }));
+
+    await user.click(grid.getByRole('gridcell', { name: '24' }));
+    const request = await screen.findByRole('region', { name: 'Request' });
+    await waitFor(() => expect(request).not.toHaveTextContent('X-Edited: 1'));
+    await user.click(within(request).getByRole('button', { name: 'Modified' }));
+    await waitFor(() => expect(request).toHaveTextContent('X-Edited: 1'));
+
+    await user.click(grid.getByRole('gridcell', { name: '3' }));
+    await user.click(grid.getByRole('gridcell', { name: '24' }));
+
+    await waitFor(() =>
+      expect(within(request).getByRole('button', { name: 'Original' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    );
+    expect(within(request).getByRole('button', { name: 'Modified' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(request).not.toHaveTextContent('X-Edited: 1');
+  });
+
   it('operates the viewed record from the keyboard and hides it for unedited rows', async () => {
     const user = userEvent.setup();
     render(HttpHistoryPage, { client: createMockClient({ count: 30, liveIntervalMs: 0 }) });
