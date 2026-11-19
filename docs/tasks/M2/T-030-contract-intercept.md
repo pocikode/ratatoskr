@@ -3,7 +3,7 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: []
 owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
@@ -128,3 +128,20 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
   ``context loading failed: no go files to analyze: running `go mod tidy` may solve the problem``.
   Two `make gen` runs in an isolated snapshot reproduced the committed files byte for byte. Reproduced the ordering,
   filter, and fixture issues with one local mock instance. Every changed file is in task scope.
+
+### Round 2 (`05af50d`)
+
+- [ ] [major] web/src/lib/api/mocks/history.ts:288 — The seeded pair shares one exchange, but original row `24` still has
+  source `AUTOMATE` and links to edited row `25` with source `INTERCEPT`. F-HIST-4 excludes Automate and Replay from
+  edited pairs. → Set the original fixture's source to `PROXY` and assert both sources in the existing pair test.
+- [ ] [minor] web/src/lib/api/mocks/intercept.ts:200 — With queuing off, the timer can add a request marked as dropped by
+  Intercept without any drop action. Starting with `count: 12`, the first timer arrival (`16`) has `isDropped: true`
+  and the queue stays empty. → Clear the generated drop flag for timer arrivals before deciding whether to hold them.
+- [ ] [minor] web/src/lib/api/mocks/intercept.ts:184 — The held exchange can appear in history after the time it entered
+  the queue. `makeRequest` adds a row-ID offset to `Date.now()`, so with the default 500 history rows, the first held
+  request's `createdAt` is more than 12 minutes ahead of `heldAt`. → Use the arrival time for intercept fixtures and
+  assert that a request's `createdAt` is at or before `heldAt` for seeded and timer arrivals.
+- Verification: `make check` passed, including 243 web tests. Two `make gen` runs in an isolated snapshot reproduced
+  the committed files. Confirmed mixed release order, timer matching and project-switch documentation. Every changed
+  file is in scope. `git diff --check main...HEAD` reported trailing whitespace on lines 514, 523 and 605 of the
+  generated `web/src/lib/api/generated/schema.graphql`. No proxy, store or raw HTTP code changed.
