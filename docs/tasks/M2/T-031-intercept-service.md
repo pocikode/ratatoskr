@@ -3,7 +3,7 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: in_progress
+status: in_review
 depends_on: [T-030]
 owner: "Codex"
 branch: task/T-031-intercept-service
@@ -31,26 +31,26 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
 - Out: proxy changes (T-105), app wiring (T-109), WebSocket items (T-053).
 
 ## Acceptance criteria
-- [ ] Hold blocks until Forward/Drop; Forward with bytes returns them (parsed with `rawhttp`, else `BAD_INPUT` with the
+- [x] Hold blocks until Forward/Drop; Forward with bytes returns them (parsed with `rawhttp`, else `BAD_INPUT` with the
       parse error), Forward without bytes returns the held bytes unchanged (`updateContentLength` ignored); Content-Length
       rule table-tested (TE present, body without CL, CL present and wrong, no body no CL, identical duplicate CL,
       `updateContentLength: false`); replacement with conflicting duplicate CL → `BAD_INPUT`, item stays held.
-- [ ] Replacement `raw` over 16 MiB (decoded) → `BAD_INPUT`, item stays held (F-INT-1); exactly 16 MiB is accepted.
-- [ ] Any replacement `raw` for a held message over 16 MiB → `BAD_INPUT`, item stays held; forwarding it unchanged and
+- [x] Replacement `raw` over 16 MiB (decoded) → `BAD_INPUT`, item stays held (F-INT-1); exactly 16 MiB is accepted.
+- [x] Any replacement `raw` for a held message over 16 MiB → `BAD_INPUT`, item stays held; forwarding it unchanged and
       dropping it work; `InterceptItem.raw` returns the whole held message.
-- [ ] "Should hold" matrix table test: queuing × requests/responses × query × scope; `resp.*` clauses are false for a request.
-- [ ] Turning queuing off releases every held item in FIFO order (synctest, order asserted); turning `requests` off releases
+- [x] "Should hold" matrix table test: queuing × requests/responses × query × scope; `resp.*` clauses are false for a request.
+- [x] Turning queuing off releases every held item in FIFO order (synctest, order asserted); turning `requests` off releases
       only request items; a project-switch call releases all and loads the new project's settings.
-- [ ] Project switch: each item records the selected `*store.DB` at hold time; items of another DB are invisible to
+- [x] Project switch: each item records the selected `*store.DB` at hold time; items of another DB are invisible to
       `interceptQueue`, Forward/Drop (`NOT_FOUND`), the all-counts and `interceptQueueChanged`. The switch releases them with
       no `REMOVED` event, then emits `interceptSettingsChanged` (queuing false). Test: hold under DB A, swap to B, the queue
       query is empty and `request` is never resolved against B.
-- [ ] ctx cancelled while held (client gone) → item removed and a `REMOVED` event emitted; no goroutine leak (synctest).
-- [ ] Settings: persisted per project except `queuing` (reopen → `queuing=false`, others kept); `dropStatusCode` outside
+- [x] ctx cancelled while held (client gone) → item removed and a `REMOVED` event emitted; no goroutine leak (synctest).
+- [x] Settings: persisted per project except `queuing` (reopen → `queuing=false`, others kept); `dropStatusCode` outside
       100–599 → `BAD_INPUT`; bad `query` → `BAD_QUERY` with span; unknown `scopeId` → `NOT_FOUND`.
-- [ ] Resolver tests: unknown/released item → `NOT_FOUND`; forwardAll/dropAll counts; `interceptQueueChanged` and
+- [x] Resolver tests: unknown/released item → `NOT_FOUND`; forwardAll/dropAll counts; `interceptQueueChanged` and
       `interceptSettingsChanged` deliver events; `InterceptItem.request` loads the record through `Deps.History`.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 ## Notes from lead
 - Item ID = opaque string derived from the history request ID and kind (e.g. `req:12`); never parse it in the UI.
@@ -102,10 +102,15 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
   out unchanged and `updateContentLength` is ignored. F-INT-1 and the `forwardInterceptItem` description updated.
 
 ## Handoff (implementer)
-- What changed: Verified T-030 is merged on main and recorded the project-switch history lookup conflict.
-- How to verify: Compare the non-null `InterceptItem.request` contract with project selection and history lookup at the locations above.
-- Known limitations: Implementation and `make check` are pending.
-- Follow-ups (proposed tasks): Clarify the switch subscription contract and pending history lookup before implementation.
+- Implemented per-project settings, HTTPQL and scope matching, FIFO release decisions, replacement validation, and queue
+  and settings events. Queue IDs include a sequence so an old ID cannot address a new project's item with the same
+  history ID. The resolvers load records through `Deps.History` and discard lookups that overlap a project switch.
+- `make check` passed, including 295 web tests. The focused intercept and resolver tests also passed three consecutive
+  Go race runs. They cover SQLite reopen, FIFO release, cancellation, edit boundaries and GraphQL operations.
+- A nested history field such as `request.head` that executes during a project switch can still follow the global
+  History selection after its queue item was resolved. Clients reset on `projectChanged` per the switch contract.
+- T-105 calls `WouldHold`, then `HoldRequest` or `HoldResponse` with the history record's DB and a fully buffered
+  `query.Message` after `Capture.Written`. T-109 initializes the service and calls `ProjectChanged` on selection.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
