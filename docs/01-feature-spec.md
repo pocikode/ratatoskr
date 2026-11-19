@@ -164,6 +164,8 @@ unlimited projects/plugins) are **free and unlimited** here.
   - Forward takes optional replacement bytes, which must parse as an HTTP/1.x request (or response) — else `BAD_INPUT`
     with the parse error. `updateContentLength` (default true) sets `Content-Length` to the body size when the message has
     no `Transfer-Encoding` and has a body or a `Content-Length` header; otherwise the bytes go out exactly as given.
+    Identical duplicate `Content-Length` headers become one, at the first one's position. A head that does not parse,
+    including duplicate `Content-Length` headers with different values, is never rewritten: the bytes go out exactly as given.
     Editing `Host` or the target never changes the destination (the original connection's host, port and TLS).
   - Replacement bytes are at most 16 MiB (else `BAD_INPUT`), so their base64 fits the 32 MiB API request cap (docs/03
     §6). A held message over 16 MiB can only be forwarded unchanged or dropped; the UI shows it read-only and says why.

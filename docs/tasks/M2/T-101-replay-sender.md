@@ -3,7 +3,7 @@ id: T-101
 title: Replay sender - raw send over a fresh connection, Content-Length rule, timeout, cancel, redirects
 milestone: M2
 role: backend
-status: blocked
+status: todo
 depends_on: []
 owner: ""
 branch: task/T-101-replay-sender
@@ -52,10 +52,15 @@ Automate/workflows later.
   generation or automatic retries. Request validation or "fixing" before send is **rejected** because it breaks the
   F-REP-2 AC. The only rewrite is the opt-in Content-Length update (F-INT-1). Acceptance criteria are unchanged. Tests
   run only against local `testutil` servers on 127.0.0.1 (AGENTS.md rule 7: no real targets).
+- 2026-11-19 second unblock: re-blocked with no new question. The decision above stands and is final for this task:
+  the sender writes the bytes it is given, unvalidated, like any HTTP repeater. "Validated framing" is not an accepted
+  contract and is not a follow-up. An implementer who will not build that should leave the task unclaimed rather than block it.
+  Clarified in F-INT-1: identical duplicate CLs merge, conflicting CLs or unparseable heads are left untouched, so the
+  existing `UpdateContentLength` behaviour is correct; add a test for the conflicting case. Remaining work: the sender
+  itself (dial, TLS/SNI/ALPN, timeout, cancel, cap, redirects, error kinds) and its tests.
 
 ## Plan (implementer, ≤15 lines)
 - Implement and test the offline Content-Length correction with `rawhttp.Builder`.
-- Blocked on the sender acceptance criterion for transmitting deliberately malformed HTTP framing in request-smuggling tests.
 
 ## Out-of-scope change needed (if any)
 
@@ -63,7 +68,7 @@ Automate/workflows later.
 - What changed: Added offline `sender.UpdateContentLength` with byte-counting and header-preservation tests.
 - How to verify: `go test -race ./internal/replay/sender ./internal/rawhttp`.
 - Known limitations: The helper preserves input when `rawhttp` rejects the head, including conflicting Content-Length values. The sender is unimplemented.
-- Follow-ups (proposed tasks): Define a sender contract for validated HTTP framing if that meets the Replay use case.
+- Follow-ups (proposed tasks):
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
