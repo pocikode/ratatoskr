@@ -3,7 +3,7 @@ id: T-101
 title: Replay sender - raw send over a fresh connection, Content-Length rule, timeout, cancel, redirects
 milestone: M2
 role: backend
-status: in_review
+status: done
 depends_on: []
 owner: codex
 branch: task/T-101-replay-sender
