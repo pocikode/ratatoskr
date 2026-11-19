@@ -3,14 +3,16 @@ id: T-095
 title: HTTP History paging via TrafficTable near-end hook (follow-up of T-017, unblocks T-021)
 milestone: M1
 role: frontend
-status: todo
+status: in_progress
 depends_on: [T-017]
-owner: ""
+owner: "Codex"
 branch: task/T-095-history-pagination
 paths:
   - web/src/lib/components/TrafficTable/**
   - web/src/pages/http-history/**
   - web/src/lib/api/mocks/history.ts
+  - web/src/lib/api/generated/**   # via `make gen` only, never hand-edited
+  - docs/tasks/T-017-http-history-page.md   # Known limitations only
 spec:
   - docs/01-feature-spec.md#F-HIST-1
   - docs/06-frontend-conventions.md §7
@@ -44,6 +46,8 @@ pages with the existing `requests(first, after)` cursor when the table nears its
 - [ ] `make check` green.
 
 ## Notes from lead
+- `HistoryRequests` in `http-history.graphql` does not send `after` yet: add `$after: String` and pass it to
+  `requests(...)`, then run `make gen` and commit the regenerated `web/src/lib/api/generated/**`. No schema change.
 - Use the existing mock in `lib/api/mocks/history.ts` (it already handles `after`). Extend it only if needed for
   `hasNextPage`.
 - No new dependencies. Keep `PAGE = 1000` (schema max). Update the comment at `history.svelte.ts:29` and remove the
@@ -53,7 +57,18 @@ pages with the existing `requests(first, after)` cursor when the table nears its
 
 ## Plan (implementer, ≤15 lines)
 
+1. Add the cursor to the history GraphQL operation and regenerate the frontend documents.
+2. Trigger paging from the virtual window and track the active row by key.
+3. Reuse the successful reload's query arguments for paging and cancel superseded requests.
+4. Cover scrolling, virtualized row counts, live overlap, paging errors, and reloads in Vitest.
+
 ## Out-of-scope change needed (if any)
+
+- **Resolved (lead, 2026-11-19):** both granted, see `paths` and Notes from lead.
+- Add `web/src/lib/api/generated/**` to `paths`. The schema already accepts `after`, but the `HistoryRequests`
+  operation omits it. Updating `web/src/pages/http-history/http-history.graphql` to send the cursor requires
+  regenerating the checked-in frontend GraphQL document and types.
+- Add `docs/tasks/T-017-http-history-page.md` to `paths` so the first-page-only limitation can be removed as requested.
 
 ## Handoff (implementer)
 - What changed:
