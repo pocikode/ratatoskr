@@ -341,6 +341,16 @@ describe('match & replace mock', () => {
     expect(atob(wide.data!.testMatchReplace.output)).toBe(
       `HTTP/1.1 200 OK\r\n${'A: 2\r\n'.repeat(200_000)}\r\n`,
     );
+    // A 64 KiB matcher over 1000 headers: encoded once, not per line (was ~2.5 s).
+    const thousand = btoa(`HTTP/1.1 200 OK\r\n${'A: 1\r\n'.repeat(1000)}\r\n`);
+    const t0 = performance.now();
+    const big = await m(TEST, {
+      r: { ...hdr, matcher: { kind: 'STRING', value: 'z'.repeat(64 * 1024) } },
+      k: 'RESPONSE',
+      raw: thousand,
+    });
+    expect(big.data!.testMatchReplace).toMatchObject({ output: thousand, changed: false });
+    expect(performance.now() - t0).toBeLessThan(1000);
     // Base64 as the Go scalar reads it: CR/LF ignored, other whitespace rejected.
     expect((await m(TEST, { r: body, k: 'RESPONSE', raw: `${resp}\r\n` })).error).toBeUndefined();
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: `${resp}    ` }))).toBe('BAD_INPUT');

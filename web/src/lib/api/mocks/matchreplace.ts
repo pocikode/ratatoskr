@@ -159,6 +159,8 @@ function applyRule(rule: MockRuleInput, raw: string): string {
   let body = raw.slice(cut + 4);
   const term = toBytes(rule.term);
   const { kind, value } = rule.matcher;
+  // Converted once: a large matcher re-encoded per header line made the tester quadratic.
+  const v = kind === 'STRING' ? toBytes(value) : '';
   // Output cap is checked on the exact result size before any replaced text is built.
   let size = raw.length;
   const grow = (n: number) => {
@@ -169,7 +171,6 @@ function applyRule(rule: MockRuleInput, raw: string): string {
   const plan = (text: string): [number, () => string] => {
     if (kind === 'FULL') return [term.length, () => term];
     if (kind !== 'STRING') return [text.length, () => text];
-    const v = toBytes(value);
     const parts = text.split(v);
     return [text.length + (parts.length - 1) * (term.length - v.length), () => parts.join(term)];
   };
