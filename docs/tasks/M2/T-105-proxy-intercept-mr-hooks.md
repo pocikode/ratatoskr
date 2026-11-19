@@ -34,6 +34,8 @@ without changing the streaming path for traffic that neither feature touches.
     }
     ```
   - Full buffering (≤ capture cap) only when one of them is active for that side; over the cap → stream unchanged.
+  - Before each hold (request or response), wait for `Capture.Written(ctx, id)` (T-100) so the held item's record is
+    readable (F-INT-1); only when the would-hold check says the message will be held.
   - Order: M&R `proxy` → hold → after a Forward that changed bytes, M&R `intercept` → send upstream; same on the response side.
   - Drop request / response per F-INT-1 (status from the hold decision, our own short HTML body, `isDropped`).
   - Edited pair per F-HIST-4 via the T-100 capture API (source `intercept` when the user's edit changed bytes).
@@ -48,6 +50,7 @@ without changing the streaming path for traffic that neither feature touches.
 - [ ] Drop response → client gets the configured status, record keeps the server response and `isDropped`.
 - [ ] Response held and edited → client gets the edited response; pair stored with identical request bytes.
 - [ ] Editing `Host` in a held request does not change where it is sent.
+- [ ] Hold is called only after `Written` returned for the record (fake Interceptor asserts `history.Service.Get` succeeds).
 - [ ] Body over the capture cap with an active Interceptor/Rewriter passes through unheld and unchanged (test with a small cap).
 - [ ] Fake Rewriter adding a header → server sees it, pair stored with the original's source; `intercept` rules run only
       after a Forward that changed bytes.

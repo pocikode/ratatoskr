@@ -73,6 +73,8 @@ switched, or the client disconnects (a held request then leaves the queue and
 its record stays without a response). Turning queuing or a side off, and a
 project switch, forward the affected items unchanged in arrival (FIFO) order;
 on a project switch this happens before the new project's settings load.
+Only items of the selected project are visible; an item is added only once its
+history record is written, so `request` always resolves.
 """
 type InterceptItem implements Node {
   "Opaque ID, valid while the item is held."
@@ -183,7 +185,11 @@ extend type Mutation {
 }
 
 extend type Subscription {
-  "Each item entering or leaving the intercept queue of the selected project."
+  """
+  Each item entering or leaving the intercept queue of the selected project.
+  Items released by a project switch emit no `REMOVED`: clients drop the queue
+  on `projectChanged` `SELECTED` and refetch `interceptQueue`.
+  """
   interceptQueueChanged: InterceptQueueChange!
   """
   The settings after every change, by any client, including the reset to

@@ -179,6 +179,14 @@ unlimited projects/plugins) are **free and unlimited** here.
   - Turning queuing off, or turning `requests`/`responses` off, forwards the affected held items unchanged in FIFO order.
     A project switch does the same before the new project's settings load. If the client disconnects while its request
     is held, the item leaves the queue and the record stays without a response.
+  - Project switch (clarified 2026-11-19, T-031): an item belongs to the project database that was selected when it was
+    held. Only the selected project's items are visible: in `interceptQueue`, as IDs for Forward/Drop (otherwise
+    `NOT_FOUND`), in the Forward all / Drop all counts and in `interceptQueueChanged`. A switch releases the old items
+    without `REMOVED` events, because clients drop all project-scoped state on `projectChanged` `SELECTED` and refetch.
+    It then emits `interceptSettingsChanged` with the new project's settings (Forwarding).
+  - An item enters the queue only after its history record has been written (docs/03 §4, clarified 2026-11-19, T-031):
+    the proxy waits for that write before it holds the message, which costs at most one flush interval. `ADDED`,
+    `interceptQueue` and `InterceptItem.request` therefore always find the record.
   - Live updates: subscriptions `interceptQueueChanged` (item added / removed) and `interceptSettingsChanged`. The
     sidebar badge is the number of held items.
   - WebSocket messages are M4 (T-053). In M2 the Intercept actions are Forward, Drop, Forward all, Drop all, undo edits

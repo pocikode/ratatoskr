@@ -225,6 +225,8 @@ type HTTPResponse struct {
 // its record stays without a response). Turning queuing or a side off, and a
 // project switch, forward the affected items unchanged in arrival (FIFO) order;
 // on a project switch this happens before the new project's settings load.
+// Only items of the selected project are visible; an item is added only once its
+// history record is written, so `request` always resolves.
 type InterceptItem struct {
 	// Opaque ID, valid while the item is held.
 	ID string `json:"id"`
