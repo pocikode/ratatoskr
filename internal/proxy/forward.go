@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"html"
 	"io"
 	"strconv"
@@ -61,7 +62,47 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		defer func() { c.continued = false }()
 	}
 
-	resp, up, err := c.roundTrip(req, out, dst, pending)
+	x := &edits{sent: req}
+
+	if c.s.hookRequest() {
+		data, full, err := c.s.buffer(&req.Message)
+
+		switch {
+		case err != nil:
+			pending()
+
+			return c.fail(id, dst, err)
+		case !full:
+			// Over the cap: sent unheld and unchanged, the consumed bytes first.
+			head, _, err := c.s.upstreamBytes(req.Head(), inTunnel)
+			if err != nil {
+				pending()
+
+				return c.fail(id, dst, err)
+			}
+
+			out = writeAll{b: append(head, data[len(req.Head()):]...), r: req.Body()}
+		default:
+			pending()
+
+			var dropped bool
+			if out, dropped, err = c.requestHooks(x, id, &entry, data, inTunnel); dropped {
+				return false
+			}
+
+			if errors.Is(err, errHoldEnded) {
+				c.s.hc.Complete(c.ctx, id, nil) // the record stays without a response (F-INT-1)
+
+				return false
+			}
+
+			if err != nil {
+				return c.fail(id, dst, err)
+			}
+		}
+	}
+
+	resp, up, err := c.roundTrip(x.sent, out, dst, pending)
 	if err != nil {
 		pending()
 		return c.fail(id, dst, err)
@@ -72,28 +113,23 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 	}
 
 	if resp.Status() == 101 {
+		owner := c.editOwner(id, x.sentRaw != nil)
 		c.finish(id, answer, resp)
+		c.storeEdited(owner, x, id, &entry, answer)
 		return c.upgrade(resp, up)
+	}
+
+	if c.s.hookResponse() {
+		return c.respondHooked(x, id, &entry, req, resp, up, answer)
 	}
 
 	_, copyErr := resp.WriteTo(c.conn)
 
+	owner := c.editOwner(id, x.sentRaw != nil)
 	c.finish(id, answer, resp)
+	c.storeEdited(owner, x, id, &entry, answer)
 
-	switch {
-	case copyErr != nil:
-		_ = up.Close() // the body is incomplete either way
-
-		return false
-	case req.Close() || resp.Close() || resp.Framing() == rawhttp.FramingClose:
-		_ = up.Close()
-
-		return false
-	}
-
-	c.s.pool.Put(up)
-
-	return true
+	return c.release(copyErr, req, x.sent, resp, up) // an incomplete body closes up either way
 }
 
 // idempotent reports the RFC 9110 safe methods: a repeat is harmless.

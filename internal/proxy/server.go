@@ -63,8 +63,13 @@ type Deps struct {
 	CA CA
 	// Pool dials upstreams. Nil means a zero [netx.Pool].
 	Pool *netx.Pool
-	// Capture records exchanges. Nil records nothing.
+	// Capture records exchanges. Nil records nothing. Holds and edited pairs
+	// need it to implement [HoldCapture].
 	Capture Capture
+	// Interceptor holds messages for review. Nil disables Intercept.
+	Interceptor Interceptor
+	// Rewriter applies Match & Replace. Nil disables it.
+	Rewriter Rewriter
 	// UI serves requests addressed to Ratatoskr. Nil answers 404.
 	UI     http.Handler
 	Logger *slog.Logger
@@ -85,6 +90,10 @@ type Server struct {
 	deps Deps
 	pool *netx.Pool
 	log  *slog.Logger
+	// hc is Capture when it supports holds and edited pairs.
+	hc HoldCapture
+	// icpt is Interceptor when hc is set.
+	icpt Interceptor
 
 	mu    sync.Mutex
 	conns map[net.Conn]struct{}
@@ -111,6 +120,16 @@ func New(deps Deps) *Server {
 
 	if s.deps.HeaderTimeout == 0 {
 		s.deps.HeaderTimeout = defaultHeaderTimeout
+	}
+
+	s.hc, _ = deps.Capture.(HoldCapture)
+
+	switch {
+	case deps.Interceptor == nil:
+	case s.hc == nil:
+		s.log.Warn("proxy: capture cannot confirm pending records; Intercept holds are off", "component", "proxy")
+	default:
+		s.icpt = deps.Interceptor
 	}
 
 	return s
