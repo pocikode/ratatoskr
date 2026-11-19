@@ -63,7 +63,7 @@ export function mockHistoryExchange(opts: MockExchangeOptions = {}): Exchange {
       liveIntervalMs: opts.interceptLiveIntervalMs,
     }).root,
     ...env.root,
-    ...createMatchReplaceMock().root,
+    ...createMatchReplaceMock(schema).root,
     ...createReplayMock(
       {
         addRecord: history.addRecord,

@@ -2,7 +2,7 @@
 // Resolvers follow internal/api/graphql/schema/matchreplace.graphqls, including its error codes.
 // Seed rules use reserved hosts only.
 
-import { GraphQLError } from 'graphql';
+import { GraphQLError, coerceInputValue, type GraphQLInputType, type GraphQLSchema } from 'graphql';
 
 type Args = Record<string, unknown>;
 
@@ -162,7 +162,21 @@ function applyRule(rule: MockRuleInput, raw: string): string {
  * A fake Match & Replace backend: two collections with four rules (one disabled) on reserved
  * hosts. The tester follows {@link applyRule}.
  */
-export function createMatchReplaceMock() {
+export function createMatchReplaceMock(schema: GraphQLSchema) {
+  const ruleInput = schema.getType('MatchReplaceRuleInput') as GraphQLInputType;
+  // Exact keys at every level, then the schema's own coercion for types, enums and nested fields.
+  const sameKeys = (o: unknown, keys: readonly string[]) =>
+    !!o &&
+    typeof o === 'object' &&
+    !Array.isArray(o) &&
+    Object.keys(o).length === keys.length &&
+    keys.every((k) => Object.hasOwn(o, k));
+  const importRule = (r: unknown): MockRuleInput => {
+    const coerced = sameKeys(r, RULE_KEYS) ? coerceInputValue(r, ruleInput) : undefined;
+    if (coerced === undefined)
+      throw fail('BAD_INPUT', 'unknown, missing or mistyped fields (see MatchReplaceRuleInput)');
+    return normalize(coerced as Args);
+  };
   const collections: MockCollection[] = [];
   let nextId = 1;
 
@@ -308,18 +322,38 @@ export function createMatchReplaceMock() {
         return r.id;
       },
       importMatchReplace({ json }: Args) {
-        let data: { version?: unknown; collections?: { name: unknown; rules: Args[] }[] };
+        let data: { version: unknown; collections: { name: unknown; rules: unknown[] }[] };
         try {
           data = JSON.parse(String(json));
         } catch (e) {
           throw fail('BAD_INPUT', `invalid JSON: ${(e as Error).message}`);
         }
-        if (data?.version !== 1) throw fail('BAD_INPUT', 'unsupported export version');
-        if (!Array.isArray(data.collections)) throw fail('BAD_INPUT', 'collections is missing');
+        if (!sameKeys(data, ['version', 'collections']) || !Array.isArray(data.collections))
+          throw fail('BAD_INPUT', 'expected exactly {"version":1,"collections":[…]}');
+        if (data.version !== 1) throw fail('BAD_INPUT', 'unsupported export version');
         // Validate everything first: all or nothing.
         const parsed = data.collections.map((c, ci) => {
+          if (
+            !sameKeys(c, ['name', 'rules']) ||
+            typeof c.name !== 'string' ||
+            !Array.isArray(c.rules)
+          )
+            throw fail(
+              'BAD_INPUT',
+              `collection ${ci + 1}: expected exactly {"name":"…","rules":[…]}`,
+            );
+          const rules = c.rules.map((r, ri) => {
+            try {
+              return importRule(r);
+            } catch (e) {
+              throw fail(
+                'BAD_INPUT',
+                `collection ${ci + 1}, rule ${ri + 1}: ${(e as Error).message}`,
+              );
+            }
+          });
           try {
-            return { name: checkName(c.name), rules: (c.rules ?? []).map((r) => normalize(r)) };
+            return { name: checkName(c.name), rules };
           } catch (e) {
             throw fail('BAD_INPUT', `collection ${ci + 1}: ${(e as Error).message}`);
           }

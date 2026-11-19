@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -76,6 +76,8 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   embedded in collections, so the back-reference stays acyclic). `stubs_matchreplace.go` + `Deps.MatchReplace`
   placeholder; regenerated code. Mock `mocks/matchreplace.ts` (2 collections, 4 rules, one disabled) wired into
   `exchange.ts`; `matchreplace.test.ts` covers CRUD, enable, move, reorder, validation codes, import/export, tester.
+  Import is validated against the schema (`createMatchReplaceMock(schema)` uses `coerceInputValue` on
+  `MatchReplaceRuleInput` plus exact-key checks); malformed imports are rejected with nothing appended.
   F-MR-1 gained an "API details" bullet for the decisions the contract makes (no default collection, non-empty matcher
   values, `ADD` header term format, tester and import specifics); spec added to this task's paths for that.
 - How to verify: `make gen` (no diff), `make check`; `cd web && bunx --bun vitest run src/lib/api/mocks/matchreplace.test.ts`.
@@ -87,7 +89,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 ## Review (reviewer)
 - Verdict: changes_requested
 - Findings:
-  - [ ] [major] web/src/lib/api/mocks/matchreplace.ts:322 — JSON import bypasses GraphQL input validation:
+  - [x] [major] web/src/lib/api/mocks/matchreplace.ts:322 — JSON import bypasses GraphQL input validation:
     `normalize` assumes typed rule fields, but parsed JSON has no runtime type/enum or unknown-field checks.
     Reproduced through the generated schema's GraphQL executor: export the seed, change the first rule's
     `sources` to `["BOGUS"]`, and import it. Import returns 2 and appends both collections; a subsequent
@@ -99,6 +101,12 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
     → Validate object shape, required/unknown fields, scalar types and enum values at every JSON level
     before appending anything; reuse the schema's rule-input coercion where practical. Add a table-driven
     import test asserting `BAD_INPUT` and unchanged collections/export for these malformed inputs.
+    → Fixed: import now requires the exact key set at top, collection and rule level, then runs each
+    rule through graphql-js `coerceInputValue` against the schema's `MatchReplaceRuleInput` (enums,
+    scalar types, nested matcher fields, unknown fields) before `normalize`; collection names must be
+    strings and `rules` an array. Messages name collection and rule position. `it.each` in
+    `matchreplace.test.ts` covers 14 malformed inputs, asserting `BAD_INPUT`, an unchanged export and a
+    still-queryable tree.
 - Verification: `make check` passed (Go race tests, vet/lint, Svelte/ESLint/Prettier, 43 Vitest files / 335 tests).
   `make gen` passed and left the working tree unchanged. All 12 changed files match the task's paths.
   Reviewed the schema, stubs, mock exchange/callers, CRUD/tester tests and linked contract against the expected

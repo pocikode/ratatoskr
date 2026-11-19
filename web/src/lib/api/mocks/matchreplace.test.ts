@@ -171,9 +171,40 @@ describe('match & replace mock', () => {
 
     expect(code(await m(IMPORT, { j: '{' }))).toBe('BAD_INPUT');
     expect(code(await m(IMPORT, { j: '{"version":2,"collections":[]}' }))).toBe('BAD_INPUT');
-    parsed.collections[1].rules[0].sources = [];
+    parsed.collections[1]!.rules![0]!.sources = [];
     expect(code(await m(IMPORT, { j: JSON.stringify(parsed) }))).toBe('BAD_INPUT');
     expect((await q(TREE)).data!.matchReplaceCollections).toHaveLength(4);
+  });
+
+  type Obj = Record<string, unknown>;
+  type Dump = Obj & {
+    collections: (Obj & { rules?: ((Obj & { matcher: Obj }) | null)[] })[];
+  };
+
+  it.each([
+    ['unknown source', (d: Dump) => (d.collections[0]!.rules![0]!.sources = ['BOGUS'])],
+    ['unknown matcher kind', (d: Dump) => (d.collections[0]!.rules![0]!.matcher.kind = 'GLOB')],
+    ['non-boolean enabled', (d: Dump) => (d.collections[0]!.rules![0]!.enabled = 'yes')],
+    ['non-string term', (d: Dump) => (d.collections[1]!.rules![0]!.term = 7)],
+    ['unknown rule field', (d: Dump) => (d.collections[0]!.rules![0]!.extra = 1)],
+    ['unknown matcher field', (d: Dump) => (d.collections[0]!.rules![0]!.matcher.x = 1)],
+    ['missing rule field', (d: Dump) => delete d.collections[0]!.rules![0]!.condition],
+    ['rule not an object', (d: Dump) => (d.collections[0]!.rules![0] = null)],
+    ['missing collection name', (d: Dump) => delete d.collections[1]!.name],
+    ['non-string collection name', (d: Dump) => (d.collections[1]!.name = 5)],
+    ['missing rules', (d: Dump) => delete d.collections[1]!.rules],
+    ['unknown collection field', (d: Dump) => (d.collections[1]!.id = 'x')],
+    ['unknown top-level field', (d: Dump) => (d.extra = true)],
+    ['collections not an array', (d: Dump) => Object.assign(d, { collections: {} })],
+  ])('rejects an import with %s and changes nothing', async (_, mutate) => {
+    const { q, m } = run();
+    const json = (await q(`{ exportMatchReplace }`)).data!.exportMatchReplace;
+    const data = JSON.parse(json);
+    mutate(data);
+    const IMPORT = `mutation ($j: String!) { importMatchReplace(json: $j) }`;
+    expect(code(await m(IMPORT, { j: JSON.stringify(data) }))).toBe('BAD_INPUT');
+    expect((await q(`{ exportMatchReplace }`)).data!.exportMatchReplace).toBe(json);
+    expect((await q(TREE)).error).toBeUndefined();
   });
 
   it('tests header and body rules', async () => {
