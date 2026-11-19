@@ -14,6 +14,7 @@ import (
 type HistoryService interface {
 	List(ctx context.Context, a history.PageArgs) (history.Page, error)
 	Get(ctx context.Context, id int64) (history.Request, error)
+	EditedBy(ctx context.Context, id int64) (history.Request, bool, error)
 	Head(ctx context.Context, id int64, side history.Part) ([]byte, error)
 	Body(ctx context.Context, id int64, side history.Part, offset int64, limit int, decode bool) ([]byte, error)
 	SetColor(ctx context.Context, ids []int64, color string) ([]history.Request, error)
@@ -381,6 +382,29 @@ func (r *httpRequestResolver) EditedFrom(ctx context.Context, obj *generated.HTT
 	}
 
 	return toHTTPRequest(orig), nil
+}
+
+func (r *httpRequestResolver) EditedBy(ctx context.Context, obj *generated.HTTPRequest) (*generated.HTTPRequest, error) {
+	svc, err := r.history()
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := parseRowID(obj.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	edited, found, err := svc.EditedBy(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if !found {
+		return nil, nil //nolint:nilnil // T-100: null when there is no edited record.
+	}
+
+	return toHTTPRequest(edited), nil
 }
 
 func (r *httpRequestResolver) Head(ctx context.Context, obj *generated.HTTPRequest) ([]byte, error) {

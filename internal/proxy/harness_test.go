@@ -24,10 +24,21 @@ type recorder struct {
 	entries []history.Entry
 }
 
-func (r *recorder) Add(_ context.Context, e history.Entry) {
+func (r *recorder) NewPending(_ context.Context, e history.Entry) int64 {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.entries = append(r.entries, e)
-	r.mu.Unlock()
+	return int64(len(r.entries))
+}
+
+func (r *recorder) Complete(_ context.Context, id int64, resp *history.Response) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	e := &r.entries[id-1]
+	e.Resp = resp
+	e.Truncated = e.Truncated || resp != nil && resp.Truncated
 }
 
 func (r *recorder) all() []history.Entry {

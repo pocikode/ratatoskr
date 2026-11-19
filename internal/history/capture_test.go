@@ -2,8 +2,12 @@ package history_test
 
 import (
 	"context"
+	"errors"
 	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/pocikode/ratatoskr/internal/events"
@@ -11,7 +15,7 @@ import (
 	"github.com/pocikode/ratatoskr/internal/store"
 )
 
-func openDB(t *testing.T) *store.DB {
+func openDB(t testing.TB) *store.DB {
 	t.Helper()
 
 	root, err := os.OpenRoot(t.TempDir())
@@ -29,6 +33,213 @@ func openDB(t *testing.T) *store.DB {
 	t.Cleanup(func() { _ = db.Close() })
 
 	return db
+}
+
+func BenchmarkCapture(b *testing.B) {
+	db := openDB(b)
+	c := history.New(history.Deps{DB: func() *store.DB { return db }})
+	ctx, cancel := context.WithCancel(b.Context())
+	done := make(chan struct{})
+	go func() { c.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	entry := sample()
+	for b.Loop() {
+		id := c.NewPending(ctx, entry)
+		c.Complete(ctx, id, entry.Resp)
+	}
+
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		var n int
+		if err := db.Reader().QueryRowContext(ctx, "SELECT count(*) FROM responses").Scan(&n); err != nil {
+			b.Fatal(err)
+		}
+		if n == b.N {
+			return
+		}
+		if time.Now().After(deadline) || c.Dropped() != 0 {
+			b.Fatalf("stored %d of %d responses, dropped %d", n, b.N, c.Dropped())
+		}
+	}
+}
+
+func TestPendingQueuesBeforeFlush(t *testing.T) {
+	t.Parallel()
+
+	db := openDB(t)
+	synctest.Test(t, func(t *testing.T) {
+		bus := &events.Bus[history.Event]{}
+		c := history.New(history.Deps{DB: func() *store.DB { return db }, Bus: bus})
+		sub := bus.Subscribe(t.Context())
+		ctx, cancel := context.WithCancel(t.Context())
+		start := time.Now()
+		e := sample()
+		id := c.NewPending(ctx, e)
+		if id != 1 || time.Since(start) >= history.FlushInterval {
+			t.Fatalf("ID %d returned after %s", id, time.Since(start))
+		}
+		c.Complete(ctx, id, e.Resp)
+		cancel()
+		c.Run(ctx)
+
+		for _, kind := range []history.Kind{history.Added, history.Updated} {
+			select {
+			case got := <-sub:
+				if got.Value.Kind != kind || got.Value.RequestID != id {
+					t.Fatalf("event = %+v, want kind %v for %d", got, kind, id)
+				}
+			default:
+				t.Fatalf("missing event %v for %d", kind, id)
+			}
+		}
+	})
+}
+
+func TestWrittenWaitsForPendingCommit(t *testing.T) {
+	t.Parallel()
+
+	db := openDB(t)
+	synctest.Test(t, func(t *testing.T) {
+		var active atomic.Pointer[store.DB]
+		active.Store(db)
+		c := history.New(history.Deps{DB: active.Load})
+		svc := history.NewService(history.ServiceDeps{DB: active.Load})
+		ctx, stop := context.WithCancel(t.Context())
+		defer stop()
+		go c.Run(ctx)
+
+		waitFor := func(ctx context.Context, id int64) <-chan error {
+			done := make(chan error, 1)
+			go func() { done <- c.Written(ctx, id) }()
+			synctest.Wait()
+			select {
+			case err := <-done:
+				t.Fatalf("Written(%d) returned early: %v", id, err)
+			default:
+				return done
+			}
+			return nil
+		}
+
+		id := c.NewPending(ctx, sample())
+		waitCtx, cancel := context.WithCancel(ctx)
+		canceled := waitFor(waitCtx, id)
+		cancel()
+		if err := <-canceled; !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled Written = %v", err)
+		}
+
+		start := time.Now()
+		if err := <-waitFor(ctx, id); err != nil || time.Since(start) != history.FlushInterval {
+			t.Fatalf("Written returned after %s: %v", time.Since(start), err)
+		}
+		if r, err := svc.Get(ctx, id); err != nil || r.ID != id || r.Resp != nil {
+			t.Fatalf("committed request = %+v, err %v", r, err)
+		}
+		start = time.Now()
+		if err := c.Written(ctx, id); err != nil || time.Since(start) != 0 {
+			t.Fatalf("Written for committed request returned after %s: %v", time.Since(start), err)
+		}
+
+		next := c.NewPending(ctx, sample())
+		closed := waitFor(ctx, next)
+		active.Store(nil)
+		if err := <-closed; err == nil {
+			t.Fatal("Written succeeded after the project closed")
+		}
+	})
+}
+
+func TestPendingIDsAcrossProjectSwitch(t *testing.T) {
+	t.Parallel()
+
+	old, other := openDB(t), openDB(t)
+	active := old
+	c := history.New(history.Deps{DB: func() *store.DB { return active }})
+	e := sample()
+	ctx, cancel := context.WithCancel(t.Context())
+	id := c.NewPending(ctx, e)
+	cancel()
+	c.Run(ctx)
+
+	if id != 1 {
+		t.Fatalf("first ID = %d", id)
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	active = other
+	ctx, cancel = context.WithCancel(t.Context())
+	otherID := c.NewPending(ctx, e)
+	if otherID == id || otherID == 0 {
+		t.Fatalf("new project reused outstanding ID %d", otherID)
+	}
+	c.Complete(ctx, id, e.Resp)
+	c.Complete(ctx, otherID, e.Resp)
+	cancel()
+	c.Run(ctx)
+	if c.Dropped() != 1 {
+		t.Fatalf("dropped = %d, want 1", c.Dropped())
+	}
+
+	root, err := os.OpenRoot(filepath.Dir(old.Path()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	active, err = store.OpenProject(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer active.Close()
+
+	ctx, cancel = context.WithCancel(t.Context())
+	defer cancel()
+	if first, second := c.NewPending(ctx, e), c.NewPending(ctx, e); first != id+1 || second != first+1 {
+		t.Fatalf("IDs after reopen = %d, %d", first, second)
+	}
+}
+
+func TestCaptureStoresEditedPairAndDroppedRequest(t *testing.T) {
+	t.Parallel()
+
+	db := openDB(t)
+	dbForCapture := func() *store.DB { return db }
+	c := history.New(history.Deps{DB: dbForCapture})
+	ctx, cancel := context.WithCancel(t.Context())
+	e := sample()
+	original := c.NewPending(ctx, e)
+	c.Complete(ctx, original, e.Resp)
+
+	edit := e
+	edit.Source = "intercept"
+	edit.EditedFrom = &original
+	edited := c.NewPending(ctx, edit)
+	resp := *edit.Resp
+	resp.Truncated = true
+	c.Complete(ctx, edited, &resp)
+
+	drop := e
+	drop.Dropped = true
+	dropped := c.NewPending(ctx, drop)
+	c.Complete(ctx, dropped, nil)
+	cancel()
+	c.Run(ctx)
+
+	svc := history.NewService(history.ServiceDeps{DB: dbForCapture})
+	r, found, err := svc.EditedBy(t.Context(), original)
+	if err != nil || !found || r.ID != edited || r.EditedFrom == nil || *r.EditedFrom != original ||
+		r.Source != "intercept" || !r.Truncated || r.Resp == nil || r.Resp.Code != 200 {
+		t.Fatalf("edited record = %+v, found %t, err %v", r, found, err)
+	}
+	r, err = svc.Get(t.Context(), dropped)
+	if err != nil || !r.Dropped || r.Resp != nil {
+		t.Fatalf("dropped record = %+v, err %v", r, err)
+	}
+	if _, found, err := svc.EditedBy(t.Context(), dropped); err != nil || found {
+		t.Fatalf("edited record for dropped request: found %t, err %v", found, err)
+	}
 }
 
 func sample() history.Entry {

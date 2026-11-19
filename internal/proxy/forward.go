@@ -23,6 +23,21 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		Method: req.Method(), Target: req.Target(), CreatedAt: time.Now(),
 	}
 
+	var id int64
+	attempted := false
+	pending := func() {
+		if attempted || c.s.deps.Capture == nil {
+			return
+		}
+		attempted = true
+		entry.Req = sideOf(&req.Message)
+		entry.Truncated = req.Truncated()
+		id = c.s.deps.Capture.NewPending(c.ctx, entry)
+	}
+	if req.Framing() == rawhttp.FramingNone {
+		pending()
+	}
+
 	var out io.WriterTo = req
 
 	if !inTunnel {
@@ -36,6 +51,9 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		// The client holds its body back until we answer; the upstream's own
 		// 100 is swallowed below.
 		if _, err := io.WriteString(c.conn, "HTTP/1.1 100 Continue\r\n\r\n"); err != nil {
+			if id != 0 {
+				c.s.deps.Capture.Complete(c.ctx, id, nil)
+			}
 			return false
 		}
 
@@ -43,22 +61,24 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		defer func() { c.continued = false }()
 	}
 
-	resp, up, err := c.roundTrip(req, out, dst)
+	resp, up, err := c.roundTrip(req, out, dst, pending)
 	if err != nil {
-		return c.fail(&entry, req, dst, err)
+		pending()
+		return c.fail(id, dst, err)
 	}
 
-	entry.Resp = &history.Response{
+	answer := &history.Response{
 		Code: resp.Status(), RoundTrip: time.Since(entry.CreatedAt), CreatedAt: time.Now(),
 	}
 
 	if resp.Status() == 101 {
-		return c.upgrade(&entry, req, resp, up)
+		c.finish(id, answer, resp)
+		return c.upgrade(resp, up)
 	}
 
 	_, copyErr := resp.WriteTo(c.conn)
 
-	c.finish(&entry, req, resp)
+	c.finish(id, answer, resp)
 
 	switch {
 	case copyErr != nil:
@@ -89,13 +109,13 @@ func idempotent(method string) bool {
 // roundTrip writes the request and reads the final response head. A pooled
 // connection the server closed meanwhile is retried once on a fresh one, but
 // only for safe methods without a body, which can be sent twice.
-func (c *session) roundTrip(req *rawhttp.Request, out io.WriterTo, dst destination) (*rawhttp.Response, *netx.Conn, error) {
+func (c *session) roundTrip(req *rawhttp.Request, out io.WriterTo, dst destination, pending func()) (*rawhttp.Response, *netx.Conn, error) {
 	up, reused, err := c.s.pool.Get(c.ctx, dst.key())
 	if err != nil {
 		return nil, nil, err
 	}
 
-	resp, err := c.exchange(req, out, up)
+	resp, err := c.exchange(req, out, up, pending)
 	if err != nil && reused && req.Framing() == rawhttp.FramingNone && idempotent(req.Method()) {
 		_ = up.Close()
 
@@ -103,7 +123,7 @@ func (c *session) roundTrip(req *rawhttp.Request, out io.WriterTo, dst destinati
 			return nil, nil, err
 		}
 
-		resp, err = c.exchange(req, out, up)
+		resp, err = c.exchange(req, out, up, pending)
 	}
 
 	if err != nil {
@@ -115,7 +135,7 @@ func (c *session) roundTrip(req *rawhttp.Request, out io.WriterTo, dst destinati
 	return resp, up, nil
 }
 
-func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn) (*rawhttp.Response, error) {
+func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn, pending func()) (*rawhttp.Response, error) {
 	// Shutdown must unblock reads and writes on the upstream too.
 	stop := context.AfterFunc(c.ctx, func() { _ = up.Close() })
 	defer stop()
@@ -127,6 +147,8 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn)
 	if err != nil {
 		return nil, err
 	}
+
+	pending()
 
 	_ = up.SetReadDeadline(time.Now().Add(c.s.deps.HeaderTimeout))
 
@@ -155,7 +177,7 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn)
 // upgrade relays a 101 answer: the head goes to the client, then both sides
 // are copied raw until either closes. WebSocket frames are recorded by a
 // later task; the handshake is stored like any request.
-func (c *session) upgrade(entry *history.Entry, req *rawhttp.Request, resp *rawhttp.Response, up *netx.Conn) bool {
+func (c *session) upgrade(resp *rawhttp.Response, up *netx.Conn) bool {
 	defer up.Close()
 
 	up.SetIdle(0)
@@ -163,8 +185,6 @@ func (c *session) upgrade(entry *history.Entry, req *rawhttp.Request, resp *rawh
 	if _, err := resp.WriteTo(c.conn); err != nil {
 		return false
 	}
-
-	c.finish(entry, req, resp)
 
 	c.idle.Idle = 0
 	_ = c.conn.SetDeadline(time.Time{})
@@ -187,7 +207,7 @@ func (c *session) upgrade(entry *history.Entry, req *rawhttp.Request, resp *rawh
 
 // fail answers an upstream error with a 502 page from Ratatoskr and stores the
 // exchange with that page as its response, so the error text is in history.
-func (c *session) fail(entry *history.Entry, req *rawhttp.Request, dst destination, err error) bool {
+func (c *session) fail(id int64, dst destination, err error) bool {
 	c.s.log.Debug("proxy: upstream error", "component", "proxy", "host", dst.host, "port", dst.port, "error", err)
 
 	text := "Ratatoskr could not complete the request to " + dst.key().Addr() + ": " + err.Error()
@@ -197,7 +217,11 @@ func (c *session) fail(entry *history.Entry, req *rawhttp.Request, dst destinati
 
 	_, _ = io.WriteString(c.conn, head+body)
 
-	entry.Resp = &history.Response{
+	if id == 0 {
+		return false
+	}
+
+	c.s.deps.Capture.Complete(c.ctx, id, &history.Response{
 		Raw: []byte(head + body), BodyOffset: len(head),
 		Headers: []history.Field{
 			{Name: "Content-Type", Value: "text/html; charset=utf-8"},
@@ -206,27 +230,17 @@ func (c *session) fail(entry *history.Entry, req *rawhttp.Request, dst destinati
 			{Name: "Connection", Value: "close"},
 		},
 		Code: 502, CreatedAt: time.Now(),
-	}
-	entry.Req = sideOf(&req.Message)
-	entry.Truncated = req.Truncated()
-
-	c.record(entry)
+	})
 
 	return false
 }
 
 // finish stores a completed exchange.
-func (c *session) finish(entry *history.Entry, req *rawhttp.Request, resp *rawhttp.Response) {
-	entry.Req = sideOf(&req.Message)
-	entry.Resp.Side = sideOf(&resp.Message)
-	entry.Truncated = req.Truncated() || resp.Truncated()
-
-	c.record(entry)
-}
-
-func (c *session) record(entry *history.Entry) {
-	if c.s.deps.Capture != nil {
-		c.s.deps.Capture.Add(c.ctx, *entry)
+func (c *session) finish(id int64, answer *history.Response, resp *rawhttp.Response) {
+	if id != 0 {
+		answer.Side = sideOf(&resp.Message)
+		answer.Truncated = resp.Truncated()
+		c.s.deps.Capture.Complete(c.ctx, id, answer)
 	}
 }
 

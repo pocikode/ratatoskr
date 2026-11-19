@@ -230,6 +230,25 @@ func (s *Service) Get(ctx context.Context, id int64) (Request, error) {
 	return get(ctx, db.Reader(), id)
 }
 
+// EditedBy returns the modified record linked to id, if any.
+func (s *Service) EditedBy(ctx context.Context, id int64) (Request, bool, error) {
+	db, err := s.db()
+	if err != nil {
+		return Request{}, false, err
+	}
+
+	r, err := scanRequest(db.Reader().QueryRowContext(ctx, "SELECT "+requestCols+fromJoin+" WHERE r.edited_from = ?", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Request{}, false, nil
+	}
+
+	if err != nil {
+		return Request{}, false, fmt.Errorf("history: get edited record for %d: %w", id, err)
+	}
+
+	return r, true, nil
+}
+
 type queryer interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
