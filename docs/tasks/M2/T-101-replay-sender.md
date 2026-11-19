@@ -46,6 +46,12 @@ Automate/workflows later.
 ## Notes from lead
 - Plan mode recommended (`rawhttp`-adjacent). Reuse `rawhttp.Builder` for header edits instead of hand-splicing bytes.
 - Runs fully in parallel with T-033 (no shared paths).
+- 2026-11-19 unblock: an implementer set this to `blocked` because the sender sends malformed framing verbatim.
+  That is intended behaviour, not a spec gap: `docs/00-overview.md §2` goal 2 (clarified today), ADR-0003, F-REP-2 AC.
+  Sends are always started by the operator, to the host/port they entered. The package adds no target discovery, payload
+  generation or automatic retries. Request validation or "fixing" before send is **rejected** because it breaks the
+  F-REP-2 AC. The only rewrite is the opt-in Content-Length update (F-INT-1). Acceptance criteria are unchanged. Tests
+  run only against local `testutil` servers on 127.0.0.1 (AGENTS.md rule 7: no real targets).
 
 ## Plan (implementer, ≤15 lines)
 

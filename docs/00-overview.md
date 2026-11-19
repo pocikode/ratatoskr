@@ -20,7 +20,11 @@ locked behind a paid tier.
 ## 2. Goals
 
 1. Every feature listed in `docs/01-feature-spec.md` works, offline, with no account and no telemetry.
-2. Raw-byte fidelity: what the user sends in Replay/Automate is exactly what goes on the wire.
+2. Raw-byte fidelity: what the user sends in Replay/Automate is exactly what goes on the wire. Malformed or
+   ambiguous framing (wrong `Content-Length`, duplicate headers, CL+TE) is sent as written, never "fixed"
+   silently, because testing how servers handle it is the point of the tool. Every send is started by the
+   operator, to a target the operator picked. Ratatoskr does not discover or pick targets on its own (see §3), and
+   is meant for systems the operator is authorized to test.
 3. Fast with large projects: 1M+ requests in history, table scrolling at 60 fps, filters < 300 ms on 100k rows.
 4. Keyboard-first, dense, customizable UI (resizable panes, rebindable shortcuts, command palette).
 5. Extensible: workflows (visual automation), JavaScript plugins (backend + frontend), MCP server for AI agents.
