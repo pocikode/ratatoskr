@@ -3,7 +3,7 @@ id: T-033
 title: Replay service - collections, sessions, entries (no sending)
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "codex (GPT-6)"
 branch: task/T-033-replay-service
@@ -82,5 +82,24 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
   wires the service into app.New. No new tasks needed.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
+- Checks: all changed files are inside `paths`. `make check` green (exit 0). `make test-int` not re-run (store/proxy/rawhttp
+  code untouched; the migration is covered by `internal/replay/migration_test.go`). AC 1–7 are covered by service and resolver tests.
 - Findings:
+  - [ ] [major] internal/replay/session.go:79 — `requests.truncated` is not "the request was truncated". Capture also sets it
+        when only the **response** was cut (`internal/history/capture.go:480-484`: `truncated = truncated OR resp.Truncated`), and
+        `requests.len` is the stored length (`internal/store/requests.go:48`), so this code cannot tell the two apart. Example: a
+        complete `GET /big.iso` whose response went over the 64 MiB capture cap → Ctrl+R / `createReplaySession(fromRequestId)`
+        returns `BAD_INPUT`, but the spec only rejects a truncated *stored request* (F-REP-1 contract, schema
+        `CreateReplaySessionInput.fromRequestId`). The fix needs a separate request-only flag (e.g. a column added in 0003 plus
+        a write in `internal/history/capture.go`), and that file is outside this task's paths → write it under "Out-of-scope
+        change needed" (or set `blocked` for the lead), then add a service test where a request with a truncated response
+        can be copied and a truncated request is rejected.
+  - [ ] [minor] internal/replay/session.go:82 — copying from History stores `SNI = host` as an explicit override. The schema says
+        `sni: null` already means "host as SNI when it is a name", so this gives the same result on the wire, but the override
+        stays when the user later changes the host. Example: copy from `a.test`, change the connection host to `b.test` → TLS to
+        `b.test` with SNI `a.test`. The AC says "SNI = host", so this is not a defect of this task: ask the lead whether a
+        `null` SNI satisfies it. If yes, drop the line and update the history test.
+  - [ ] [nit] internal/api/graphql/resolvers/replay.go:141-146 — duplicates `parseOrderIDs` (`resolvers/scope.go:44`), which
+        already maps an unparsable ID to `BAD_INPUT`. Reuse it. Its message says "preset", so pass a kind or make the
+        wording generic.
