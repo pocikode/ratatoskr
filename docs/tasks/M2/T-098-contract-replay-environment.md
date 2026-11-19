@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -195,4 +195,13 @@ T-098 defines the Replay and Environments GraphQL contracts and supplies Go stub
 - Verdict: `changes_requested`.
 - [x] [major] `web/src/lib/api/mocks/replay.ts:253` — Deleting a Replay request through `deleteRequests` removes it from History, but Replay still returns the entry and the deleted request through `entries`. SQLite deletes the entry with its request under `internal/store/migrations/project/0001_init.sql:145`. Remove matching entries when the shared History mock deletes their requests, and test that a Replay refetch drops the entry and updates `totalCount`. Otherwise the mock teaches the editor to keep displaying a result that disappears with the real backend.
 - `make check` passed with 318 web tests. `make gen` reproduced both generated directories in a temporary checkout. An in-memory GraphQL check reproduced the stale entry, and a SQLite check using the checked-in migration confirmed the cascade. `git diff --check main...HEAD` reported trailing whitespace in the generated web SDL only.
+- The branch changes no proxy, store, or raw HTTP code, so this review skipped `make test-int`. The finding goes to the lead under the existing escalation.
+
+### Recheck of `6c841b1`
+
+T-098 defines the Replay and Environments GraphQL contracts and provides Go stubs and an in-memory mock for one frontend developer working locally. The new regression test confirms that deleting a History request removes its Replay entry from a fresh page and updates `totalCount`.
+
+- Verdict: `changes_requested`.
+- [ ] [major] `web/src/lib/api/mocks/replay.ts:255` — Deleting the History request for the last entry on a page makes the next page repeat entries. With the seeded session, `first: 2` returns `re6` and `re5`. After deleting `re5`'s request, `after: "re5"` returns `re6` again alongside `re4` because `findIndex` returns `-1` and paging restarts at zero. Use the cursor's entry order as the page boundary even when the entry is gone, and test a deletion between page loads. Otherwise an editor appending pages can display the same send twice.
+- `make check` passed with 319 web tests. `make gen` reproduced both generated directories in an isolated snapshot. An in-memory GraphQL query reproduced the duplicate entry. All changed files are in scope. `git diff --check main...HEAD` reports trailing whitespace in the generated web SDL.
 - The branch changes no proxy, store, or raw HTTP code, so this review skipped `make test-int`. The finding goes to the lead under the existing escalation.
