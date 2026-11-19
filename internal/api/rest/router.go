@@ -9,6 +9,8 @@ import "net/http"
 type Deps struct {
 	// CA serves the root certificate downloads. Nil leaves them 404.
 	CA Certificates
+	// Preview reads stored responses. Nil leaves the preview route 404.
+	Preview ResponseHistory
 }
 
 // NewRouter returns the /api/rest/ router. Paths whose service is nil in deps
@@ -20,7 +22,11 @@ func NewRouter(deps Deps) http.Handler {
 		registerCA(mux, "/api/rest", deps.CA)
 	}
 
+	if deps.Preview != nil {
+		mux.HandleFunc(previewPrefix+"{id}", servePreview(deps.Preview))
+	}
+
 	mux.Handle("/api/rest/", http.NotFoundHandler())
 
-	return mux
+	return WithPreviewHeaders(mux)
 }

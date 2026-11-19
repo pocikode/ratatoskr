@@ -307,6 +307,7 @@ func (a *App) buildHandler(build resolvers.BuildInfo) http.Handler {
 		Auth:      auth,
 		Logger:    a.log,
 		CA:        certs,
+		Preview:   a.history,
 	}))
 
 	if certs != nil {
