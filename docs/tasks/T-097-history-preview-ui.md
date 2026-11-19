@@ -59,5 +59,15 @@ The History response pane offers the sandboxed Preview mode and an "Open in brow
 - Follow-ups (proposed tasks): T-021 covers end-to-end verification with the server route.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: approve
+- Checks: `make lint test web-check web-test` green (golangci-lint 0 issues, go test -race ok, svelte-check 0 errors/0 warnings,
+  vitest 231/231). The first `make check` run stopped at lint only because another worktree was running golangci-lint at the
+  same time. The rerun passed. `make test-int` was not needed (no proxy/store/rawhttp change).
+- Scope: all 5 changed files are inside `paths`. There is no schema, generated-code or Go change.
+- AC: all covered by `HttpHistoryPage.test.ts`: tab lists per pane, request pane has no link, link href/target/rel and
+  keyboard focus after Copy, iframe `src`/`sandbox=""`, src and href follow the selection (11 → 10), and no link
+  for a row without a response. Link and iframe both come from `history.detail`, so they always match the body shown.
+  The plain `<a>` with `noopener noreferrer` follows the lead's note. The relative URL matches the F-HIST-2 contract.
 - Findings:
+  - [ ] [nit] web/src/lib/components/MessageViewer/MessageViewer.test.ts:138 — fixture still uses the old `/preview/42`
+        path, while the prop doc now says `/api/rest/preview/{id}` → use `/api/rest/preview/42` the next time this file is touched.
