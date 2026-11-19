@@ -139,13 +139,17 @@ func exchange(ctx context.Context, t Target, raw []byte) (*rawhttp.Response, err
 	if _, err := conn.Write(raw); err != nil {
 		return nil, classify(ctx, KindProtocol, err)
 	}
-	var method string
-	if req := parseRequest(raw); req != nil {
-		method = req.Method()
-	}
-	resp, err := rawhttp.ReadResponse(bufio.NewReader(conn), method, rawhttp.DefaultLimits)
-	if err != nil {
-		return nil, classify(ctx, KindProtocol, err)
+	method, _, _ := bytes.Cut(raw, []byte(" "))
+	br := bufio.NewReader(conn)
+	var resp *rawhttp.Response
+	for {
+		resp, err = rawhttp.ReadResponse(br, string(method), rawhttp.DefaultLimits)
+		if err != nil {
+			return nil, classify(ctx, KindProtocol, err)
+		}
+		if resp.Status()/100 != 1 || resp.Status() == 101 {
+			break
+		}
 	}
 	// One byte past the cap marks the response truncated; the deferred Close drops the rest.
 	if _, err := io.Copy(io.Discard, io.LimitReader(resp.Body(), rawhttp.DefaultLimits.MaxBodyBytes+1)); err != nil {
@@ -220,7 +224,7 @@ func redirect(t Target, raw []byte, resp *rawhttp.Response) (Target, []byte, boo
 	}
 	method := req.Method()
 	if status == 303 && method != "HEAD" || (status == 301 || status == 302) && method == "POST" {
-		// Drain the body so the builder writes none.
+		// Builder streams req.Body(); draining it writes no body without adding Content-Length (SetBody would add one).
 		_, _ = io.Copy(io.Discard, req.Body())
 		b.SetMethod("GET").DelHeader("Content-Length").DelHeader("Content-Type").DelHeader("Transfer-Encoding")
 	}

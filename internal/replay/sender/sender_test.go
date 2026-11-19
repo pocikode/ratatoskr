@@ -96,6 +96,29 @@ func TestSendVerbatim(t *testing.T) {
 	}
 }
 
+func TestSendResponseFraming(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct{ name, request, response string }{
+		{"interim responses", "GET / HTTP/1.1\r\n\r\n", "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\n" + testutil.RawReply},
+		{"malformed HEAD", "HEAD / HTTP/1.1\r\nContent-Length: x\r\n\r\n", "HTTP/1.1 200 OK\r\nContent-Length: 1234\r\n\r\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			target := listen(t, func(c net.Conn) {
+				buf := make([]byte, len(tt.request))
+				_, _ = io.ReadFull(c, buf)
+				_, _ = io.WriteString(c, tt.response)
+			})
+			res, err := Send(t.Context(), Request{Target: target, Raw: []byte(tt.request), Options: Options{Timeout: time.Second}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := res.Hops[0].Response.Status(); got != 200 {
+				t.Errorf("status = %d, want 200", got)
+			}
+		})
+	}
+}
+
 func TestSendTLS(t *testing.T) {
 	t.Parallel()
 	srv := testutil.NewTLSRawServer(t)
@@ -372,6 +395,27 @@ func TestSendRedirectRewrites(t *testing.T) {
 				t.Errorf("hop 2 target %+v status %d", res.Hops[1].Target, res.Hops[1].Response.Status())
 			}
 		})
+	}
+}
+
+func TestSendRedirectFailedHop(t *testing.T) {
+	t.Parallel()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	var r router
+	origin := listen(t, r.serve(func(*rawhttp.Request) string {
+		return fmt.Sprintf("HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:%d/\r\nContent-Length: 0\r\n\r\n", port)
+	}))
+	res, err := Send(t.Context(), Request{Target: origin, Raw: []byte("GET / HTTP/1.1\r\n\r\n"), Options: Options{FollowRedirects: true}})
+	if e, ok := errors.AsType[*Error](err); !ok || e.Kind != KindDial {
+		t.Fatalf("error = %v, want dial", err)
+	}
+	if len(res.Hops) != 2 || res.Hops[0].Response == nil || res.Hops[0].Response.Status() != 302 || res.Hops[1].Response != nil {
+		t.Errorf("hops = %+v, want 302 and failed hop", res.Hops)
 	}
 }
 

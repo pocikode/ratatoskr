@@ -3,9 +3,9 @@ id: T-101
 title: Replay sender - raw send over a fresh connection, Content-Length rule, timeout, cancel, redirects
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: []
-owner: claude-backend
+owner: codex
 branch: task/T-101-replay-sender
 paths:
   - internal/replay/sender/**
@@ -98,8 +98,9 @@ Automate/workflows later.
     caller (T-106) applies it before `Send` when the option is on.
 - How to verify: `go test -race ./internal/replay/sender`; `make check`; `make test-int` (both green).
   Timeout/cancel tests run in `testing/synctest` over `net.Pipe` (fake clock; the bubble fails on any leaked goroutine).
-- Known limitations: interim 1xx responses (e.g. `100 Continue`) are returned as the response, not skipped. Redirect hops
-  always use origin-form targets. A request that `rawhttp` cannot parse is sent as-is but never redirected.
+- Known limitations: Redirect hops always use origin-form targets. A request that `rawhttp` cannot parse is sent as-is but never redirected.
+- Review fixes (codex): skip interim responses, frame malformed HEAD requests correctly, and test failed redirect hops.
+  Verified with `make check` and `make test-int`.
 - Follow-ups (proposed tasks): none.
 
 ## Review (reviewer)
@@ -109,7 +110,7 @@ Automate/workflows later.
   this branch per the lead's third note.
 - Previous findings: blocker (no sender), major (owner/plan), minor (docs outside paths, accepted by lead), nit (package doc): all resolved.
 - Findings:
-  - [ ] [major] internal/replay/sender/sender.go:146 — one `ReadResponse` call returns the first response, including an
+  - [x] [major] internal/replay/sender/sender.go:146 — one `ReadResponse` call returns the first response, including an
     interim 1xx. A server that sends `103 Early Hints` (common on CDNs) or `100 Continue` (request has
     `Expect: 100-continue`) before its `200` makes Send return the 1xx as the final response and close the connection,
     so the real response is lost. F-REP-2 says Send returns "when the response is complete", and the proxy already
@@ -117,18 +118,18 @@ Automate/workflows later.
     → Read in a loop on the same `bufio.Reader` while `resp.Status()/100 == 1 && resp.Status() != 101` (about 4 lines).
     Add a test where the server writes `HTTP/1.1 100 Continue\r\n\r\n` and `HTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\n`,
     then `RawReply`, and expect the 200. Remove the limitation from the Handoff.
-  - [ ] [minor] internal/replay/sender/sender.go:142-145 — the method used to frame the response comes from a full
+  - [x] [minor] internal/replay/sender/sender.go:142-145 — the method used to frame the response comes from a full
     `rawhttp.ReadRequest`, so any request that does not parse gets method `""`. Example:
     `HEAD / HTTP/1.1\r\nContent-Length: x\r\n\r\n` (malformed requests are the point of the tool). The server answers
     the HEAD with `Content-Length: 1234` and no body, and Send waits for 1234 body bytes until the timeout (or forever
     when the timeout is 0). → Take the method from the first token of the request line:
     `method, _, _ := bytes.Cut(raw, []byte(" "))` (only HEAD matters to `ReadResponse`). Add a table row with an
     unparseable HEAD.
-  - [ ] [minor] internal/replay/sender/sender_test.go:413 — no test for a redirect chain whose second hop fails. The
+  - [x] [minor] internal/replay/sender/sender_test.go:413 — no test for a redirect chain whose second hop fails. The
     Handoff promises that the failed hop comes last with `Response == nil` and the error is returned, and T-106 stores hops
     based on that. → Add a test: origin 302 to `http://127.0.0.1:<closed port>/`, then expect 2 hops,
     `Hops[1].Response == nil`, `Hops[0].Response.Status() == 302` and kind `dial`.
-  - [ ] [nit] internal/replay/sender/sender.go:222-225 — draining `req.Body()` so that `Builder.WriteTo` writes no body
+  - [x] [nit] internal/replay/sender/sender.go:222-225 — draining `req.Body()` so that `Builder.WriteTo` writes no body
     depends on the builder sharing the drained reader. That works with today's `rawhttp`, but the reason is not obvious.
     → Extend the comment: "Builder streams m.Body(); once it is drained, nothing is written and no Content-Length is added (SetBody would add one)."
 - Notes: the design is small and matches the plan. It uses a fresh dial per hop, `context.AfterFunc` closes the
