@@ -341,8 +341,13 @@ describe('match & replace mock', () => {
     for (const bad of [
       'HTTP/1.1 200 OK\r\nContent-Length: x\r\n\r\n',
       'HTTP/1.1 200 OK\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\n',
+      // Distinct beyond 2^53: equal as JS numbers, so lengths must compare as decimal strings.
+      'HTTP/1.1 200 OK\r\nContent-Length: 9007199254740992\r\nContent-Length: 9007199254740993\r\n\r\n',
     ])
       expect(code(await m(TEST, { r: fullBB, k: 'RESPONSE', raw: btoa(bad) }))).toBe('BAD_INPUT');
+    // Leading zeroes do not change the value: 04 and 4 agree.
+    const zeros = btoa('HTTP/1.1 200 OK\r\nContent-Length: 04\r\nContent-Length: 4\r\n\r\nabcd');
+    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: zeros })).error).toBeUndefined();
     // A response with no body keeps its length (reply to HEAD); body rules leave it unchanged.
     const head = btoa('HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n');
     expect((await m(TEST, { r: body, k: 'RESPONSE', raw: head })).error).toBeUndefined();

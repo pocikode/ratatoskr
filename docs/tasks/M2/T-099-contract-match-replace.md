@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -406,12 +406,14 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 ### Review of `fc2102f`
 
 - Verdict is `changes_requested`. Escalate to the lead under the review round limit.
-- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:522 — Duplicate lengths are compared as
+- [x] [major] web/src/lib/api/mocks/matchreplace.ts:522 — Duplicate lengths are compared as
   JavaScript numbers. An empty 200 response with lengths 9007199254740992 and 9007199254740993
   succeeds with `changed: false` through the generated GraphQL schema. Both strings round to
   the same number, so the empty-response exception then admits the message. Compare the decimal
   strings exactly after removing leading zeroes. Add this pair to the existing rejection cases
   and preserve acceptance of numerically equal values such as 04 and 4.
+  → Fixed: lengths compare as decimal strings after stripping leading zeroes. Tests: the 2^53 pair
+  rejected, `04`/`4` accepted.
 - The earlier findings are resolved by the existing regression tests. `make check` passed
   (43 Vitest files, 353 tests), and `make gen` left the tree unchanged. Review assumed one
   desktop user within the documented tester size limits.

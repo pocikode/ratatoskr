@@ -289,7 +289,7 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     (any kind and value).
     An `ADD` header term must be `Name: value` with a token name (`BAD_INPUT`); a param term is appended as written.
     Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester ignores name, enabled and sources, rejects
-    a section for the other message kind, a `Content-Length` that is not decimal or disagrees with another, and a body
+    a section for the other message kind, a `Content-Length` that is not decimal or disagrees with another (exact decimal values, leading zeroes ignored), and a body
     whose length differs from `Content-Length` (a response with no body may declare any length, as for `HEAD`; body
     rules then leave it unchanged, since it may answer `HEAD`) (`BAD_INPUT`), and evaluates the condition on the given message only (clauses
     about the other message are false). Import rejects unknown fields; an unparsable condition there is `BAD_INPUT` naming

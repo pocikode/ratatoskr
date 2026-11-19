@@ -516,10 +516,16 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
         const sep = text.indexOf('\r\n\r\n');
         const fields = text.slice(0, sep).split('\r\n');
         const bodyLen = text.length - sep - 4;
+        // Leading zeroes stripped so duplicates compare as exact decimal strings (no float rounding).
         const lens = fields
           .filter((h) => /^content-length:/i.test(h))
-          .map((h) => h.slice(15).trim());
-        if (lens.some((l) => !/^\d+$/.test(l) || Number(l) !== Number(lens[0])))
+          .map((h) =>
+            h
+              .slice(15)
+              .trim()
+              .replace(/^0+(?=\d)/, ''),
+          );
+        if (lens.some((l) => !/^\d+$/.test(l) || l !== lens[0]))
           throw fail('BAD_INPUT', 'raw has an invalid or conflicting Content-Length');
         // A fixed-length body must be complete; a response with no body may keep any length (HEAD, 304).
         if (
