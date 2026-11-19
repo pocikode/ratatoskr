@@ -117,8 +117,8 @@ Automate/workflows later.
   - [x] [nit] Builder drain comment extended.
 - Findings:
   - [ ] [nit] internal/replay/sender/sender_test.go:408 — the "closed port" is freed and then dialled. A parallel test that
-    listens on `127.0.0.1:0` can get the same port in between, and the hop then succeeds (rare flake). → Keep `ln` open
-    and stop accepting is not enough; instead dial a port that is listening but closes at once, or accept this as is.
+    listens on `127.0.0.1:0` can get the same port in between, and the hop then succeeds (rare flake). → Point `Location` at
+    `http://127.0.0.1:0/`: dialling port 0 always fails, so the listen/close step goes away.
     Non-blocking.
 - Notes: AC all covered by tests. Design stays small: fresh dial per hop, `context.AfterFunc` closes the conn on
   timeout/cancel, error kinds from `ctx.Err()`, synctest bubbles act as leak checks. A server that sends endless 1xx
