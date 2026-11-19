@@ -70,5 +70,16 @@ A stored response can be opened as a page, under the UI origin, with no scripts 
 - T-097 covers the viewer and browser integration.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: approve
+- Checked: diff is inside `paths`; `make check` green (Go race tests + web check/unit); no proxy/store/rawhttp change, so no
+  `test-int`. Every AC has a test (gzip + 4 MiB cap, chunked, Set-Cookie/Location/CSP dropped, four headers on 200/404/401/403/405,
+  no project → 404, nil dep → 404, HEAD). Stored heads parse with `rawhttp.DefaultLimits`, the same limits the proxy captures with,
+  so the 500 on an unparsable head is reachable only with corrupt rows. `a.history` is set before `buildHandler`, so no nil-interface trap.
 - Findings:
+  - [ ] [minor] docs/01-feature-spec.md:160 — the lead's F-HIST-2 edit ("no open project → 404") is uncommitted in this worktree and
+        not on the branch, yet the code relies on it → lead commits it (own PR or onto this branch) before merge.
+  - [ ] [nit] internal/api/rest/router.go:31 — `WithPreviewHeaders(mux)` is redundant: `api.NewHandler` already wraps the whole
+        `/api/` chain with it (internal/api/server.go:61), which is the only one that also covers 401/403. → return `mux` and keep
+        the single outer wrap (-1 line, one place to change the header set).
+  - [ ] [nit] internal/api/rest/preview.go:55-73 — `Head` and `Body` are two reads; a project switch between them can mix a head
+        from one project with a body from another (already noted in Handoff). Harmless for a sandboxed preview; leave as is.
