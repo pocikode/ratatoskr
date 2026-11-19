@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -177,3 +177,24 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   paths. The mock findings were reproduced through the generated schema with graphql-js. The transport
   findings were checked against the serialized size and the server's existing HTTP 413 test.
 - Browser E2E and `make test-int` were skipped. This branch adds a contract, stubs and a mock.
+
+### Lead escalation after review of `02e8b35`
+
+- Verdict is `changes_requested`. The previous findings are resolved. The review protocol's three-round limit has been
+  reached. The lead needs to decide the tester's result limit and error behavior before T-102 and T-108 implement it.
+- [ ] [major] `internal/api/graphql/schema/matchreplace.graphqls:327` — The tester caps the request and leaves the result
+  uncapped. A short literal that occurs throughout a body can expand a modest fixture to tens of MiB even with an
+  ordinary replacement string. The mock already builds the entire replacement with `join` and base64-encodes it on
+  the UI thread (`web/src/lib/api/mocks/matchreplace.ts:162`). Larger valid inputs can exhaust memory or fail to return
+  the documented result, even with one desktop user. → Define a tester output limit and a documented error when it is
+  exceeded. Enforce the limit while producing replacement bytes, before allocating or base64-encoding the full result.
+  Cover a small input whose replacement crosses the limit in the mock and downstream tester.
+- [ ] [minor] `web/src/lib/api/mocks/matchreplace.ts:421` — The tester accepts a valid response encoded as base64 with its
+  required trailing padding removed. Reproduced through graphql-js. The Go `Bytes` scalar uses
+  `base64.StdEncoding.DecodeString` and returns `BAD_INPUT` for that input. → Validate the padded form in the mock and
+  add the unpadded response to the existing rejection cases.
+- Verification: all changed files are in scope. `make check` passed (43 Vitest files, 353 tests).
+  `make gen` left the tree unchanged. A standalone serialization check for size-budget fixtures with heavily
+  escaped text produced a 23,903,217-byte import request and a 29,754,518-byte tester request. Both fit the
+  33,554,432-byte HTTP cap. The output expansion finding was assessed from the data flow without a large allocation.
+- Browser E2E and `make test-int` were skipped because this branch adds a contract, stubs and a mock.
