@@ -227,6 +227,33 @@ describe('replay mock', () => {
     ).toBe(RAW);
   });
 
+  it('rejects non-string Bytes variables', async () => {
+    const { m } = run(client());
+    for (const raw of [1234, ['YQ==']]) {
+      const res = await m(
+        `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { createReplaySession(input: { connection: $c, raw: $raw }) { draft } }`,
+        { c: CONN, raw },
+      );
+      expect(code(res)).toBe('BAD_INPUT');
+    }
+  });
+
+  it('records the origin-form path for an absolute-form target, like History', async () => {
+    const { m } = run(client());
+    const raw = 'GET http://example.test/docs?q=abc#frag HTTP/1.1\r\nHost: example.test\r\n\r\n';
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { request { path query ext head } } }`,
+      { c: CONN, raw: btoa(raw) },
+    );
+    const r = res.data!.sendReplaySession.request;
+    expect({ path: r.path, query: r.query, ext: r.ext }).toEqual({
+      path: '/docs',
+      query: 'q=abc',
+      ext: '',
+    });
+    expect(atob(r.head)).toBe(raw);
+  });
+
   it('splits an LF-only request at its blank line', async () => {
     const { m } = run(client());
     const raw = 'POST /lf HTTP/1.1\nHost: example.test\n\nbody\n';

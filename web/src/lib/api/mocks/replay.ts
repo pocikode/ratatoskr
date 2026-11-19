@@ -104,7 +104,8 @@ function mergeOptions(cur: Options, p: Partial<Options> | null | undefined): Opt
 
 function checkBytes(b64: unknown): string {
   // Same input rules as the server's Bytes scalar (Go StdEncoding): padded, CR/LF ignored.
-  const s = String(b64).replace(/[\r\n]/g, '');
+  if (typeof b64 !== 'string') throw fail('BAD_INPUT', 'Bytes must be a base64 string');
+  const s = b64.replace(/[\r\n]/g, '');
   if (s.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s))
     throw fail('BAD_INPUT', 'not valid base64');
   const bytes = atob(s);
@@ -131,10 +132,17 @@ function record(id: number, raw: string, c: Connection, failed: boolean): MockRe
   const head = raw.slice(0, end);
   const rest = raw.slice(end);
   const line = /^(\S+) (\S+)/.exec(raw);
-  const target = line?.[2] ?? '/';
+  // Same split as History's requestRow: drop the fragment, cut at the first `?`, strip absolute-form origin.
+  const target = (line?.[2] ?? '/').split('#', 1)[0]!;
   const q = target.indexOf('?');
-  const path = q < 0 ? target : target.slice(0, q);
+  let path = q < 0 ? target : target.slice(0, q);
   const query = q < 0 ? '' : target.slice(q + 1);
+  const scheme = path.indexOf('://');
+  if (scheme >= 0) {
+    const rest = path.slice(scheme + 3);
+    const slash = rest.indexOf('/');
+    path = slash < 0 ? '/' : rest.slice(slash);
+  }
   const respBody = '{"ok":true,"mock":"replay"}';
   const respHead = `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${respBody.length}\r\n\r\n`;
   return {
