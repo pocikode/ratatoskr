@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -143,3 +143,13 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 - Default `make check` failed twice in `src/pages/sitemap/sitemap.svelte.test.ts:132`, “drops a stale expansion result when filters change and supports loading beyond the first page.” Vitest reported `Error: Test timed out in 5000ms.` Both runs passed the other 308 web tests and all Go checks. `VITEST_MAX_WORKERS=2 make check` passed all 309 web tests and all Go checks.
 - Review assumes one frontend developer using the in-memory mock exchange. `make gen` reproduced both generated directories. The proxy, store and raw HTTP packages were outside the diff, so `make test-int` was skipped.
 - This is the third review round. Escalated to the lead under `docs/07-agent-workflow.md` §7.
+
+### Follow-up after escalation
+
+Reviewed `147ce74` against `main`. T-098 defines the Replay and Environments GraphQL contracts and supplies server stubs and in-memory mocks for frontend development. The five third-round cases are covered by passing regression tests.
+
+- Verdict: changes_requested
+- [ ] [major] `web/src/lib/api/mocks/replay.ts:107` — The mock coerces non-string `Bytes` values before validating them. Creating a session with the JSON number `1234` saves a draft of `"1234"`, while the server returns `BAD_INPUT`. A single-element array containing `"YQ=="` also succeeds. Require a string before stripping CR/LF, and test both invalid variable types. The same validator handles create, update and send, so one fix keeps those flows consistent.
+- [ ] [major] `web/src/lib/api/mocks/replay.ts:136` — A Replay request with the target `http://example.test/docs?q=abc` records `path: "http://example.test/docs"`. History capture records `path: "/docs"` for the same target (`internal/history/capture.go:277`). Match History's path and query extraction for absolute URLs while preserving the request bytes, and add a regression test. Otherwise a History path filter for `/docs` misses the mock record.
+- `make check` passed, including all 312 web tests. `make gen` in a temporary checkout reproduced both generated directories. Both findings were reproduced with GraphQL against the in-memory mock resolvers. `git diff --check main...HEAD` flags trailing whitespace in the generated web schema.
+- Review assumes one frontend developer using the in-memory mock. `make test-int` was outside this review because the branch changes no proxy, store or raw HTTP code.
