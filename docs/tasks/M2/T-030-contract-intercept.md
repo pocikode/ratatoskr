@@ -3,7 +3,7 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: []
 owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
@@ -191,3 +191,24 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
   No proxy, store, or raw HTTP code changed, so `make test-int` was outside the required checks.
 - Verdict: `changes_requested`. Escalate to the lead under the three-round review limit in
   `docs/07-agent-workflow.md` §7.
+
+### Lead escalation recheck (`b72a497`)
+
+- [ ] [major] web/src/lib/api/mocks/intercept.ts:273 — A held message over 16 MiB can still be replaced
+  with a smaller message. The mock checks the replacement size only. A local fixture held 16,777,364 bytes,
+  exposed 4,194,451 bytes through `item.raw` because `rawOf` reads one body slice, and accepted a short replacement.
+  → Return the complete held bytes, reject replacements for an oversized held message with `BAD_INPUT`, and test
+  that the item stays held and can still be forwarded unchanged. Add this case to the T-031 acceptance criteria,
+  which currently cover only an oversized replacement.
+- [ ] [minor] internal/api/graphql/schema/intercept.graphqls:155 — An oversized POST without a declared
+  `Content-Length`, such as a chunked request, produces a GraphQL read error. HTTP 413 applies when the declared
+  length exceeds the cap. → Qualify the 413 description to match `internal/api/server.go:64`.
+- [ ] [minor] internal/api/graphql/schema/intercept.graphqls:90 — The 64 MiB capture cap applies to the body.
+  A fully held message with a 64 MiB body also includes its request or status line and headers, so the `raw` field
+  can exceed 64 MiB. → Say that the body is subject to the capture cap and the edit limit applies to the whole message.
+- Verification covered a single-user local proxy and its development mock. `make check` passed with 246 web tests.
+  `make gen` reproduced both generated directories byte for byte in an isolated snapshot. The round-three response
+  documentation, queue event snapshot, and seeded-source fixes were verified. All changed files are in scope.
+  `git diff --check main...HEAD` flags three whitespace-only lines in the generated web schema at lines 518, 530,
+  and 614. No proxy, store, or raw HTTP changes required `make test-int`.
+- Verdict: `changes_requested`. Return the oversized-held-message case to the lead.
