@@ -44,6 +44,9 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
       exactly the current one → `BAD_INPUT`.
 - [x] Validation: names 1–200 characters after trim, port 1–65535, timeout 1000–300000 ms → `BAD_INPUT`.
 - [x] Deleting a collection deletes its sessions and entries; deleting a session deletes its entries; request records stay.
+- [ ] `requestTarget` follows the T-110 schema description (UTF-8 with replacement, 2048 cut, `""` when not a
+      request line) without loading more of the draft than the first line needs. (Added by lead after T-033 merged;
+      pending T-110.)
 - [x] Entries paging stable and newest first; `AddEntry` with an error string stores it (service tests).
 - [x] Resolver tests for the main paths; `make check` green.
 

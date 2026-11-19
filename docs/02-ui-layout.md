@@ -58,7 +58,7 @@ every divider is draggable and persisted.
 | `SplitPane` | all pages | Horizontal/vertical, persisted sizes, double-click divider resets. |
 | `ContextMenu` | rows, editors, tabs, tree nodes | Built from a command registry (same commands as palette + shortcuts + plugins). |
 | `SessionSidebar` | Replay, Automate, Assistant | Collections tree + search + drag/drop. |
-| `TabStrip` | Replay, Automate | Rename, close variants, colour tag, overflow menu, drag reorder. |
+| `TabStrip` | Replay, Automate | Rename, close variants, colour tag, overflow menu, drag reorder (T-111). |
 | `EmptyState` | all | Short explanation + primary action. |
 
 ## 3. Page layouts

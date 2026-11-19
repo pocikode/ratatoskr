@@ -334,6 +334,10 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     with a `Host` header.
   - Duplicate copies draft, connection, options and colour (not entries) as `<name> (copy)`.
   - Session search, open tabs and the active tab are client-side; open tabs persist in `localStorage` per project.
+  - (lead, 2026-11-19, T-034 escalation) "Duplicate" applies to sessions only; collections can be created, renamed and
+    deleted but not duplicated in M2. Open-tab order is client-side and is persisted with the open tabs; tab drag reorder
+    lands in T-111. The collections tree must not fetch draft bytes: it reads `ReplaySession.requestTarget` (T-110) for
+    path search, and only the session editor loads `draft`.
 
 ### F-REP-2 HTTP session editor
 - Connection bar: scheme/host/port/TLS/SNI override, HTTP/1.1 vs HTTP/2 (beta), "Apply Match & Replace" toggle, environment selector.
