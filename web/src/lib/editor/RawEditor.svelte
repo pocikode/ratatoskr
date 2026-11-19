@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+  import {
+    defaultKeymap,
+    deleteCharBackward,
+    deleteCharForward,
+    history,
+    historyKeymap,
+  } from '@codemirror/commands';
   import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
   import { search, searchKeymap } from '@codemirror/search';
   import { Annotation, Compartment, EditorState } from '@codemirror/state';
@@ -43,6 +49,7 @@
 
   const lockCompartment = new Compartment();
   const wrapCompartment = new Compartment();
+  const historyCompartment = new Compartment();
 
   const highlight = HighlightStyle.define([
     { tag: tags.keyword, class: 'cm-http-method' },
@@ -67,6 +74,24 @@
     return true;
   }
 
+  // Backspace/Delete treat CRLF as one boundary so no hidden CR is left behind.
+  function eraser(forward: boolean) {
+    return (editor: EditorView): boolean => {
+      const { main } = editor.state.selection;
+      if (editor.state.readOnly || !main.empty) return false;
+      const from = forward ? main.head : main.head - 2;
+      if (from < 0 || editor.state.sliceDoc(from, from + 2) !== '\r\n') {
+        return (forward ? deleteCharForward : deleteCharBackward)(editor);
+      }
+      editor.dispatch({
+        changes: { from, to: from + 2 },
+        userEvent: 'delete',
+        scrollIntoView: true,
+      });
+      return true;
+    };
+  }
+
   $effect(() => {
     const element = host;
     if (!element) return;
@@ -83,13 +108,16 @@
             highlightSpecialChars({
               specialChars: SPECIAL,
             }),
-            history(),
+            historyCompartment.of(history()),
             search({ top: true }),
             variableDecorations(() => variables),
             lockCompartment.of(lockExtensions(locked)),
             wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
             keymap.of([
               { key: 'Enter', run: enter },
+              { key: 'Shift-Enter', run: enter },
+              { key: 'Backspace', run: eraser(false) },
+              { key: 'Delete', run: eraser(true) },
               ...searchKeymap,
               ...historyKeymap,
               ...defaultKeymap,
@@ -127,6 +155,9 @@
       changes: { from: 0, to: editor.state.doc.length, insert: next },
       annotations: external.of(true),
     });
+    // A replaced message must not be reachable through undo: drop and re-add the history field.
+    editor.dispatch({ effects: historyCompartment.reconfigure([]) });
+    editor.dispatch({ effects: historyCompartment.reconfigure(history()) });
   });
 
   $effect(() => {

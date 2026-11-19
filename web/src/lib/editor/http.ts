@@ -46,6 +46,9 @@ function token(stream: StringStream, state: HttpState): string | null {
 export const httpLanguage = StreamLanguage.define<HttpState>({
   name: 'http-message',
   token,
+  blankLine: (state) => {
+    if (state.phase === 'headers') state.phase = 'body';
+  },
   startState: () => ({ phase: 'start' }),
   copyState: (state) => ({ ...state }),
 });
