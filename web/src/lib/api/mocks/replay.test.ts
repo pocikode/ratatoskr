@@ -52,6 +52,25 @@ describe('replay mock', () => {
     expect(after.edges.map((e: { node: { id: string } }) => e.node.id)).not.toContain(doomed.id);
   });
 
+  it('keeps the page boundary when the cursor entry is deleted between loads', async () => {
+    const { q, m } = run(client());
+    const page = async (after?: string) =>
+      (
+        await q(
+          `query ($a: String) { replaySession(id: "rs3") { entries(first: 2, after: $a) { edges { node { id request { id } } } } } }`,
+          { a: after },
+        )
+      ).data!.replaySession.entries.edges.map(
+        (e: { node: { id: string; request: { id: string } } }) => e.node,
+      );
+    const first = await page();
+    const last = first.at(-1)!;
+    await m(`mutation { deleteRequests(ids: ["${last.request.id}"]) }`);
+    const second = (await page(last.id)).map((n: { id: string }) => n.id);
+    expect(second).toHaveLength(1);
+    expect(second).not.toContain(first[0].id);
+  });
+
   it('creates, renames, reorders, moves, duplicates and deletes', async () => {
     const { q, m } = run(client());
     const created = await m(`mutation { createReplayCollection(name: " Mine ") { id name } }`);
