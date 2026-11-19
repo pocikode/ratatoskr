@@ -44,6 +44,7 @@ internal/
     nodes/                  one file per node family
   jsrt/                     JS runtime abstraction (goja), TS transpile (esbuild), SDK bindings
   findings/  exports/  files/  environment/
+  secret/                   seals/opens blobs with secret.key (XChaCha20-Poly1305); used by ca, environment, assistant
   assistant/                providers (anthropic, openai, google, openrouter, openai-compatible), chat store, tools
   plugins/                  package format, installer, backend host, frontend asset serving, community index
   events/                   typed in-process pub/sub (generic Bus[T]), backpressure policy
@@ -97,7 +98,13 @@ accept conn → detect (CONNECT | absolute-form | origin-form→UI | invisible)
   → if Upgrade: websocket → ws.Recorder relays frames both ways (intercept/M&R hooks per message)
 ```
 M1 (T-011) has no pending row: the exchange is inserted once complete and `requestAdded` + `requestUpdated` fire together.
-`history.NewPending` lands with the intercept engine (T-031), which needs held requests visible in history.
+`history.NewPending` lands in T-100 (M2): it returns the record ID at once (IDs are allocated in memory from
+`MAX(id)+1` when the project opens, so the proxy never waits for a flush), the row is written with the next batch
+(`requestAdded`), and `history.Complete` queues the response on the same writer (`requestUpdated`). When M&R or
+Intercept changed the request or response, the proxy also stores the edited record of the pair (F-HIST-4).
+Messages are buffered in full (≤ capture cap) only when Intercept may hold them or an enabled M&R rule for that side and
+source exists; everything else keeps streaming. A body over the cap is neither held nor rewritten. Hook order is fixed: M&R `proxy` rules → hold → (after a Forward with edits) M&R
+`intercept` rules → forward.
 Bodies > capture cap are streamed through and stored truncated (`truncated=true`). Timeouts: dial 10 s, TLS 10 s,
 response header 60 s (configurable).
 
@@ -126,7 +133,7 @@ ws_streams(id, request_id, host, port, path, tls, created_at, closed_at)
 ws_messages(id, stream_id, direction, format, raw BLOB, len, created_at, edited_from)
 scope_presets, filter_presets, ws_filter_presets
 mr_collections, mr_rules(…, sort_order)
-replay_collections, replay_sessions(kind http|ws|pipeline, …), replay_entries(session_id, request_id, created_at)
+replay_collections, replay_sessions(kind http|ws|pipeline, …), replay_entries(session_id, request_id, created_at, error)  -- error: migration 0003 (T-033)
 automate_sessions, automate_attacks, automate_results(attack_id, request_id, payloads_json, extractors_json, error)
 findings(id, request_id, reporter, title, description_md, dedupe_key UNIQUE(reporter,dedupe_key), created_at)
 exports(id, name, format, rows, size, path, status, created_at)
@@ -141,7 +148,7 @@ Indexes: `requests(host)`, `(created_at)`, `(source)`, `(method)`, `responses(co
 - **GraphQL** (gqlgen, schema-first in `internal/api/graphql/schema/*.graphqls`, one file per domain).
   - Pagination: cursor connections (`first/after`, `last/before`) + `totalCount` (cached per query).
   - Subscriptions via `graphql-transport-ws` protocol on `/api/graphql/ws`: `requestAdded(query, scopeId)`, `requestUpdated(query, scopeId)`, `requestsDeleted`,
-    `interceptQueueChanged`, `wsMessageAdded(streamId)`, `automateProgress(attackId)`, `taskProgress`, `findingAdded`, `logLine`.
+    `interceptQueueChanged`, `interceptSettingsChanged`, `wsMessageAdded(streamId)`, `automateProgress(attackId)`, `taskProgress`, `findingAdded`, `logLine`.
   - Errors: GraphQL errors with `extensions.code` + `extensions.span` (`{start, end}` byte offsets, end exclusive) for query errors.
     Codes (enum `ErrorCode` in `base.graphqls`): `BAD_QUERY` (HTTPQL/StreamQL parse or type error, always with `span`),
     `BAD_INPUT` (argument fails validation, e.g. empty name), `NOT_FOUND`, `CONFLICT`, `UNAUTHENTICATED`,

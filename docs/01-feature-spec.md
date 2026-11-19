@@ -151,6 +151,31 @@ unlimited projects/plugins) are **free and unlimited** here.
 - Edited requests are stored as a new record linked to the original (`edited_from`), both visible (F-HIST-4).
 - When switching to Forwarding, all held items are released in FIFO order.
 - AC: with queuing on, a browser request blocks until Forward; Drop returns `HTTP 502` (configurable) to client and marks record dropped.
+- Contract (lead, 2026-11-19, M2):
+  - Settings are per project (`intercept_settings`): `requests` (default on), `responses` (default off), `query`
+    (HTTPQL, empty = everything), `scopeId` (none = everything), `dropStatusCode` (100–599, default 502). `queuing` is
+    **not** persisted: every start and every project switch begins in Forwarding.
+  - A request is held iff queuing ∧ `requests` ∧ it matches `query` and the scope; a response iff queuing ∧ `responses` ∧
+    the exchange matches. The in-memory evaluator (docs/04) runs on the message after Match & Replace; `resp.*` clauses are
+    false for a request. Changing the condition does not release items already held.
+  - The queue is in memory, FIFO, not persisted. Item IDs are opaque. A held request already has its history record (a
+    pending row without response, docs/03 §4), so it shows in HTTP History.
+  - Only fully buffered messages are held: a body over the capture cap (64 MiB) passes through unheld (logged at info).
+  - Forward takes optional replacement bytes, which must parse as an HTTP/1.x request (or response) — else `BAD_INPUT`
+    with the parse error. `updateContentLength` (default true) sets `Content-Length` to the body size when the message has
+    no `Transfer-Encoding` and has a body or a `Content-Length` header; otherwise the bytes go out exactly as given.
+    Editing `Host` or the target never changes the destination (the original connection's host, port and TLS).
+  - Drop of a request: nothing goes upstream, the client gets `dropStatusCode` with a short HTML body of our own wording,
+    the record gets `isDropped`. Drop of a response: the client gets the same answer; the record keeps the server's
+    response and gets `isDropped`. Dropping discards edits (no edited record, F-HIST-4).
+  - Turning queuing off, or turning `requests`/`responses` off, forwards the affected held items unchanged in FIFO order.
+    A project switch does the same before the new project's settings load. If the client disconnects while its request
+    is held, the item leaves the queue and the record stays without a response.
+  - Live updates: subscriptions `interceptQueueChanged` (item added / removed) and `interceptSettingsChanged`. The
+    sidebar badge is the number of held items.
+  - WebSocket messages are M4 (T-053). In M2 the Intercept actions are Forward, Drop, Forward all, Drop all, undo edits
+    (client-side), send to Replay and copy as cURL. "Add to scope" follows the History context-menu item (F-HIST-3)
+    and "run active workflow" lands with M5.
 
 ### F-HIST-1 HTTP History table
 - Virtualized table of all requests in the project; live insertion at top or bottom (sort-aware) via subscription.
@@ -182,6 +207,14 @@ Open in browser · Filter by this host/path/status · Delete · Export.
 
 ### F-HIST-4 Modifications
 - Records edited by Intercept or Match & Replace show an "edited" indicator; viewer can toggle **Original / Modified**.
+- Contract (lead, 2026-11-19, M2): an exchange changed by Match & Replace or Intercept is stored as two records.
+  The **original** record holds the request as the client sent it and the response as the server sent it. The **edited**
+  record (`editedFrom` = original) holds the request as the server received it and the response as the client received
+  it; when only the response changed, both carry the same request bytes. The edited record's source is `intercept` when
+  the user changed anything in Intercept, otherwise the original's source. An original has at most one edited record
+  (`HttpRequest.editedBy`). Both rows are listed in history and both show the edited indicator; the `EDITED` sort key
+  stays `editedFrom`. Original / Modified switches both viewer panes between the two records at once. Replay and
+  Automate store only what they sent and never create a pair.
 
 ### F-WS-1 WS History
 - Top table: WebSocket **streams** (id, host, path, direction count, created, TLS, source).
@@ -202,6 +235,31 @@ Open in browser · Filter by this host/path/status · Delete · Export.
 - Also applies in Replay when the session toggle "Apply Match & Replace" is on.
 - Import/export JSON.
 - AC: rule `Request Header / add / User-Agent: x` adds header on every proxied request; record marked edited; tester shows diff.
+- Contract (lead, 2026-11-19, M2):
+  - Order: collections in order, rules in order. Each enabled rule whose `sources` include the traffic's source and whose
+    condition matches applies to the output of the previous rule. The condition (HTTPQL, empty = always) is evaluated in
+    memory on the message as changed so far; for request sections no `resp.*` information exists (those clauses are false).
+  - Sources: `proxy` (captured traffic, before Intercept holds it), `intercept` (a message forwarded from the Intercept
+    editor, after the user's edit), `replay` (when the session toggle is on), `automate`, `workflow`, `plugin` (stored
+    now, applied once those features land).
+  - Matchers: `FULL` (the whole section, or every item), `STRING` (exact, case-sensitive, every occurrence), `REGEX`
+    (Go RE2, every match; `$1`, `${name}` and `$$` expand in the term; an invalid pattern is `BAD_INPUT`), `NAME`.
+  - **Update raw** works on the section text: the start line, the path, the raw query string, each header line
+    (`Name: value`) on its own, or the body. **Update value** (header, query param): `NAME` selects items by name (headers
+    case-insensitive, params case-sensitive) and the term replaces the whole value; `STRING`/`REGEX` replace inside every
+    item's value; `FULL` replaces every item's value. **Add**: the term is `Name: value` (header) or `name=value` (param),
+    appended last; the matcher is ignored. **Remove**: `NAME` by name, `STRING`/`REGEX` against the item text, `FULL`
+    removes all. **Method / Status code update**: the matcher works on the token; a status result that is not three
+    digits skips the rule (logged).
+  - Body: one `Content-Encoding` of gzip, deflate, br or zstd is removed before matching and reapplied after; other or
+    stacked codings skip body rules. A message whose body exceeds the capture cap (64 MiB) passes through with no rule
+    applied (logged at info). A changed body keeps its framing: `Content-Length` is updated,
+    a chunked body becomes one chunk plus the last chunk (trailers kept). Messages no rule changed keep their bytes.
+  - The Workflow replacer arrives with M5 (T-066) and WebSocket sections with M4 (T-053); M2 has the Term replacer only.
+  - Tester: one draft rule (saved or not) against pasted or picked bytes, request or response → output bytes, whether the
+    condition matched and whether anything changed. The UI shows a line diff.
+  - Export/import JSON `{"version":1,"collections":[{"name":…,"rules":[…]}]}`; import appends collections, all or nothing.
+  - Limits: names 1–200 characters, ≤ 1000 rules per project, term ≤ 1 MiB. Rules reload on every change and on project switch.
 
 ---
 
@@ -213,6 +271,19 @@ Open in browser · Filter by this host/path/status · Delete · Export.
 - Top: tab strip of open sessions (close, close others, close to the right, rename by double-click, tag colour).
 - Session types: **HTTP**, **WebSocket**, **Pipeline**.
 - New session: from scratch (URL dialog with connection info) or sent from any request (Ctrl+R).
+- Contract (lead, 2026-11-19, M2):
+  - A collection named "Default" is created with the project's first Replay use; it can be renamed, not deleted
+    (`CONFLICT`), and receives new sessions when no collection is given. Deleting a collection deletes its sessions;
+    deleting a session deletes its entries. Request records always stay in HTTP History.
+  - Only `HTTP` sessions exist in M2; WS (M4) and Pipeline (M7) add enum values then.
+  - A session holds: name, collection, position, tag colour (`RequestColor`, optional), connection (host, port, TLS, SNI
+    override), options (follow redirects off, update Content-Length on, timeout 60 s within 1–300 s, Apply Match &
+    Replace off) and the draft request bytes. New sessions are named `METHOD path` cut to 60 characters.
+  - From a history request: its stored request bytes and connection are copied (`BAD_INPUT` when the stored request was
+    truncated). From scratch: host, port, TLS and request bytes are given; the URL dialog builds `GET <path> HTTP/1.1`
+    with a `Host` header.
+  - Duplicate copies draft, connection, options and colour (not entries) as `<name> (copy)`.
+  - Session search, open tabs and the active tab are client-side; open tabs persist in `localStorage` per project.
 
 ### F-REP-2 HTTP session editor
 - Connection bar: scheme/host/port/TLS/SNI override, HTTP/1.1 vs HTTP/2 (beta), "Apply Match & Replace" toggle, environment selector.
@@ -221,6 +292,23 @@ Open in browser · Filter by this host/path/status · Delete · Export.
 - Response pane with same modes as F-HIST-2 + roundtrip time, size, status.
 - Entry history per session: `<` `>` navigation and history dropdown; each send = one stored entry (request + response).
 - AC: sending `GET / HTTP/1.1` with a deliberately wrong `Content-Length` and auto-update off sends that exact byte stream.
+- Contract (lead, 2026-11-19, M2):
+  - Send takes the editor's bytes, connection and options, saves them as the session's draft, and returns when the
+    response is complete, the timeout passes or the send is cancelled. One send per session at a time (`CONFLICT`).
+  - Steps: `{{var}}` interpolation (F-ENV-1) → Match & Replace (source `replay`, if enabled) → Content-Length update (if
+    enabled; same rule as Intercept, F-INT-1) → write on a **fresh** connection (no pooling, closed after the exchange;
+    TLS without certificate verification, SNI = override, else the host when it is a name; ALPN `http/1.1`). The timeout
+    covers dial to the last response byte. Responses are read up to the capture cap (64 MiB), then cut (`isTruncated`).
+  - Each send stores one request record (source `replay`, the bytes as sent) with its response, and one entry
+    `{request, error, createdAt}`. Dial, TLS, timeout and cancel failures are entries with `error` and no response.
+  - Follow redirects: up to 10 hops on 301/302/303/307/308 with a `Location`. 307/308 resend method and body; 303 (except
+    HEAD) and 301/302 after POST switch to GET without body, dropping `Content-Length`, `Content-Type` and
+    `Transfer-Encoding`. Target, `Host` and connection follow the resolved `Location`. Each hop is its own request record;
+    the entry points to the last one.
+  - History navigation (`‹ ›`, dropdown) shows an entry's request in the editor and its response; editing it makes it the draft.
+  - The editor keeps loaded bytes exactly (CR/LF untouched) and Enter inserts CRLF. A message that is not valid UTF-8
+    opens read-only with a notice. HTTP/1.x only in M2 (HTTP/2: T-081).
+  - The connection bar's environment selector changes the project's selected environment (F-ENV-1); it is not per session.
 
 ### F-REP-3 WebSocket session
 - Connect using the upgrade request; message composer (text/binary), message log both directions, reconnect, close.
@@ -325,6 +413,16 @@ Open in browser · Filter by this host/path/status · Delete · Export.
 - Variables `{name, value, kind: plain|secret}`; secrets masked in UI and never sent to AI or exports.
 - Interpolation `{{name}}` in Replay, Automate, workflows' Send Request; selected env overrides Global.
 - Workflows/plugins can set variables (e.g. refreshed JWT).
+- Contract (lead, 2026-11-19, M2):
+  - Global lives in instance.db (`env_global`), always exists, cannot be renamed or deleted. Project environments live
+    in project.db; at most one is selected per project (none = Global only).
+  - Environment names 1–200 characters, unique per project ("Global" is reserved). Variable names
+    `[A-Za-z_][A-Za-z0-9_.-]*`, ≤ 100 characters, unique per environment (case-sensitive); values ≤ 1 MiB.
+  - Secret values are sealed at rest with `secret.key` (docs/03 §8). The API returns them to authenticated clients; the
+    UI masks them behind a reveal toggle. Exports (M3) and the Assistant (M6) must leave them out.
+  - Interpolation: `{{name}}`, spaces inside the braces allowed. Lookup: selected environment, then Global. Unknown
+    names stay verbatim (editors mark them). One pass: substituted values are not interpolated again. No escape syntax.
+  - No subscription: pages refetch after their own mutations.
 
 ### F-FILE-1 Files (hosted files)
 - Upload (drag & drop, multi), list (name, size, created), rename, delete, preview first N lines. Used by Automate and plugins.

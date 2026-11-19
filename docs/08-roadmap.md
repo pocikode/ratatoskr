@@ -1,7 +1,7 @@
 # 08 — Roadmap & Task Index
 
 Milestones are sequential; tasks inside a milestone run in parallel where `depends_on` allows.
-Only **M0 and M1** have full task files in `docs/tasks/`. The lead expands the next milestone into task files
+Only **M0, M1 and M2** have full task files in `docs/tasks/`. The lead expands the next milestone into task files
 (from `TEMPLATE.md`) when the current one is ~70% done — specs evolve, so don't pre-write everything.
 
 Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each task file.
@@ -54,18 +54,34 @@ Legend — role: L lead · B backend · F frontend · Q qa. Status lives in each
 
 ## M2 — Intercept, Replay, Match & Replace, Environment
 
-| ID | Title | Role |
-|---|---|---|
-| T-030 | Contract: intercept, replay, M&R, environment | L |
-| T-031 | Intercept queue engine (req/resp), conditions, release semantics, drop response; `history.NewPending` pending row (deferred from T-011) | B |
-| T-032 | Intercept page + top-bar toggle + sidebar badge | F |
-| T-033 | Replay backend: collections, sessions, entries, sender (rawhttp), cancel, redirects, env interpolation | B |
-| T-034 | Replay page: session sidebar, tab strip, connection bar, editor with `{{var}}` support, history nav | F |
-| T-035 | Match & Replace engine (sections/operations/matchers/term replacer), body encodings, tester | B |
-| T-036 | Match & Replace page (collections, rule editor, tester diff) | F |
-| T-037 | Environment backend + page + status-bar switcher | B+F |
-| T-038 | Original/Modified viewer toggle + edited markers in history | B+F |
-| T-039 | E2E for M2 | Q |
+Behaviour decisions: the "Contract (lead, 2026-11-19, M2)" bullets in F-INT-1, F-HIST-4, F-MR-1, F-REP-1, F-REP-2, F-ENV-1
+and docs/03 §4. Contracts run in sequence (shared generated files); everything else runs in parallel as `depends_on` allows.
+Only T-109 edits `internal/app`; backend tasks are tested through their own packages and resolver tests until then.
+
+| ID | Title | Role | Depends on |
+|---|---|---|---|
+| T-030 | Contract: intercept queue/settings + `HttpRequest.editedBy` (schema, stubs, mocks) | L | — |
+| T-098 | Contract: Replay + Environments (schema, stubs, mocks) | L | T-030 |
+| T-099 | Contract: Match & Replace (schema, stubs, mocks) | L | T-098 |
+| T-100 | History pending records (`NewPending`/`Complete`), edited pairs API, `editedBy` (deferred from T-011) | B | T-030 |
+| T-031 | Intercept service: queue, settings, conditions, release semantics, resolvers | B | T-030 |
+| T-105 | Proxy hooks: intercept hold, drop, M&R rewrite, edited pairs | B | T-100, T-031 |
+| T-033 | Replay service: collections, sessions, entries (no sending) | B | T-098 |
+| T-101 | Replay sender: raw send on fresh connection, Content-Length rule, timeout, cancel, redirects | B | — |
+| T-037 | Environment backend: Global/project envs, sealed secrets (`internal/secret`), interpolation | B | T-098 |
+| T-106 | Replay send/cancel: interpolation, M&R hook, records + entries | B | T-033, T-101, T-100, T-037 |
+| T-035 | Match & Replace engine: sections/operations/matchers/term replacer, body encodings | B | T-099 |
+| T-102 | Match & Replace service: persistence, ordering, import/export, tester, resolvers | B | T-035, T-099 |
+| T-109 | Wire M2 services into the app (proxy deps, resolvers, project switch) | B | T-105, T-106, T-102 |
+| T-104 | `RawEditor`: byte-preserving editable HTTP editor with `{{var}}` highlighting | F | — |
+| T-034 | Replay page shell: session sidebar, collections, tab strip, `openInReplay` | F | T-098 |
+| T-103 | Environment page + status-bar switcher | F | T-098 |
+| T-032 | Intercept page + top-bar toggle + sidebar badge | F | T-030, T-104, T-034 |
+| T-107 | Replay session editor: connection bar, send/cancel, entries, response; Send to Replay from History | F | T-034, T-104, T-103 |
+| T-036 | Match & Replace page: collections, rules, rule editor, import/export | F | T-099 |
+| T-108 | Match & Replace tester panel with line diff | F | T-036 |
+| T-038 | Original/Modified viewer toggle + edited markers in history | F | T-030 |
+| T-039 | E2E for M2 | Q | T-109, T-032, T-107, T-108, T-038 |
 
 ## M3 — Automate, Files, Search, Findings, Exports, Tasks
 
