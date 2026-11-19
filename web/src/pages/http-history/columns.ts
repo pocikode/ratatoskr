@@ -77,26 +77,24 @@ const SORT_KEYS: Record<RequestSortField, (row: HistoryRow) => string | number> 
   EDITED: (row) => (row.editedFrom ? 1 : 0),
 };
 
-/** Places a live row where the current sort wants it; ties fall back to ID like the server. */
+export function compareRows(sort: RequestSort | null | undefined) {
+  const key = SORT_KEYS[sort?.field ?? 'ID'];
+  const direction = sort?.direction === 'DESC' ? -1 : 1;
+  return (a: HistoryRow, b: HistoryRow): number => {
+    const x = key(a);
+    const y = key(b);
+    return (x < y ? -1 : x > y ? 1 : Number(a.id) - Number(b.id)) * direction;
+  };
+}
+
+/** Places a live row where the current sort wants it. */
 export function insertRow(
   rows: readonly HistoryRow[],
   row: HistoryRow,
   sort: SortState | null,
 ): HistoryRow[] {
-  const field = sort && SORT_FIELDS[sort.columnId];
-  if (!field) {
-    // No sort state: the server's default order is ID ascending.
-    const index = rows.findIndex((other) => Number(other.id) > Number(row.id));
-    return index < 0 ? [...rows, row] : [...rows.slice(0, index), row, ...rows.slice(index)];
-  }
-  const key = SORT_KEYS[field];
-  const direction = sort?.direction === 'desc' ? -1 : 1;
-  const compare = (a: string | number, b: string | number) => (a < b ? -1 : a > b ? 1 : 0);
-  const index = rows.findIndex(
-    (other) =>
-      compare(key(row), key(other)) * direction < 0 ||
-      (compare(key(row), key(other)) === 0 && Number(row.id) < Number(other.id)),
-  );
+  const compare = compareRows(requestSort(sort));
+  const index = rows.findIndex((other) => compare(row, other) < 0);
   return index < 0 ? [...rows, row] : [...rows.slice(0, index), row, ...rows.slice(index)];
 }
 

@@ -3,7 +3,7 @@ id: T-095
 title: HTTP History paging via TrafficTable near-end hook (follow-up of T-017, unblocks T-021)
 milestone: M1
 role: frontend
-status: in_progress
+status: in_review
 depends_on: [T-017]
 owner: "Codex"
 branch: task/T-095-history-pagination
@@ -30,20 +30,20 @@ pages with the existing `requests(first, after)` cursor when the table nears its
   E2E specs (T-021 owns `web/tests/e2e/**`); scroll-accurate "↓ N new" pill.
 
 ## Acceptance criteria
-- [ ] `TrafficTable` takes an optional `onNearEnd?: () => void` callback prop, called when the rendered window comes
+- [x] `TrafficTable` takes an optional `onNearEnd?: () => void` callback prop, called when the rendered window comes
       within one viewport of the last loaded row. It is not called again until the row count changes.
-- [ ] `HistoryState` keeps `pageInfo.endCursor`/`hasNextPage` from each response and, on `onNearEnd`, loads the next
+- [x] `HistoryState` keeps `pageInfo.endCursor`/`hasNextPage` from each response and, on `onNearEnd`, loads the next
       page with `first: 1000, after: endCursor` and the same `query`/`scopeId`/`sort`. It appends the edges and drops any
       whose id is already loaded (live rows can overlap a page boundary).
-- [ ] At most one page request is in flight. A reload (new query, scope, sort or project) cancels paging the same way
+- [x] At most one page request is in flight. A reload (new query, scope, sort or project) cancels paging the same way
       `reloadToken` cancels stale reloads today, so no stale page is appended.
-- [ ] No request once `hasNextPage` is false. A paging error sets `message` and keeps the loaded rows.
-- [ ] The keyboard cursor and selection follow the row key, not the index: a live row prepended above the cursor does
+- [x] No request once `hasNextPage` is false. A paging error sets `message` and keeps the loaded rows.
+- [x] The keyboard cursor and selection follow the row key, not the index: a live row prepended above the cursor does
       not change which request is active.
-- [ ] Vitest: paging over a mock of ≥ 3,000 rows reaches the last row, with no duplicates and no request after the last
+- [x] Vitest: paging over a mock of ≥ 3,000 rows reaches the last row, with no duplicates and no request after the last
       page. A reload during an in-flight page discards that page. Prepending a row does not move `activeKey`.
-- [ ] Rendering stays virtualized: DOM row count does not grow with loaded rows (assert in the component test).
-- [ ] `make check` green.
+- [x] Rendering stays virtualized: DOM row count does not grow with loaded rows (assert in the component test).
+- [x] `make check` green.
 
 ## Notes from lead
 - `HistoryRequests` in `http-history.graphql` does not send `after` yet: add `$after: String` and pass it to
@@ -71,10 +71,14 @@ pages with the existing `requests(first, after)` cursor when the table nears its
 - Add `docs/tasks/T-017-http-history-page.md` to `paths` so the first-page-only limitation can be removed as requested.
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+
+- The virtual table requests 1,000-row cursor pages as it nears the end. Live overlaps are deduplicated in sort order,
+  and live deletions take precedence over an in-flight page. Reloads cancel paging, and the active row follows its key.
+- `make gen` and `make check` passed. Vitest passed 229 tests, including paging through 3,050 rows, cancellation,
+  error handling, and a bounded DOM row count as pages append.
+- Successful reloads restart the table at the top. A paging error preserves loaded rows and needs a row count change
+  or table reload before another automatic attempt.
+- T-021 owns the 100,000-row browser test.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested

@@ -21,6 +21,8 @@
     onsortchange?: (sort: SortState | null) => void;
     onrowopen?: (row: Row) => void;
     onrowcontextmenu?: (row: Row, event: MouseEvent | KeyboardEvent) => void;
+    /** Fired once per row count when the rendered window nears the end. */
+    onNearEnd?: () => void;
     color?: (row: Row) => RowColor | null;
     empty?: Snippet;
   }
@@ -37,6 +39,7 @@
     onsortchange,
     onrowopen,
     onrowcontextmenu,
+    onNearEnd,
     color,
     empty,
   }: Props = $props();
@@ -48,7 +51,8 @@
       untrack(() => config),
     ),
   );
-  let active = $state(-1);
+  let activeKey = $state<string | null>(null);
+  let lastActiveIndex = $state(-1);
   let pageRows = $state(10);
 
   const visible = $derived(
@@ -57,6 +61,10 @@
       .filter((c): c is TrafficColumn<Row> => c !== undefined && !cfg.hidden.includes(c.id)),
   );
   const keys = $derived(rows.map(rowKey));
+  const active = $derived.by(() => {
+    if (activeKey === null) return -1;
+    return keys[lastActiveIndex] === activeKey ? lastActiveIndex : keys.indexOf(activeKey);
+  });
 
   function setWidth(id: string, width: number, commit: boolean) {
     cfg = setColumnWidth(cfg, id, width);
@@ -75,27 +83,32 @@
     onsortchange?.(next);
   }
 
+  function activate(index: number) {
+    const key = keys[index]!;
+    activeKey = key;
+    lastActiveIndex = index;
+    return key;
+  }
+
   function setActive(index: number, extend = false) {
-    const row = rows[index];
-    if (!row) return;
-    active = index;
-    selection?.click(rowKey(row), keys, { range: extend });
+    const key = activate(index);
+    selection?.click(key, keys, { range: extend });
   }
 
   function onkeydown(e: KeyboardEvent) {
     if (e.target !== e.currentTarget || !rows.length) return; // header/resize buttons own their keys
-    const from = Math.min(Math.max(active, 0), rows.length - 1); // rows can shrink under a filter
+    const from = Math.min(Math.max(active < 0 ? lastActiveIndex : active, 0), rows.length - 1);
     const actions: Record<string, () => void> = {
-      ArrowDown: () => setActive(active < 0 ? 0 : Math.min(rows.length - 1, from + 1), e.shiftKey),
-      ArrowUp: () => setActive(active < 0 ? 0 : Math.max(0, from - 1), e.shiftKey),
+      ArrowDown: () =>
+        setActive(activeKey === null ? 0 : Math.min(rows.length - 1, from + 1), e.shiftKey),
+      ArrowUp: () => setActive(activeKey === null ? 0 : Math.max(0, from - 1), e.shiftKey),
       Home: () => setActive(0, e.shiftKey),
       End: () => setActive(rows.length - 1, e.shiftKey),
       PageDown: () => setActive(Math.min(rows.length - 1, from + pageRows), e.shiftKey),
       PageUp: () => setActive(Math.max(0, from - pageRows), e.shiftKey),
       ' ': () => {
-        const row = rows[from];
-        if (row && selection) selection.click(rowKey(row), keys, { toggle: true });
-        active = from;
+        const key = activate(from);
+        selection?.click(key, keys, { toggle: true });
       },
       Enter: () => {
         const row = rows[from];
@@ -127,11 +140,10 @@
 
   function ongridclick(e: MouseEvent) {
     const index = rowIndexAt(e);
-    const row = rows[index];
-    if (!row) return;
+    if (!rows[index]) return;
     grid?.focus();
-    active = index;
-    selection?.click(rowKey(row), keys, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
+    const key = activate(index);
+    selection?.click(key, keys, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey });
   }
 
   function ongriddblclick(e: MouseEvent) {
@@ -145,8 +157,8 @@
     if (!row) return;
     e.preventDefault();
     grid?.focus();
-    active = index;
-    if (selection && !selection.has(rowKey(row))) selection.click(rowKey(row), keys);
+    const key = activate(index);
+    if (selection && !selection.has(key)) selection.click(key, keys);
     onrowcontextmenu?.(row, e);
   }
 
@@ -195,12 +207,13 @@
     idPrefix={uid}
     config={cfg}
     {sort}
-    active={active < rows.length ? active : -1}
+    {active}
     bind:pageRows
     {selection}
     {color}
     onsort={toggleSort}
     onwidth={setWidth}
+    {onNearEnd}
     {empty}
   />
 </div>

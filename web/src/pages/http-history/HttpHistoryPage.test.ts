@@ -16,6 +16,19 @@ describe('HttpHistoryPage', () => {
     expect(screen.getByText('12 matching')).toBeInTheDocument();
   });
 
+  it('loads another page when the history table scrolls near the end', async () => {
+    render(HttpHistoryPage, { client: createMockClient({ count: 1001, liveIntervalMs: 0 }) });
+    await screen.findByText('1000 rows');
+    const grid = screen.getByRole('grid', { name: 'HTTP History' });
+    const viewport = grid.querySelector<HTMLElement>('.overflow-auto')!;
+
+    viewport.scrollTop = 950 * 26;
+    await fireEvent.scroll(viewport);
+
+    await screen.findByText('1001 rows');
+    expect(within(grid).getAllByRole('row').length).toBeLessThan(80);
+  });
+
   it('shows the selected request and response in the viewers', async () => {
     render(HttpHistoryPage, { client: createMockClient({ count: 12, liveIntervalMs: 0 }) });
     await screen.findByText('12 rows');

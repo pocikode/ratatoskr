@@ -2,6 +2,7 @@
 // "↓ N new" buffer (docs/02 §6), the query, the sort and the selected message detail.
 import type { Client, CombinedError } from '@urql/core';
 import { SvelteSet } from 'svelte/reactivity';
+import { filter, makeSubject, pipe, take, takeUntil, toPromise, type Subject } from 'wonka';
 import {
   FilterPresetsDocument,
   HistoryDeleteRequestsDocument,
@@ -15,6 +16,8 @@ import {
   ScopePresetsDocument,
   UpdateScopePresetDocument,
   type FilterPresetFieldsFragment,
+  type HistoryRequestsQuery,
+  type HistoryRequestsQueryVariables,
   type HistoryRowFragment,
   type RequestColor,
   type ScopePresetFieldsFragment,
@@ -22,11 +25,11 @@ import {
 import { Selection } from '$lib/components/TrafficTable/selection.svelte';
 import type { ColumnConfig, SortState } from '$lib/components/TrafficTable/types';
 import { byteToDoc, syntaxError, type QueryError } from '$lib/query/httpql';
-import { insertRow, requestSort } from './columns';
+import { compareRows, insertRow, requestSort } from './columns';
 import { buildDetail, type HistoryDetail } from './detail';
 import { loadColumnConfig, saveColumnConfig } from './ui-state';
 
-/** Schema maximum for `first`; paging beyond it needs a TrafficTable scroll hook (Handoff). */
+/** Schema maximum for each page. */
 const PAGE = 1000;
 const MAX_HISTORY = 20;
 
@@ -40,6 +43,8 @@ export class HistoryState {
   total = $state(0);
   loading = $state(false);
   message = $state<string | null>(null);
+  /** A reload restarts the virtual window even when the row count stays the same. */
+  tableVersion = $state(0);
 
   /** Text in the query bar; `applied` is what the server filtered on. */
   query = $state('');
@@ -61,7 +66,13 @@ export class HistoryState {
   detailLoading = $state(false);
 
   private stops: Array<() => void> = [];
+  private projectToken = 0;
   private reloadToken = 0;
+  private page: {
+    variables: HistoryRequestsQueryVariables;
+    info: HistoryRequestsQuery['requests']['pageInfo'];
+  } | null = null;
+  private request: { cancel: Subject<void>; dropped?: SvelteSet<string> } | null = null;
 
   constructor(client: Client) {
     this.client = client;
@@ -81,10 +92,12 @@ export class HistoryState {
 
   /** Scope presets and filter presets for the query bar; the table works without them. */
   private async loadPresets(): Promise<void> {
+    const token = this.projectToken;
     const [scopes, presets] = await Promise.all([
       this.client.query(ScopePresetsDocument, {}, { requestPolicy: 'network-only' }).toPromise(),
       this.client.query(FilterPresetsDocument, {}, { requestPolicy: 'network-only' }).toPromise(),
     ]);
+    if (token !== this.projectToken) return;
     this.scopes = scopes.data?.scopePresets ?? [];
     this.presets = presets.data?.filterPresets ?? [];
     // A preset deleted elsewhere falls back to no scope (scope.graphqls).
@@ -139,8 +152,38 @@ export class HistoryState {
   }
 
   stop() {
+    this.projectToken++;
+    this.reloadToken++;
+    this.request?.cancel.next();
+    this.request = null;
+    this.unsubscribe();
+  }
+
+  reset(): void {
+    this.stop();
+    this.page = null;
+    this.rows = this.pending = [];
+    this.query = this.applied = this.sent = '';
+    this.history = this.scopes = this.presets = [];
+    this.scopeId = this.error = this.message = this.detail = null;
+    this.total = 0;
+    this.selection.clear();
+    this.start();
+  }
+
+  private unsubscribe(): void {
     for (const stop of this.stops) stop();
     this.stops = [];
+  }
+
+  private fetchPage(variables: HistoryRequestsQueryVariables, cancel: Subject<void>) {
+    return pipe(
+      this.client.query(HistoryRequestsDocument, variables, { requestPolicy: 'network-only' }),
+      filter((result) => !result.stale && !result.hasNext),
+      take(1),
+      takeUntil(cancel.source),
+      toPromise,
+    );
   }
 
   /** Query last sent to the server; accepted once a load succeeds (then it equals `applied`). */
@@ -148,21 +191,21 @@ export class HistoryState {
 
   async reload(query = this.sent): Promise<void> {
     const token = ++this.reloadToken;
+    this.request?.cancel.next();
+    const cancel = makeSubject<void>();
+    this.request = { cancel };
     this.loading = true;
-    const result = await this.client
-      .query(
-        HistoryRequestsDocument,
-        {
-          query: query || null,
-          scopeId: this.scopeId,
-          first: PAGE,
-          sort: requestSort(this.sort),
-        },
-        { requestPolicy: 'network-only' },
-      )
-      .toPromise();
+    const variables = {
+      query: query || null,
+      scopeId: this.scopeId,
+      first: PAGE,
+      sort: requestSort(this.sort),
+    };
+    const result = await this.fetchPage(variables, cancel);
     if (token !== this.reloadToken) return; // a newer query replaced this one
+    this.request = null;
     this.loading = false;
+    if (!result) return;
 
     // The bar text may carry leading whitespace that was trimmed before sending.
     const lead =
@@ -190,11 +233,63 @@ export class HistoryState {
       if (query) this.history = [...this.history.slice(-(MAX_HISTORY - 1)), query];
     }
     this.rows = connection.edges.map((edge) => edge.node);
+    this.page = { variables, info: connection.pageInfo };
+    this.tableVersion++;
     this.total = connection.totalCount;
     this.pending = [];
     this.error = null;
     this.message = null;
     this.subscribe();
+  }
+
+  async loadNextPage(): Promise<void> {
+    const page = this.page;
+    if (this.request || !page?.info.hasNextPage) return;
+
+    const token = this.reloadToken;
+    const request = { cancel: makeSubject<void>(), dropped: new SvelteSet<string>() };
+    this.request = request;
+    try {
+      while (page.info.hasNextPage && page.info.endCursor != null) {
+        const after = page.info.endCursor;
+        const result = await this.fetchPage({ ...page.variables, after }, request.cancel);
+        if (token !== this.reloadToken) return;
+        const connection = result?.data?.requests;
+        if (result?.error || !connection) {
+          this.message = result?.error?.message ?? 'Loading more requests failed';
+          return;
+        }
+
+        page.info = connection.pageInfo;
+        this.total = connection.totalCount;
+        const seen = new SvelteSet(this.rows.map((row) => row.id));
+        for (const row of this.pending) seen.add(row.id);
+        const appended: HistoryRowFragment[] = [];
+        for (const { node } of connection.edges) {
+          if (seen.has(node.id) || request.dropped.has(node.id)) continue;
+          seen.add(node.id);
+          appended.push(node);
+        }
+        if (appended.length) {
+          // Live rows may already sit beyond the last fetched page in the current sort order.
+          const compare = compareRows(page.variables.sort);
+          let live = this.rows.findLastIndex((row) => compare(row, appended[0]!) < 0) + 1;
+          const merged = this.rows.slice(0, live);
+          for (const row of appended) {
+            while (live < this.rows.length && compare(this.rows[live]!, row) < 0) {
+              merged.push(this.rows[live++]!);
+            }
+            merged.push(row);
+          }
+          this.rows = merged.concat(this.rows.slice(live));
+          return;
+        }
+        // A page of only live duplicates leaves the table's row count unchanged.
+        if (page.info.endCursor === after) return;
+      }
+    } finally {
+      if (this.request === request) this.request = null;
+    }
   }
 
   /** Enter in the query bar: validates, stores history and reloads. */
@@ -240,10 +335,11 @@ export class HistoryState {
       return;
     }
     this.detailLoading = true;
+    const token = this.projectToken;
     const result = await this.client
       .query(HistoryRequestDocument, { id }, { requestPolicy: 'network-only' })
       .toPromise();
-    if (this.selection.anchor !== id) return;
+    if (token !== this.projectToken || this.selection.anchor !== id) return;
     this.detailLoading = false;
     const message = result.data?.request;
     if (result.error || !message) {
@@ -320,6 +416,8 @@ export class HistoryState {
 
   private dropRows(ids: readonly string[]): void {
     const gone = new SvelteSet(ids);
+    const dropped = this.request?.dropped;
+    if (dropped) for (const id of gone) dropped.add(id);
     const removed =
       this.rows.filter((row) => gone.has(row.id)).length +
       this.pending.filter((row) => gone.has(row.id)).length;
@@ -332,7 +430,7 @@ export class HistoryState {
 
   /** (Re)starts the three live subscriptions for the applied query. */
   private subscribe(): void {
-    this.stop();
+    this.unsubscribe();
     const query = this.applied || null;
     const scopeId = this.scopeId;
     const added = this.client

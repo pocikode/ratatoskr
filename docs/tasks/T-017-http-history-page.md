@@ -95,8 +95,6 @@ HTTP History page per layout §3.1 using TrafficTable + MessageViewer, a QueryBa
    path cannot be exercised end to end yet (the page shows the GraphQL error message).
 
 ### Known limitations
-- Only the first page is loaded (`first: 1000`, the schema maximum). Paging needs a scroll hook in `TrafficTable`
-  (out of this task's paths) — see Out-of-scope #3.
 - The §6 rule "pill when the user is scrolled away" is approximated: new rows are buffered while a row is selected,
   inserted live when nothing is selected. The table does not report scroll position yet, so scrolling the top gap alone
   cannot show the pill.

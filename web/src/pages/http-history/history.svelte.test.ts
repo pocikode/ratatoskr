@@ -1,6 +1,12 @@
-import { Client, makeResult, type Exchange, type Operation } from '@urql/core';
+import {
+  Client,
+  makeResult,
+  type Exchange,
+  type Operation,
+  type OperationResult,
+} from '@urql/core';
 import { GraphQLError } from 'graphql';
-import { filter, fromValue, mergeMap, pipe, tap } from 'wonka';
+import { filter, fromPromise, fromValue, makeSubject, mergeMap, pipe, tap } from 'wonka';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockClient, mockHistoryExchange } from '$lib/api/mocks/exchange';
 import { historyCommands } from './commands';
@@ -23,6 +29,165 @@ const mock = (count = 40) => createMockClient({ count, liveIntervalMs: 0 });
 beforeEach(() => localStorage.clear());
 
 describe('HistoryState', () => {
+  it('loads all 3,050 matching rows in order, deduplicating live rows and stopping at the end', async () => {
+    const sent: Operation['variables'][] = [];
+    const spy: Exchange =
+      ({ forward }) =>
+      (ops$) =>
+        forward(
+          pipe(
+            ops$,
+            tap((op) => {
+              if (op.kind === 'query' && op.variables?.first) sent.push(op.variables);
+            }),
+          ),
+        );
+    const state = new HistoryState(
+      new Client({
+        url: '/test',
+        exchanges: [spy, mockHistoryExchange({ count: 3050, liveIntervalMs: 0 })],
+      }),
+    );
+    state.sort = { columnId: 'id', direction: 'asc' };
+    state.scopeId = '1';
+    const query = 'req.host.cont:"example"';
+    await state.reload(query);
+    expect(state.rows).toHaveLength(1000);
+
+    // An update can deliver a row whose original position has yet to be fetched.
+    await state.setNote('2000', 'Delivered live');
+    await vi.waitFor(() => expect(state.rows.at(-1)?.id).toBe('2000'));
+
+    for (let i = 0; i < 4; i++) await state.loadNextPage();
+
+    expect(state.rows.map((row) => row.id)).toEqual(
+      Array.from({ length: 3050 }, (_, i) => String(i + 1)),
+    );
+    expect(state.rows[1999]?.note).toBe('Delivered live');
+    expect(state.total).toBe(3050);
+    expect(sent).toEqual(
+      [undefined, '1000', '2000', '3000'].map((after) => ({
+        query,
+        scopeId: '1',
+        first: 1000,
+        sort: { field: 'ID', direction: 'ASC' },
+        ...(after ? { after } : {}),
+      })),
+    );
+    state.stop();
+  });
+
+  it.each(['reload', 'project reset'])('cancels the in-flight page on %s', async (change) => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    const sent: Operation[] = [];
+    const delay: Exchange =
+      ({ forward }) =>
+      (ops$) =>
+        pipe(
+          forward(
+            pipe(
+              ops$,
+              tap((op) => sent.push(op)),
+            ),
+          ),
+          mergeMap((result) =>
+            result.operation.variables?.after
+              ? fromPromise(held.then(() => result))
+              : fromValue(result),
+          ),
+        );
+    const state = new HistoryState(
+      new Client({
+        url: '/test',
+        exchanges: [delay, mockHistoryExchange({ count: 2000, liveIntervalMs: 0 })],
+      }),
+    );
+    await state.reload();
+    const next = state.loadNextPage();
+    await state.loadNextPage();
+    const paging = sent.filter((op) => op.kind === 'query' && op.variables?.after);
+    expect(paging).toHaveLength(1);
+
+    if (change === 'reload') state.setSort({ columnId: 'id', direction: 'asc' });
+    else state.reset();
+    expect(sent.some((op) => op.kind === 'teardown' && op.key === paging[0]?.key)).toBe(true);
+    await next;
+    await vi.waitFor(() => expect(state.loading).toBe(false));
+    const reloaded = state.rows;
+    release();
+    await held;
+    expect(state.rows).toBe(reloaded);
+    expect(state.rows).toHaveLength(1000);
+    expect(state.rows[0]?.id).toBe(change === 'reload' ? '1' : '2000');
+    state.stop();
+  });
+
+  it('reports a paging error without dropping loaded rows', async () => {
+    const fail: Exchange =
+      ({ forward }) =>
+      (ops$) =>
+        pipe(
+          forward(ops$),
+          mergeMap((result) =>
+            fromValue(
+              result.operation.variables?.after
+                ? makeResult(result.operation, { errors: [new GraphQLError('Page unavailable')] })
+                : result,
+            ),
+          ),
+        );
+    const state = new HistoryState(
+      new Client({
+        url: '/test',
+        exchanges: [fail, mockHistoryExchange({ count: 1001, liveIntervalMs: 0 })],
+      }),
+    );
+    await state.reload();
+    const loaded = state.rows;
+
+    await state.loadNextPage();
+
+    expect(state.message).toContain('Page unavailable');
+    expect(state.rows).toBe(loaded);
+    state.stop();
+  });
+
+  it('does not restore a row deleted after the next page was read', async () => {
+    const delayed = makeSubject<OperationResult>();
+    let page: OperationResult | undefined;
+    const hold: Exchange =
+      ({ forward }) =>
+      (ops$) =>
+        pipe(
+          forward(ops$),
+          mergeMap((result) => {
+            if (!result.operation.variables?.after) return fromValue(result);
+            page = result;
+            return delayed.source;
+          }),
+        );
+    const state = new HistoryState(
+      new Client({
+        url: '/test',
+        exchanges: [hold, mockHistoryExchange({ count: 1002, liveIntervalMs: 0 })],
+      }),
+    );
+    await state.reload();
+    const next = state.loadNextPage();
+    await vi.waitFor(() => expect(page).toBeDefined());
+
+    await state.remove(['1']);
+    delayed.next(page!);
+    await next;
+
+    expect(state.rows).toHaveLength(1001);
+    expect(state.rows.at(-1)?.id).toBe('2');
+    state.stop();
+  });
+
   it('loads the first page and filters on the applied query', async () => {
     const state = new HistoryState(mock());
     const stop = state.start();

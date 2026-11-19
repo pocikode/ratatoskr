@@ -4,6 +4,7 @@
   import { getApi } from '$lib/api/client';
   import { untrack } from 'svelte';
   import { registry } from '$lib/commands';
+  import { projects } from '$lib/stores/project.svelte';
   import MessageViewer from '$lib/components/MessageViewer/MessageViewer.svelte';
   import PresetChips from '$lib/components/PresetChips.svelte';
   import QueryBar from '$lib/components/QueryBar/QueryBar.svelte';
@@ -61,6 +62,7 @@
 
   $effect(() => {
     let stop = () => {};
+    let offReset = () => {};
     let cancelled = false;
     void (async () => {
       if (!client && import.meta.env.DEV && mockRequested()) {
@@ -68,12 +70,19 @@
         if (cancelled) return;
         history.useClient(createMockClient({ count: 500 }));
       }
-      if (!cancelled) stop = untrack(() => history.start());
+      if (!cancelled) {
+        stop = untrack(() => history.start());
+        offReset = projects.onReset(() => {
+          menu = null;
+          noteRow = null;
+          history.reset();
+        });
+      }
     })();
     return () => {
       cancelled = true;
+      offReset();
       stop();
-      history.stop();
     };
   });
 
@@ -181,24 +190,27 @@
       >
         {#snippet first()}
           <div class="relative flex min-h-0 flex-col">
-            <TrafficTable
-              rows={history.rows}
-              columns={historyColumns}
-              rowKey={(row) => row.id}
-              selection={history.selection}
-              config={history.config}
-              sort={history.sort}
-              label="HTTP History"
-              color={rowColor}
-              onconfigchange={(config) => history.setConfig(config)}
-              onsortchange={(sort) => history.setSort(sort)}
-              onrowopen={(row) =>
-                history.selection.click(
-                  row.id,
-                  history.rows.map((other) => other.id),
-                )}
-              onrowcontextmenu={openMenu}
-            />
+            {#key history.tableVersion}
+              <TrafficTable
+                rows={history.rows}
+                columns={historyColumns}
+                rowKey={(row) => row.id}
+                selection={history.selection}
+                config={history.config}
+                sort={history.sort}
+                label="HTTP History"
+                color={rowColor}
+                onconfigchange={(config) => history.setConfig(config)}
+                onsortchange={(sort) => history.setSort(sort)}
+                onNearEnd={() => void history.loadNextPage()}
+                onrowopen={(row) =>
+                  history.selection.click(
+                    row.id,
+                    history.rows.map((other) => other.id),
+                  )}
+                onrowcontextmenu={openMenu}
+              />
+            {/key}
             <div aria-live="polite">
               {#if history.pending.length > 0}
                 <button
