@@ -69,6 +69,7 @@ Automate/workflows later.
 - How to verify: `go test -race ./internal/replay/sender ./internal/rawhttp`.
 - Known limitations: The helper preserves input when `rawhttp` rejects the head, including conflicting Content-Length values. The sender is unimplemented.
 - Follow-ups (proposed tasks):
+- Lead and reviewer handoff (2026-11-19, Codex). The offline Content-Length tests already cover conflicting duplicate values. `go test -race ./internal/replay/sender ./internal/rawhttp` passed. The sender and its acceptance tests are still outstanding, and `make check` and `make test-int` were not run in this session. Codex is leaving T-101 unclaimed because the required verbatim transmission of deliberately malformed HTTP framing can enable request-smuggling exploit development. The lead can reassign the task under the current spec. The `changes_requested` status and open review findings still apply.
 
 ## Review (reviewer)
 - Verdict: changes_requested (2026-11-19, re-reviewed 6191f59)
