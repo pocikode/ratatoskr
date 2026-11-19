@@ -3,7 +3,7 @@ id: T-034
 title: Replay page shell - session sidebar, collections, tab strip
 milestone: M2
 role: frontend
-status: in_progress
+status: in_review
 depends_on: [T-098]
 owner: "claude-sonnet-5.5"
 branch: task/T-034-replay-shell
@@ -60,10 +60,10 @@ session body.
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `web/src/pages/replay/` (ReplayPage → per-project ReplayShell, `ReplayState`, commands, URL dialog, delete/new-collection dialogs, `openInReplay`, `replay.graphql`, placeholder `session/SessionEditor.svelte`); shared `SessionSidebar` (ARIA tree, search, native drag & drop, inline rename) and `TabStrip` (tablist, rename, colour dot, overflow menu); regenerated `web/src/lib/api/generated/**` via codegen. Context menus, palette and `tab.next/prev/close` shortcuts all run through the registry (`replay.*`). A visually hidden `<h1>Replay</h1>` keeps App.test's heading check.
+- How to verify: `make check`; `cd web && bun run dev` then open `/?mock=replay#/replay`. Tests: `src/pages/replay/ReplayPage.test.ts`, `url.test.ts`.
+- Known limitations: no tab drag-reorder, no collection reorder UI (docs mention tab drag reorder; not in this task's AC); no Playwright E2E (the page is only user-visible against the mock until T-033 lands); move failure revert is covered by the refetch in `#run`, not by a dedicated test; `openInReplay` is not yet wired into History/Intercept (T-107/T-032); `ReplayContext` carries the clicked row as `ctx.replay` via a cast because `lib/commands` is outside this task's paths.
+- Follow-ups (proposed tasks): wire `openInReplay` + `history.sendToReplay` in T-107; tab drag reorder; Automate reuses both shared components.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
