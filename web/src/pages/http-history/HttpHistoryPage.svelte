@@ -247,7 +247,7 @@
                 <MessageViewer
                   raw={history.detail.response}
                   title={responseTitle}
-                  modes={['raw', 'pretty', 'hex', 'table']}
+                  previewUrl={`/api/rest/preview/${history.detail.id}`}
                 />
               {:else}
                 <p class="flex h-full items-center justify-center border border-line text-muted">

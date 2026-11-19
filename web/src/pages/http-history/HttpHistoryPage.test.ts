@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createMockClient } from '$lib/api/mocks/exchange';
@@ -52,16 +52,49 @@ describe('HttpHistoryPage', () => {
     expect(within(active!).getByRole('gridcell', { name: '12' })).toBeInTheDocument();
   });
 
-  it('shows the selected request and response in the viewers', async () => {
+  it('shows the selected messages and updates the response preview when selection changes', async () => {
+    const user = userEvent.setup();
     render(HttpHistoryPage, { client: createMockClient({ count: 12, liveIntervalMs: 0 }) });
     await screen.findByText('12 rows');
     expect(screen.getAllByText('Select a request to view it.').length).toBeGreaterThan(0);
 
-    const rows = screen.getAllByRole('row');
-    await userEvent.click(rows[1]!);
+    const grid = within(screen.getByRole('grid', { name: 'HTTP History' }));
+    await user.click(grid.getByRole('gridcell', { name: '11' }));
 
     const request = await screen.findByRole('region', { name: 'Request' });
     expect(request).toHaveTextContent(/HTTP\/1\.1/);
+    const requestPane = within(request);
+    const responsePane = within(await screen.findByRole('region', { name: 'Response' }));
+    const textModes = ['Raw', 'Pretty', 'Hex', 'Table'];
+    expect(requestPane.getAllByRole('tab').map((tab) => tab.textContent?.trim())).toEqual(
+      textModes,
+    );
+    expect(responsePane.getAllByRole('tab').map((tab) => tab.textContent?.trim())).toEqual([
+      ...textModes,
+      'Preview',
+    ]);
+    expect(requestPane.queryByRole('link', { name: 'Open in browser' })).not.toBeInTheDocument();
+
+    const link = responsePane.getByRole('link', { name: 'Open in browser' });
+    expect(link).toHaveAttribute('href', '/api/rest/preview/11');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    responsePane.getByRole('button', { name: 'Copy message' }).focus();
+    await user.tab();
+    expect(link).toHaveFocus();
+
+    await user.click(responsePane.getByRole('tab', { name: 'Preview' }));
+    const frame = responsePane.getByTitle('Response preview');
+    expect(frame).toHaveAttribute('src', '/api/rest/preview/11');
+    expect(frame).toHaveAttribute('sandbox', '');
+
+    await user.click(grid.getByRole('gridcell', { name: '10' }));
+    await waitFor(() => expect(frame).toHaveAttribute('src', '/api/rest/preview/10'));
+    expect(link).toHaveAttribute('href', '/api/rest/preview/10');
+
+    await user.click(grid.getByRole('gridcell', { name: '12' }));
+    await screen.findByText('No response for this request.');
+    expect(screen.queryByRole('link', { name: 'Open in browser' })).not.toBeInTheDocument();
   });
 
   it('offers the row actions through the context menu command registry', async () => {
