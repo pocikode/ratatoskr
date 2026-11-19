@@ -1,4 +1,4 @@
-import { history, undo, redo } from '@codemirror/commands';
+import { history, undo, redo, moveLineDown, moveLineUp } from '@codemirror/commands';
 import { EditorState, type ChangeSpec } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { encodeDoc, lineEndings, parseLineEndings } from './lineEndings';
@@ -61,5 +61,15 @@ describe('lineEndings', () => {
     const text = 'a\nb\rc\r\nd';
     const s = edit(make(text), { from: 0, to: text.length - 2 });
     expect(encodeDoc(run(undo, s))).toBe(text);
+  });
+
+  it('line moves keep untouched breaks and make new ones CRLF', () => {
+    const at = (text: string, pos: number) =>
+      make(text).update({ selection: { anchor: pos } }).state;
+    // move the middle line "b" (pos 2) in "a\nb\rc\r\nd"
+    const up = run(moveLineUp, at('a\nb\rc\r\nd', 2));
+    expect(encodeDoc(up)).toBe('b\r\na\rc\r\nd');
+    const down = run(moveLineDown, at('a\nb\rc\r\nd', 2));
+    expect(encodeDoc(down)).toBe('a\nc\r\nb\r\nd');
   });
 });

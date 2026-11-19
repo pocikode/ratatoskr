@@ -111,11 +111,6 @@ describe('RawEditor', () => {
       );
     });
 
-    it('Alt+Up/Down never emit a lone LF or reorder bytes with a bare separator', async () => {
-      const out = await run(`${home}{Alt>}{ArrowDown}{/Alt}`);
-      expect(out === null || /^b\r\na$/.test(out)).toBe(true);
-    });
-
     it('undo after deleting the break restores the exact bytes', async () => {
       const onchange = vi.fn();
       render(RawEditor, { value: enc(text), onchange });
@@ -163,14 +158,38 @@ describe('RawEditor', () => {
   it('Mod+Enter reaches window unprevented and emits nothing', async () => {
     const onchange = vi.fn();
     const seen: boolean[] = [];
-    const listener = (e: KeyboardEvent) => seen.push(e.defaultPrevented);
+    const listener = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && e.ctrlKey) seen.push(e.defaultPrevented);
+    };
     window.addEventListener('keydown', listener);
     render(RawEditor, { value: enc('a'), onchange });
     await userEvent.click(box());
     await userEvent.keyboard('{Control>}{Enter}{/Control}');
     window.removeEventListener('keydown', listener);
-    expect(seen).toContain(false);
-    expect(seen).not.toContain(true);
+    expect(seen).toEqual([false]);
+    expect(onchange).not.toHaveBeenCalled();
+  });
+
+  it('undo after an invalid replacement with the same lossy display emits nothing', async () => {
+    const onchange = vi.fn();
+    const { rerender } = render(RawEditor, { value: enc('a'), onchange });
+    await userEvent.click(box());
+    await userEvent.keyboard('{Control>}{End}{/Control}x');
+    await rerender({ value: new Uint8Array([0xff]), onchange });
+    await rerender({ value: enc('\ufffd'), onchange });
+    await tick();
+    onchange.mockClear();
+    await userEvent.keyboard('{Control>}z{/Control}');
+    expect(onchange).not.toHaveBeenCalled();
+  });
+
+  it('read-only content is focusable and Enter does not edit it', async () => {
+    const onchange = vi.fn();
+    render(RawEditor, { value: enc('ab'), onchange, readonly: true });
+    expect(box()).toHaveAttribute('tabindex', '0');
+    await userEvent.tab();
+    await userEvent.keyboard('{Enter}{Shift>}{Enter}{/Shift}');
+    expect(box().textContent).toBe('ab');
     expect(onchange).not.toHaveBeenCalled();
   });
 });

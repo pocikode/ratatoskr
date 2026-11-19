@@ -56,14 +56,20 @@
   const lockExtensions = (on: boolean) => [
     EditorState.readOnly.of(on),
     EditorView.editable.of(!on),
+    // Read-only content still needs a tab stop so it can be focused for search and copy.
+    EditorView.contentAttributes.of(on ? { tabindex: '0' } : {}),
   ];
 
   let loadedIdentity: unknown;
+  // Exact bytes last loaded from the prop or emitted: lets an echo be recognised without parsing.
+  let lastBytes: Uint8Array | null = null;
+  const newline = (v: EditorView) => !v.state.readOnly && insertNewline(v);
 
   $effect(() => {
     const element = host;
     if (!element) return;
     loadedIdentity = untrack(() => identity);
+    lastBytes = untrack(() => value);
     const initial = untrack(() => parseLineEndings(text ?? decodeLossy(value)));
     // untrack: plugin constructors read `variables`, which must not rebuild the editor.
     const editor = untrack(
@@ -84,7 +90,7 @@
               wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
               keymap.of([
                 // Plain newline: no auto-indent, which would add or strip bytes. New breaks are CRLF.
-                { key: 'Enter', run: insertNewline, shift: insertNewline },
+                { key: 'Enter', run: newline, shift: newline },
                 ...searchKeymap,
                 ...historyKeymap,
                 // Mod-Enter is the app's Send/Forward shortcut; the editor must not consume it.
@@ -93,7 +99,9 @@
               EditorView.updateListener.of((update) => {
                 if (!update.docChanged || update.state.readOnly) return;
                 if (update.transactions.some((t) => t.annotation(external))) return;
-                onchange?.(encodeText(encodeDoc(update.state)));
+                const bytes = encodeText(encodeDoc(update.state));
+                lastBytes = bytes;
+                onchange?.(bytes);
               }),
               EditorView.contentAttributes.of({
                 'aria-label': label,
@@ -116,15 +124,12 @@
   $effect(() => {
     const editor = view;
     if (!editor) return;
-    const next = parseLineEndings(text ?? decodeLossy(value));
     const swapped = identity !== loadedIdentity;
     loadedIdentity = identity;
-    // Same identity and same bytes: the parent only echoed our own edit.
-    const same =
-      text !== null
-        ? bytesEqual(encodeText(encodeDoc(editor.state)), value)
-        : editor.state.doc.toString() === next.doc;
-    if (same && !swapped) return;
+    // Same identity and the exact bytes we loaded or emitted: the parent only echoed our edit.
+    if (!swapped && lastBytes && bytesEqual(lastBytes, value)) return;
+    lastBytes = value;
+    const next = parseLineEndings(text ?? decodeLossy(value));
     editor.dispatch({
       changes: { from: 0, to: editor.state.doc.length, insert: next.doc },
       effects: next.effect,
