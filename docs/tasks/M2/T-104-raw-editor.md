@@ -131,3 +131,10 @@ changes bytes the user did not edit.
 - [x] [minor] web/src/lib/editor/RawEditor.test.ts:114 — The line-move test runs only Alt+Down and accepts zero emissions. It passes with either shortcut broken or removed and cannot detect changes to a neighboring break. Run both directions from a movable line in a three-line mixed-ending document, and assert the emitted sequence including the untouched break. CodeMirror's line-move commands can also be exercised without layout through the state tests.
 - [x] [minor] web/src/lib/editor/RawEditor.test.ts:166 — The listener records all keydowns. The Ctrl keydown alone satisfies the assertion if the Enter keydown is swallowed without editing. Record only the modified Enter event and require exactly one visit with `defaultPrevented === false`.
 - Verification: `make check` passed, including 279 web tests. A standalone Chromium run verified End, Shift+End, Backspace, Shift+Backspace, Delete, Mod+Backspace, both line-move directions, and undo/redo with CRLF, LF and CR. It also verified that Ctrl+Enter and Cmd+Enter reached `window` unprevented with no emitted bytes. The app's Playwright suite and other browser engines were outside the checks run. The component has no route-level caller on this branch.
+
+### Re-review of `6cd7b3d`
+
+- Verdict: `approve`. Reviewed for one operator editing messages up to 5 MB. The lead's earlier escalation and task-record changes remain outside the frontend implementation paths, as documented in the previous review.
+- The exact-byte echo check resets history for a genuine replacement, read-only content can receive focus, and the modified Enter listener test records the actual shortcut. State-level tests exercise line moves in both directions.
+- Verification: `make check` passed, including all 279 frontend tests. Additional state-level mixed-ending edit, undo and redo checks passed.
+- Browser E2E, other browser engines, and a fresh 5 MB interaction timing were not run in this round. The component has no route-level caller on this branch.
