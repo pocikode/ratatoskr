@@ -143,6 +143,33 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
   `query.Message` after `Capture.Written`. T-109 initializes the service and calls `ProjectChanged` on selection.
 
 ## Review (reviewer)
+### Round 2 (reviewer, 2026-11-19, `c2ea79b` + `7de7307`)
+- Verdict: approve
+- Checks:
+  - `make check`: exit 0. Go packages all `ok`; web `svelte-check` 0 errors, eslint/prettier clean, vitest 295/295
+    (the T-020 sitemap test passed this run).
+  - `make test-int`: not run. `proxy`, `store` and `rawhttp` are not changed.
+  - Scope: `c2ea79b` changes only `internal/intercept/**` and `internal/replay/sender/content_length.go`, both in `paths`.
+    The schema and spec text in the diff come from the lead's resolution commits.
+- Round 1 fixes checked:
+  - Queue limit (`service.go:218`): checked under `s.mu` after the rules re-check, and the check cannot overflow
+    (`len(raw) > maxQueueBytes-s.queueBytes`). `queueBytes` goes down on every exit: single release (`:330`), bulk and
+    project-switch release (`:358`), client cancel (`:194`). `TestQueueLimits` holds exactly 1 000 items / 4 × 64 MiB
+    (= 256 MiB, mixed kinds), then shows that one more message passes through with no event, the queue is unchanged,
+    capacity comes back after a Forward and after a cancel, and `queueBytes` returns to 0.
+  - Bodyless responses (`replacement.go:28-33`): parsed with the held method. `FramingNone` on a response is set only
+    for HEAD/1xx/204/304 (`rawhttp/read.go:357`), so a 200 without a length (`FramingClose`) still gets the rule.
+    `TestForwardResponseContentLength` covers HEAD, 103, 204, 304 (kept) and a 200 (rewritten to 0).
+  - Shared helper: `sender.UpdateParsedContentLength` is used by both Replay and Intercept. The Replay tests
+    (`content_length_test.go`) are unchanged and pass.
+  - Scope/eval errors (`service.go:236-256`): logged at warn, then the message passes through.
+    `TestHoldPassesThroughOnConditionError` covers both a deleted preset and an eval error.
+  - `persisted` nit: kept, which the lead allowed. The implementer's reason (a change to `queuing` alone does not
+    depend on a SQLite write) holds.
+- Findings: none.
+- Not checked: real proxy behaviour (T-105 is not written yet), load test of a full 256 MiB queue (only unit tests).
+
+### Round 1
 - Verdict: changes_requested
 - Checks (reviewer, 2026-11-19):
   - `make check` run 1: exit 2. Only failure: `web/src/pages/sitemap/sitemap.svelte.test.ts:132` "drops a stale expansion result when filters change…" → `Test timed out in 5000ms` (294 of 295 pass). The sitemap files alone pass 10/10. Run 2: exit 0 (Go all `ok`, web 295/295). The timeout is load-sensitive and not in T-031's files.
