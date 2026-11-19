@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -376,3 +376,23 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   ignores the matcher (any kind and value, stored as given).
 - All 24 focused Vitest tests passed. Full `make check`, generation, browser E2E and Go integration
   were skipped.
+
+### Review of `bdb885e`
+
+- Verdict is `changes_requested`. Escalate to the lead under the review round limit.
+- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:512 — The empty-response exception skips
+  all length-field validation. An empty 200 response with `Content-Length: x` or conflicting
+  lengths of 4 and 5 succeeds through GraphQL. A FULL body draft even rewrites either case
+  to length 2 and reports a change. Validate length syntax and agreement between duplicates
+  before waiving the body-size comparison, as the wire parser does at
+  `internal/rawhttp/read.go:346`. Add both rejection cases.
+- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:225 — The mock accepts an empty 200
+  response with length 4 under the documented HEAD exception, then a FULL body draft adds
+  `bb` and rewrites the length to 2. For the length-mismatch case admitted by this exception,
+  preserve the response bytes on body drafts and document the policy for T-102. Extend the
+  HEAD fixture to assert the result of a FULL draft.
+- Both findings were reproduced through graphql-js against the generated schema with
+  synthetic messages. Review assumed one desktop user within the documented tester limits.
+  `make check` passed (43 Vitest files, 353 tests). `make gen` left the tree clean.
+  Browser E2E and Go integration were skipped because no browser UI, proxy, store, or
+  raw HTTP implementation changed.
