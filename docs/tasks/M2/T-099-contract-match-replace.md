@@ -3,9 +3,9 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: todo
+status: in_progress
 depends_on: [T-098]
-owner: ""
+owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
 paths:
   - internal/api/graphql/schema/matchreplace.graphqls
@@ -58,6 +58,13 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - RE2 limits (no look-around, no backrefs) must be stated on `MatchReplaceMatcherKind.REGEX` (F-MR-1 "document this").
 
 ## Plan (implementer, ≤15 lines)
+1. `matchreplace.graphqls`: enums, rule/collection/matcher types, input, test result, queries, mutations; every
+   rule from F-MR-1 contract (section × operation table, matchers, errors, JSON format) in descriptions.
+2. gqlgen.yml: `MatchReplaceCollection.rules` and `MatchReplaceRule.collection` lazy resolvers (like Replay).
+3. `stubs_matchreplace.go` returning `ErrNotImplemented`; `Deps.MatchReplace` placeholder; `make gen`.
+4. Mock `mocks/matchreplace.ts` (2 collections, 4 rules, reserved hosts) wired in `exchange.ts`; validation + tester
+   (STRING/FULL on header/body only, `shortcut:` comment); vitest for CRUD, enable, move, import/export, tester.
+5. `make check`, Handoff, `in_review`.
 
 ## Out-of-scope change needed (if any)
 
