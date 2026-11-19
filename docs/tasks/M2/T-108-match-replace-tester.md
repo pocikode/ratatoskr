@@ -32,6 +32,8 @@ The tester column runs the draft rule against a request or response and shows be
 - [ ] Picking a history row loads its request (or response) bytes.
 - [ ] Changed lines are marked by more than colour (prefix `+`/`-` or icon) for accessibility.
 - [ ] Inputs over 1 MiB show a notice and skip the diff (output still shown).
+- [ ] Inputs over 12 MiB (pasted or picked) are not sent; a notice says the tester takes at most 12 MiB
+      (F-MR-1 size budget, set by T-099 review).
 - [ ] Component tests against the mock; `make check` green.
 
 ## Notes from lead

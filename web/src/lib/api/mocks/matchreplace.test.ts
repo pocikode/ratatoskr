@@ -153,7 +153,44 @@ describe('match & replace mock', () => {
       i: { ...addHeader, condition: 'req.path.eq:"é" AND req.host.eq:"x' },
     });
     expect(q3.error!.graphQLErrors[0]!.extensions.span).toEqual({ start: 33, end: 35 });
+    expect(
+      code(await m(CREATE, { c, i: { ...addHeader, condition: 'req.path.eq:"a\\"b"' } })),
+    ).toBe(undefined);
+    const q4 = await m(CREATE, { c, i: { ...addHeader, condition: 'req.path.eq:"a\\"' } });
+    expect(code(q4)).toBe('BAD_QUERY');
+    expect(q4.error!.graphQLErrors[0]!.extensions.span).toEqual({ start: 12, end: 16 });
+    expect(await bad({ condition: 'x'.repeat(64 * 1024 + 1) })).toBe('BAD_INPUT');
     expect(code(await m(CREATE, { c: 'nope', i: addHeader }))).toBe('NOT_FOUND');
+  });
+
+  it('stores an empty value for a non-ADD FULL matcher', async () => {
+    const { q, m } = run();
+    const c = (await q(TREE)).data!.matchReplaceCollections[0].id;
+    const i = { ...addHeader, operation: 'UPDATE_RAW', matcher: { kind: 'FULL', value: 'unused' } };
+    expect((await m(CREATE, { c, i })).data!.createMatchReplaceRule.matcher.value).toBe('');
+    const added = await m(CREATE, {
+      c,
+      i: { ...addHeader, matcher: { kind: 'FULL', value: 'k' } },
+    });
+    expect(added.data!.createMatchReplaceRule.matcher.value).toBe('k');
+  });
+
+  it('enforces the project size budget', async () => {
+    const { q, m } = run();
+    const c = (await q(TREE)).data!.matchReplaceCollections[0].id;
+    const big = { ...addHeader, term: `X-Big: ${'a'.repeat(1024 * 1024 - 7)}` };
+    for (let n = 0; n < 2; n++) expect(code(await m(CREATE, { c, i: big }))).toBe(undefined);
+    expect(code(await m(CREATE, { c, i: big }))).toBe('BAD_INPUT');
+    const before = (await q(`{ exportMatchReplace }`)).data!.exportMatchReplace;
+    expect(
+      code(await m(`mutation ($j: String!) { importMatchReplace(json: $j) }`, { j: before })),
+    ).toBe('BAD_INPUT');
+    expect((await q(`{ exportMatchReplace }`)).data!.exportMatchReplace).toBe(before);
+    for (let n = 2; n < 1000; n++)
+      await m(`mutation { createMatchReplaceCollection(name: "c${n}") { id } }`);
+    expect(code(await m(`mutation { createMatchReplaceCollection(name: "over") { id } }`))).toBe(
+      'BAD_INPUT',
+    );
   });
 
   it('round-trips export and import, all or nothing', async () => {
@@ -253,5 +290,7 @@ describe('match & replace mock', () => {
 
     expect(code(await m(TEST, { r: body, k: 'REQUEST', raw: req }))).toBe('BAD_INPUT');
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe('BAD_INPUT');
+    const huge = btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(12 * 1024 * 1024)}`);
+    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: huge }))).toBe('BAD_INPUT');
   });
 });

@@ -16,6 +16,11 @@
 # Matchers per operation: UPDATE_RAW and UPDATE take FULL, STRING, REGEX;
 # UPDATE_VALUE and REMOVE take FULL, STRING, REGEX, NAME; ADD ignores the matcher.
 #
+# Size budget, so every request fits the 32 MiB API cap: a condition is at most
+# 64 KiB; a project holds at most 1000 rules and 1000 collections, and the UTF-8
+# sum of all its rules' conditions, matcher values and terms is at most 3 MiB.
+# The tester takes at most 12 MiB of `raw`.
+#
 # The rules are repeated in the descriptions below so they reach the generated
 # SDL and introspection.
 
@@ -143,7 +148,7 @@ enum MatchReplaceMessageKind {
 type MatchReplaceMatcher {
   "How to match."
   kind: MatchReplaceMatcherKind!
-  "The string, pattern or name to match; empty for `FULL`, and stored as given (unused) for `ADD`."
+  "The string, pattern or name to match; empty for `FULL` (except with `ADD`), and stored as given (unused) for `ADD`."
   value: String!
 }
 
@@ -165,7 +170,7 @@ type MatchReplaceRule implements Node {
   "The collection holding the rule."
   collection: MatchReplaceCollection!
   """
-  HTTPQL condition; empty means always. Evaluated in memory on the message as
+  HTTPQL condition, at most 64 KiB; empty means always. Evaluated in memory on the message as
   changed by earlier rules. For request sections no response exists, so
   `resp.*` clauses are false.
   """
@@ -200,7 +205,10 @@ type MatchReplaceCollection implements Node {
 input MatchReplaceMatcherInput {
   "How to match."
   kind: MatchReplaceMatcherKind!
-  "The string, pattern or name; must not be empty for `STRING`, `REGEX`, `NAME`; at most 1 MiB."
+  """
+  The string, pattern or name; must not be empty for `STRING`, `REGEX`, `NAME`;
+  at most 1 MiB. Dropped (stored empty) for `FULL` unless the operation is `ADD`.
+  """
   value: String! = ""
 }
 
@@ -210,15 +218,17 @@ name 1-200 characters after trimming without control characters; `sources`
 empty; section x operation not valid; matcher kind not allowed for the
 operation; empty matcher value for `STRING`/`REGEX`/`NAME`; invalid regex (the
 message carries the RE2 error); `ADD` header term not `Name: value`; term or
-matcher value over 1 MiB. An invalid `condition` is `BAD_QUERY` with
-`extensions.span`.
+matcher value over 1 MiB; condition over 64 KiB. An invalid `condition` is
+`BAD_QUERY` with `extensions.span`. Saving (not testing) also checks the
+project budget: the UTF-8 sum of all rules' conditions, matcher values and
+terms is at most 3 MiB.
 """
 input MatchReplaceRuleInput {
   "Display name (see `MatchReplaceRule.name`)."
   name: String!
   "Whether the rule applies. Default true."
   enabled: Boolean! = true
-  "HTTPQL condition; empty (the default) means always."
+  "HTTPQL condition, at most 64 KiB; empty (the default) means always."
   condition: String! = ""
   "Traffic the rule applies to; at least one, duplicates dropped."
   sources: [MatchReplaceSource!]!
@@ -259,7 +269,10 @@ extend type Query {
 }
 
 extend type Mutation {
-  "Creates an empty collection, placed last. `BAD_INPUT` for an invalid name (see `MatchReplaceCollection.name`)."
+  """
+  Creates an empty collection, placed last. `BAD_INPUT` for an invalid name (see
+  `MatchReplaceCollection.name`) or when the project already has 1000 collections.
+  """
   createMatchReplaceCollection(name: String!): MatchReplaceCollection!
   "Renames a collection. `BAD_INPUT` for an invalid name; `NOT_FOUND` for an unknown ID."
   renameMatchReplaceCollection(id: ID!, name: String!): MatchReplaceCollection!
@@ -275,7 +288,8 @@ extend type Mutation {
   Creates a rule placed last in `collectionId`.
 
   Errors: `BAD_INPUT` for an invalid input (see `MatchReplaceRuleInput`) or when
-  the project already has 1000 rules; `BAD_QUERY` with span for an invalid
+  the project already has 1000 rules or the rule would take the project over its
+  3 MiB text budget (see `MatchReplaceRuleInput`); `BAD_QUERY` with span for an invalid
   condition; `NOT_FOUND` for an unknown `collectionId`.
   """
   createMatchReplaceRule(collectionId: ID!, input: MatchReplaceRuleInput!): MatchReplaceRule!
@@ -304,7 +318,9 @@ extend type Mutation {
   Errors: `BAD_INPUT` for invalid JSON, a `version` other than 1, unknown or
   missing fields, any invalid collection or rule (the message names its
   collection and rule position), a condition that does not parse (the message
-  quotes the HTTPQL error), or more than 1000 rules in the project afterwards.
+  quotes the HTTPQL error), or more than 1000 rules, 1000 collections or 3 MiB
+  of rule text (see `MatchReplaceRuleInput`) in the project afterwards. Every
+  valid export fits these limits, so it imports into an empty project.
   """
   importMatchReplace(json: String!): Int!
   """
@@ -315,7 +331,9 @@ extend type Mutation {
   traffic.
 
   Errors: `BAD_INPUT` for an invalid rule, a rule section for the other `kind`,
-  or `raw` that is not an HTTP/1.x message of `kind`; `BAD_QUERY` with span for
+  `raw` over 12 MiB (so the request fits the 32 MiB API cap; larger messages
+  cannot be tested), or `raw` that is not an HTTP/1.x message of `kind`;
+  `BAD_QUERY` with span for
   an invalid condition.
   """
   testMatchReplace(
@@ -323,7 +341,7 @@ extend type Mutation {
     rule: MatchReplaceRuleInput!
     "Whether `raw` is a request or a response."
     kind: MatchReplaceMessageKind!
-    "The message bytes, as pasted or picked from HTTP History."
+    "The message bytes, as pasted or picked from HTTP History; at most 12 MiB."
     raw: Bytes!
   ): MatchReplaceTestResult!
 }

@@ -34,7 +34,11 @@ export interface MockCollection {
 }
 
 const MAX_RULES = 1000;
+const MAX_COLLECTIONS = 1000;
 const MAX_TEXT = 1024 * 1024;
+const MAX_CONDITION = 64 * 1024;
+const MAX_PROJECT_TEXT = 3 * MAX_TEXT;
+const MAX_TEST_RAW = 12 * MAX_TEXT;
 const OPS: Record<string, string[]> = {
   REQUEST_FIRST_LINE: ['UPDATE_RAW'],
   REQUEST_METHOD: ['UPDATE'],
@@ -74,13 +78,21 @@ function checkName(name: unknown): string {
 
 // shortcut: only flags an unterminated string literal; the real backend parses HTTPQL.
 function checkCondition(q: string): void {
-  const quotes = [...q.matchAll(/"/g)];
-  if (quotes.length % 2)
+  if (utf8Len(q) > MAX_CONDITION) throw fail('BAD_INPUT', 'condition must be at most 64 KiB');
+  let open = -1;
+  for (let i = 0; i < q.length; i++) {
+    if (open >= 0 && q[i] === '\\') i++;
+    else if (q[i] === '"') open = open < 0 ? i : -1;
+  }
+  if (open >= 0)
     throw fail('BAD_QUERY', 'unterminated string', {
-      start: utf8Len(q.slice(0, quotes.at(-1)!.index)),
+      start: utf8Len(q.slice(0, open)),
       end: utf8Len(q),
     });
 }
+
+const ruleText = (r: MockRuleInput) =>
+  utf8Len(r.condition) + utf8Len(r.matcher.value) + utf8Len(r.term);
 
 /** Validates everything but name, enabled and sources (the tester skips those). */
 function checkRuleBody(r: MockRuleInput): void {
@@ -130,6 +142,7 @@ function normalize(input: Args): MockRuleInput {
     term: r.term ?? '',
   };
   checkRuleBody(out);
+  if (out.matcher.kind === 'FULL' && out.operation !== 'ADD') out.matcher.value = '';
   return out;
 }
 
@@ -189,6 +202,14 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
   let nextId = 1;
 
   const ruleCount = () => collections.reduce((n, c) => n + c.rules.length, 0);
+  const projectText = () =>
+    collections.reduce((n, c) => c.rules.reduce((m, r) => m + ruleText(r), n), 0);
+  const checkBudget = (text: number, collectionCount = collections.length) => {
+    if (collectionCount > MAX_COLLECTIONS)
+      throw fail('BAD_INPUT', `a project holds at most ${MAX_COLLECTIONS} collections`);
+    if (text > MAX_PROJECT_TEXT)
+      throw fail('BAD_INPUT', 'rule conditions, matcher values and terms exceed 3 MiB per project');
+  };
   const addCollection = (name: string): MockCollection => {
     const c: MockCollection = { id: `mrc${nextId++}`, name, rules: [] };
     collections.push(c);
@@ -275,7 +296,11 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
         }
       },
       exportMatchReplace: exportJSON,
-      createMatchReplaceCollection: ({ name }: Args) => addCollection(checkName(name)),
+      createMatchReplaceCollection({ name }: Args) {
+        const n = checkName(name);
+        checkBudget(0, collections.length + 1);
+        return addCollection(n);
+      },
       renameMatchReplaceCollection({ id, name }: Args) {
         const c = findCollection(id);
         c.name = checkName(name);
@@ -303,11 +328,14 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
         const r = normalize(input as Args);
         if (ruleCount() >= MAX_RULES)
           throw fail('BAD_INPUT', `a project holds at most ${MAX_RULES} rules`);
+        checkBudget(projectText() + ruleText(r));
         return addRule(c, r);
       },
       updateMatchReplaceRule({ id, input }: Args) {
         const r = findRule(id);
-        return Object.assign(r, normalize(input as Args));
+        const next = normalize(input as Args);
+        checkBudget(projectText() - ruleText(r) + ruleText(next));
+        return Object.assign(r, next);
       },
       setMatchReplaceRuleEnabled({ id, enabled }: Args) {
         const r = findRule(id);
@@ -368,6 +396,10 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
         });
         if (ruleCount() + parsed.reduce((n, c) => n + c.rules.length, 0) > MAX_RULES)
           throw fail('BAD_INPUT', `a project holds at most ${MAX_RULES} rules`);
+        checkBudget(
+          parsed.reduce((n, c) => c.rules.reduce((m, r) => m + ruleText(r), n), projectText()),
+          collections.length + parsed.length,
+        );
         for (const c of parsed) {
           const added = addCollection(c.name);
           for (const r of c.rules) addRule(added, r);
@@ -390,6 +422,7 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
         } catch {
           throw fail('BAD_INPUT', 'raw is not valid base64');
         }
+        if (text.length > MAX_TEST_RAW) throw fail('BAD_INPUT', 'raw must be at most 12 MiB');
         const line =
           kind === 'REQUEST'
             ? /^[!#$%&'*+.^_`|~0-9A-Za-z-]+ \S+ HTTP\/1\.[01]\r\n/

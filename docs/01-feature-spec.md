@@ -290,7 +290,13 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester ignores name, enabled and sources, rejects
     a section for the other message kind (`BAD_INPUT`), and evaluates the condition on the given message only (clauses
     about the other message are false). Import rejects unknown fields; an unparsable condition there is `BAD_INPUT` naming
-    the rule. Export rule fields are those of `MatchReplaceRuleInput`, enum values as strings, no IDs.
+    the rule. Export rule fields are those of `MatchReplaceRuleInput`, enum values as strings, no IDs. A non-`ADD` `FULL`
+    matcher is stored with an empty value.
+  - Size budget (lead, 2026-11-19, T-099 review) so every request fits the 32 MiB API cap (docs/03 §6): a condition is
+    at most 64 KiB; a project holds at most 1000 collections, and the UTF-8 sum of all its rules' conditions, matcher
+    values and terms is at most 3 MiB (any create, update or import past either is `BAD_INPUT`). A valid export, JSON
+    escaped again inside the import request, then stays under ~25 MiB. The tester takes at most 12 MiB of `raw`
+    (`BAD_INPUT`); the UI does not send a larger pasted or picked message and says why.
 
 ---
 

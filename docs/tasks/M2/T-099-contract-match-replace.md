@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -17,6 +17,7 @@ paths:
   - gqlgen.yml
   - docs/tasks/M2/T-099-contract-match-replace.md
   - docs/01-feature-spec.md (F-MR-1 API details only)
+  - docs/tasks/M2/T-108-match-replace-tester.md (acceptance criteria: tester size notice)
 spec:
   - docs/01-feature-spec.md#F-MR-1 (incl. "Contract (lead, 2026-11-19, M2)")
   - docs/03-architecture.md §6
@@ -76,6 +77,8 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   embedded in collections, so the back-reference stays acyclic). `stubs_matchreplace.go` + `Deps.MatchReplace`
   placeholder; regenerated code. Mock `mocks/matchreplace.ts` (2 collections, 4 rules, one disabled) wired into
   `exchange.ts`; `matchreplace.test.ts` covers CRUD, enable, move, reorder, validation codes, import/export, tester.
+  Size budget (review of `3ff8e51`): condition ≤ 64 KiB, ≤ 1000 collections, ≤ 3 MiB rule text per project,
+  tester `raw` ≤ 12 MiB; in F-MR-1, the schema, the mock, and a new T-108 criterion (T-108 file added to paths).
   Import is validated against the schema (`createMatchReplaceMock(schema)` uses `coerceInputValue` on
   `MatchReplaceRuleInput` plus exact-key checks); malformed imports are rejected with nothing appended.
   F-MR-1 gained an "API details" bullet for the decisions the contract makes (no default collection, non-empty matcher
@@ -141,24 +144,34 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 ### Review of `3ff8e51`
 
 - Verdict is `changes_requested`.
-- [ ] [major] `internal/api/graphql/schema/matchreplace.graphqls:309` — A valid project export can exceed
+- [x] [major] `internal/api/graphql/schema/matchreplace.graphqls:309` — A valid project export can exceed
   the 32 MiB GraphQL POST limit in `internal/api/server.go:20`. An export with 32 rules and a 1 MiB term
   per rule produces a 33,560,983-byte import request, above the 33,554,432-byte cap. The server returns
   413 before the import resolver runs. Define a size limit that guarantees every valid export fits on
   import, or use a bounded upload that supports the full export and preserves all-or-nothing behavior.
-- [ ] [major] `internal/api/graphql/schema/matchreplace.graphqls:327` — Base64 for a 24 MiB history
+  → Fixed (spec F-MR-1 "Size budget" + schema): a condition is at most 64 KiB; a project holds at most
+  1000 collections and 3 MiB of rule text (conditions + matcher values + terms, UTF-8). Worst case
+  (control characters escaped 6×, then 7× once the export is embedded in the import request, plus
+  1000 rules and 1000 collections with 200-character names) is about 25 MiB, under the cap. Mock
+  enforces it and tests it.
+- [x] [major] `internal/api/graphql/schema/matchreplace.graphqls:327` — Base64 for a 24 MiB history
   message already fills the 32 MiB GraphQL POST limit. The GraphQL document and draft rule push it over
   the cap. The tester cannot return a result for some messages below the documented 64 MiB capture cap.
   Define a tester input budget and surface it in T-108, or pass a history ID for picked messages if the
   tester must support the full capture range.
-- [ ] [minor] `web/src/lib/api/mocks/matchreplace.ts:77` — The quote counter rejects a valid HTTPQL
+  → Fixed: tester `raw` is at most 12 MiB (`BAD_INPUT`): 16 MiB of base64 plus the draft rule
+  (≤ 2 MiB + 64 KiB, escaped ≤ 6×) stays under 32 MiB. T-108 gained a criterion: larger inputs are not
+  sent and a notice explains why. Mock enforces it and tests it.
+- [x] [minor] `web/src/lib/api/mocks/matchreplace.ts:77` — The quote counter rejects a valid HTTPQL
   clause such as `req.path.eq:"a\"b"`. The GraphQL executor returns `BAD_QUERY` and points to the
   closing quote. Skip escaped characters when scanning quoted literals. Test both a valid escaped quote
   and an escaped final quote without a closing delimiter.
-- [ ] [minor] `web/src/lib/api/mocks/matchreplace.ts:129` — A non-ADD `FULL` matcher created with
+  → Fixed: the scanner skips the character after `\` inside a literal; both cases tested.
+- [x] [minor] `web/src/lib/api/mocks/matchreplace.ts:129` — A non-ADD `FULL` matcher created with
   `value: "unused"` returns and exports that value, although the output field documents an empty
   string for `FULL`. Canonicalize the value when storing a non-ADD `FULL` matcher, or document that
   the contract preserves ignored values.
+  → Fixed: stored empty (mock `normalize`), documented on `MatchReplaceMatcherInput.value` and in F-MR-1; tested.
 - Verification assumed one desktop process and up to 1000 rules per project. `make check` passed
   (43 Vitest files, 351 tests), `make gen` left the tree clean, and all changed files matched the task's
   paths. The mock findings were reproduced through the generated schema with graphql-js. The transport

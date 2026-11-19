@@ -315,7 +315,7 @@ func (MatchReplaceCollection) IsNode() {}
 type MatchReplaceMatcher struct {
 	// How to match.
 	Kind MatchReplaceMatcherKind `json:"kind"`
-	// The string, pattern or name to match; empty for `FULL`, and stored as given (unused) for `ADD`.
+	// The string, pattern or name to match; empty for `FULL` (except with `ADD`), and stored as given (unused) for `ADD`.
 	Value string `json:"value"`
 }
 
@@ -323,7 +323,8 @@ type MatchReplaceMatcher struct {
 type MatchReplaceMatcherInput struct {
 	// How to match.
 	Kind MatchReplaceMatcherKind `json:"kind"`
-	// The string, pattern or name; must not be empty for `STRING`, `REGEX`, `NAME`; at most 1 MiB.
+	// The string, pattern or name; must not be empty for `STRING`, `REGEX`, `NAME`;
+	// at most 1 MiB. Dropped (stored empty) for `FULL` unless the operation is `ADD`.
 	Value string `json:"value"`
 }
 
@@ -342,7 +343,7 @@ type MatchReplaceRule struct {
 	Enabled bool `json:"enabled"`
 	// The collection holding the rule.
 	Collection *MatchReplaceCollection `json:"collection"`
-	// HTTPQL condition; empty means always. Evaluated in memory on the message as
+	// HTTPQL condition, at most 64 KiB; empty means always. Evaluated in memory on the message as
 	// changed by earlier rules. For request sections no response exists, so
 	// `resp.*` clauses are false.
 	Condition string `json:"condition"`
@@ -369,14 +370,16 @@ func (MatchReplaceRule) IsNode() {}
 // empty; section x operation not valid; matcher kind not allowed for the
 // operation; empty matcher value for `STRING`/`REGEX`/`NAME`; invalid regex (the
 // message carries the RE2 error); `ADD` header term not `Name: value`; term or
-// matcher value over 1 MiB. An invalid `condition` is `BAD_QUERY` with
-// `extensions.span`.
+// matcher value over 1 MiB; condition over 64 KiB. An invalid `condition` is
+// `BAD_QUERY` with `extensions.span`. Saving (not testing) also checks the
+// project budget: the UTF-8 sum of all rules' conditions, matcher values and
+// terms is at most 3 MiB.
 type MatchReplaceRuleInput struct {
 	// Display name (see `MatchReplaceRule.name`).
 	Name string `json:"name"`
 	// Whether the rule applies. Default true.
 	Enabled bool `json:"enabled"`
-	// HTTPQL condition; empty (the default) means always.
+	// HTTPQL condition, at most 64 KiB; empty (the default) means always.
 	Condition string `json:"condition"`
 	// Traffic the rule applies to; at least one, duplicates dropped.
 	Sources []MatchReplaceSource `json:"sources"`
