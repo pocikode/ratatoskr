@@ -130,7 +130,7 @@
       oncancelrename={() => (replay.renaming = null)}
       onstartrename={(t) =>
         (replay.renaming = { kind: t.kind === 'item' ? 'session' : 'collection', id: t.id })}
-      onmove={(id, to, index) => void replay.move(id, to, index)}
+      onmove={(id, to, index) => replay.move(id, to, index)}
       menu={(t) => {
         const target = { kind: t.kind === 'item' ? 'session' : 'collection', id: t.id } as const;
         return {

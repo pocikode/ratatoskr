@@ -143,4 +143,25 @@ describe('ReplayState tabs', () => {
     expect(st.openIds).toEqual(['1']);
     expect(st.activeId).toBe('1');
   });
+
+  it('a slow lookup of an unknown session does not override a newer selection', async () => {
+    const { client } = fake([col('a', '1')]);
+    const st = new ReplayState(client, 'p');
+    await st.load();
+    // The refetch for `x` is held until `1` has been selected; by then `x` exists on the server.
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    client.query = (() => ({
+      toPromise: async () => {
+        await gate;
+        return { data: { replayCollections: [col('a', '1', 'x')] } };
+      },
+    })) as unknown as Client['query'];
+    const link = st.open('x');
+    await st.open('1');
+    release();
+    await link;
+    expect(st.activeId).toBe('1');
+    expect(st.openIds).toEqual(['1']);
+  });
 });

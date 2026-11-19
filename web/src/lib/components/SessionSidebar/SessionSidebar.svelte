@@ -42,8 +42,11 @@
     oncancelrename: () => void;
     /** F2 on a row. */
     onstartrename?: (target: RowTarget) => void;
-    /** `index` counts the target group's items without the dragged one (0-based). */
-    onmove: (id: string, groupId: string, index: number) => void;
+    /**
+     * `index` counts the target group's items without the dragged one (0-based). Return the
+     * pending move so a keyboard move can restore focus after a rollback.
+     */
+    onmove: (id: string, groupId: string, index: number) => void | Promise<unknown>;
     /** Context menu of a row, as command ids. */
     menu?: (target: RowTarget) => RowMenu;
     footer?: Snippet;
@@ -95,11 +98,21 @@
     const [dest, index] = to as [SidebarGroup | undefined, number];
     if (dest && index >= 0 && (dest !== g || index < g.items.length)) {
       collapsed[dest.id] = false; // keep the destination mounted so focus can return to the row
-      onmove(id, dest.id, Math.min(index, dest.items.filter((x) => x.id !== id).length));
-      // The row may be re-mounted in another group: put focus back once the tree has updated.
-      void tick().then(() =>
-        tree?.querySelector<HTMLElement>(`[data-row="${key({ kind: 'item', id })}"]`)?.focus(),
+      const done = onmove(
+        id,
+        dest.id,
+        Math.min(index, dest.items.filter((x) => x.id !== id).length),
       );
+      // The row may be re-mounted in another group: put focus back once the tree has updated,
+      // and again after a rollback re-mounts it in the original group (focus then fell to body).
+      const refocus = () =>
+        tree?.querySelector<HTMLElement>(`[data-row="${key({ kind: 'item', id })}"]`)?.focus();
+      void tick().then(refocus);
+      void Promise.resolve(done)
+        .then(tick)
+        .then(() => {
+          if (document.activeElement === document.body) refocus();
+        });
     }
     return true;
   }

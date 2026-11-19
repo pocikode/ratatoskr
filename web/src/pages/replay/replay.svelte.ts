@@ -121,9 +121,13 @@ export class ReplayState {
 
   // --- tabs ---
 
+  /** Bumped by every tab choice, so a slow `open` refetch never overrides a newer one. */
+  #nav = 0;
+
   async open(id: string): Promise<void> {
+    const nav = ++this.#nav;
     if (!this.sessions.has(id)) await this.load(); // e.g. just created by openInReplay
-    if (!this.sessions.has(id)) return;
+    if (nav !== this.#nav || !this.sessions.has(id)) return;
     if (!this.openIds.includes(id)) this.openIds = [...this.openIds, id];
     this.activeId = id;
     this.#save();
@@ -132,6 +136,7 @@ export class ReplayState {
   close(id: string): void {
     const i = this.openIds.indexOf(id);
     if (i < 0) return;
+    this.#nav++;
     this.openIds = this.openIds.filter((x) => x !== id);
     if (this.activeId === id)
       this.activeId = this.openIds[Math.min(i, this.openIds.length - 1)] ?? null;
@@ -139,6 +144,7 @@ export class ReplayState {
   }
 
   closeOthers(id: string): void {
+    this.#nav++;
     this.openIds = this.openIds.filter((x) => x === id);
     this.activeId = this.openIds[0] ?? null;
     this.#save();
@@ -147,6 +153,7 @@ export class ReplayState {
   closeToRight(id: string): void {
     const i = this.openIds.indexOf(id);
     if (i < 0) return;
+    this.#nav++;
     this.openIds = this.openIds.slice(0, i + 1);
     if (this.activeId && !this.openIds.includes(this.activeId)) this.activeId = id;
     this.#save();
@@ -156,6 +163,7 @@ export class ReplayState {
   step(delta: number): void {
     const n = this.openIds.length;
     if (n === 0) return;
+    this.#nav++;
     const i = this.activeId ? this.openIds.indexOf(this.activeId) : -1;
     this.activeId = this.openIds[(i + delta + n) % n]!;
     this.#save();

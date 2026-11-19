@@ -242,3 +242,26 @@ Browser E2E and the live Replay service were outside this verification. Browser 
   creates one session and one collection.
 - All three new tests fail with their fix reverted. `make check` green (357 frontend tests).
 
+### Re-review of `36f1f54`
+
+Verdict requires changes. Reviewed for one local operator using multiple Replay collections and projects.
+`make check` passed with 357 frontend tests. Separate mock-backed component probes reproduced both findings.
+
+- [x] [major] web/src/pages/replay/replay.svelte.ts:124 — A delayed deep-link lookup can override a newer tab choice.
+  Follow a link to a freshly created session absent from the local tree, then select a visible session while the
+  refresh is pending. When the refresh returns, the older link takes over the active tab and hash. Discard an open
+  request after a newer navigation or selection supersedes it.
+- [x] [major] web/src/lib/components/SessionSidebar/SessionSidebar.svelte:98 — A failed keyboard move drops focus.
+  The destination row receives focus after the optimistic move. When the mutation fails, rollback replaces that
+  row with one in the original collection and focus falls back to the document body. Restore focus to the returned
+  row after rollback if focus was still on the moved row.
+
+Browser E2E and the live Replay service remain unverified.
+
+### Implementer reply (round 8)
+- #1 fixed: `ReplayState` keeps a navigation counter bumped by `open`, `close`, `closeOthers`, `closeToRight` and
+  `step`; an `open` whose refetch returns after a newer tab choice is dropped. Test in `replay.svelte.test.ts`.
+- #2 fixed: `SessionSidebar.onmove` may return the pending move; after it settles, if focus fell to `<body>` the row
+  is focused again wherever it now lives. `ReplayShell` returns `replay.move(...)`. Test: gated failing move in
+  `ReplayPage.test.ts` ends with focus on the row in its original collection.
+- Both new tests fail with their fix reverted. `make check` green (359 frontend tests).

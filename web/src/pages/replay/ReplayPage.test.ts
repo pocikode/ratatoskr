@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CreateReplayCollectionDocument,
   CreateReplaySessionDocument,
+  MoveReplaySessionDocument,
 } from '$lib/api/generated/graphql';
 import { router } from '$lib/router/router.svelte';
 import { projects, type Project } from '$lib/stores/project.svelte';
@@ -297,6 +298,40 @@ describe('ReplayPage actions', () => {
       expect(dest.closest('[role=none]')!.querySelector('[role=group]')!.contains(focused)).toBe(
         true,
       );
+    });
+  });
+
+  it('returns focus to the row when a keyboard move is rolled back', async () => {
+    const client = createMockClient({ count: 5, liveIntervalMs: 0 });
+    const real = client.mutation.bind(client);
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    client.mutation = ((query, vars, ctx) =>
+      query === MoveReplaySessionDocument
+        ? {
+            toPromise: async () => {
+              await gate;
+              return { error: { message: 'down', graphQLErrors: [] } };
+            },
+          }
+        : real(query, vars, ctx)) as typeof client.mutation;
+    render(ReplayPage, { client, projectId: 'p1' });
+    const t = await tree();
+    const row = (await within(t).findByText('POST /login')).closest<HTMLElement>(
+      '[role=treeitem]',
+    )!;
+    const group = (name: string) =>
+      within(t).getByText(name).closest('[role=none]')!.querySelector<HTMLElement>('[role=group]')!;
+    const inAuth = group('Auth flows').contains(row);
+    const origin = group(inAuth ? 'Auth flows' : 'Default');
+    row.focus();
+    await userEvent.keyboard(inAuth ? '{Alt>}{PageUp}{/Alt}' : '{Alt>}{PageDown}{/Alt}');
+    await waitFor(() => expect(origin.contains(document.activeElement)).toBe(false));
+    release();
+    await waitFor(() => {
+      const focused = document.activeElement as HTMLElement;
+      expect(focused).toHaveTextContent('POST /login');
+      expect(group(inAuth ? 'Auth flows' : 'Default').contains(focused)).toBe(true);
     });
   });
 });
