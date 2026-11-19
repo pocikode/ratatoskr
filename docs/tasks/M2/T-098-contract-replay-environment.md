@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -108,6 +108,9 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
   `min(replaySendDelayMs, timeoutMs)` and a timeout gives an entry with `timeout after N ms` and no response;
   the query keeps everything after the first `?`; `ReplayEntry.createdAt` is the send start; `Bytes` inputs drop
   CR/LF and come back in canonical padded form (`YR==` → `YQ==`). Each has a test.
+  Escalation fixes: non-string `Bytes` variables (number, array) are `BAD_INPUT`; record path/query use the
+  History `requestRow` split (fragment dropped, first `?`, absolute-form origin stripped: `http://h/docs?q` →
+  `/docs`). Each has a test.
 - How to verify: `make gen` (no diff), `make check`, `cd web && bun run test -- src/lib/api/mocks`.
 - Known limitations: the replay mock skips Match & Replace, Content-Length update and redirects, and checks only the
   request line (marked `shortcut:`). The generated models keep the lazy fields (e.g. `ReplayEntry.Request`) as plain
@@ -149,7 +152,7 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 Reviewed `147ce74` against `main`. T-098 defines the Replay and Environments GraphQL contracts and supplies server stubs and in-memory mocks for frontend development. The five third-round cases are covered by passing regression tests.
 
 - Verdict: changes_requested
-- [ ] [major] `web/src/lib/api/mocks/replay.ts:107` — The mock coerces non-string `Bytes` values before validating them. Creating a session with the JSON number `1234` saves a draft of `"1234"`, while the server returns `BAD_INPUT`. A single-element array containing `"YQ=="` also succeeds. Require a string before stripping CR/LF, and test both invalid variable types. The same validator handles create, update and send, so one fix keeps those flows consistent.
-- [ ] [major] `web/src/lib/api/mocks/replay.ts:136` — A Replay request with the target `http://example.test/docs?q=abc` records `path: "http://example.test/docs"`. History capture records `path: "/docs"` for the same target (`internal/history/capture.go:277`). Match History's path and query extraction for absolute URLs while preserving the request bytes, and add a regression test. Otherwise a History path filter for `/docs` misses the mock record.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:107` — The mock coerces non-string `Bytes` values before validating them. Creating a session with the JSON number `1234` saves a draft of `"1234"`, while the server returns `BAD_INPUT`. A single-element array containing `"YQ=="` also succeeds. Require a string before stripping CR/LF, and test both invalid variable types. The same validator handles create, update and send, so one fix keeps those flows consistent.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:136` — A Replay request with the target `http://example.test/docs?q=abc` records `path: "http://example.test/docs"`. History capture records `path: "/docs"` for the same target (`internal/history/capture.go:277`). Match History's path and query extraction for absolute URLs while preserving the request bytes, and add a regression test. Otherwise a History path filter for `/docs` misses the mock record.
 - `make check` passed, including all 312 web tests. `make gen` in a temporary checkout reproduced both generated directories. Both findings were reproduced with GraphQL against the in-memory mock resolvers. `git diff --check main...HEAD` flags trailing whitespace in the generated web schema.
 - Review assumes one frontend developer using the in-memory mock. `make test-int` was outside this review because the branch changes no proxy, store or raw HTTP code.
