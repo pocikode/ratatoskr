@@ -143,7 +143,7 @@ func New(ctx context.Context, opts Options) (*App, error) {
 		Scope:      a.scopes.Node,
 		ExpandText: a.filters.ExpandText,
 	})
-	a.capture = history.New(history.Deps{DB: a.project.DB, Bus: &a.events, Logger: a.log})
+	a.capture = history.New(history.Deps{DB: a.project.DB, Subscribe: a.project.Subscribe, Bus: &a.events, Logger: a.log})
 	a.handler = a.buildHandler(buildInfo(opts.Version, opts.Commit))
 
 	return a, nil

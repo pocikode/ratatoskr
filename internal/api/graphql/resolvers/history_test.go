@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -84,6 +85,42 @@ func TestHistoryResolvers(t *testing.T) {
 
 	id := list.Requests.Edges[0].Node.ID
 
+	editedID, err := proj.DB().InsertRequests(t.Context(), []store.Request{{
+		Source: "intercept", Host: "a.test", Port: 80, Method: "GET", Path: "/edited",
+		Raw: []byte(raw), BodyOffset: len(raw), CreatedAt: 1200, EditedFrom: new(int64(1)),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type editedRecord struct{ ID, Source string }
+	var pair struct {
+		Request struct {
+			EditedBy *struct {
+				ID, Source string
+				EditedFrom *struct{ ID string }
+			}
+		}
+	}
+	if err := c.Post(`query($id: ID!) { request(id: $id) {
+		editedBy { id source editedFrom { id } }
+	} }`, &pair, client.Var("id", id)); err != nil {
+		t.Fatal(err)
+	}
+	got := pair.Request.EditedBy
+	if got == nil || got.ID != strconv.FormatInt(editedID[0], 10) || got.Source != "INTERCEPT" ||
+		got.EditedFrom == nil || got.EditedFrom.ID != id {
+		t.Fatalf("editedBy = %+v", got)
+	}
+
+	var unpaired struct {
+		Request struct{ EditedBy *editedRecord }
+	}
+	if err := c.Post(`query($id: ID!) { request(id: $id) { editedBy { id source } } }`, &unpaired, client.Var("id", got.ID)); err != nil ||
+		unpaired.Request.EditedBy != nil {
+		t.Fatalf("edited row's editedBy = %+v, %v", unpaired.Request.EditedBy, err)
+	}
+
 	var rsp struct {
 		Request struct{ Response struct{ Head, Body string } }
 	}
@@ -108,7 +145,7 @@ func TestHistoryResolvers(t *testing.T) {
 	}
 
 	var del struct{ DeleteRequests string }
-	if err := c.Post(`mutation { deleteRequests(query: "") }`, &del); err != nil || del.DeleteRequests != "1" {
+	if err := c.Post(`mutation { deleteRequests(query: "") }`, &del); err != nil || del.DeleteRequests != "2" {
 		t.Fatalf("delete = %+v, %v", del, err)
 	}
 }

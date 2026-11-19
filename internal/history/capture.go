@@ -5,14 +5,18 @@ package history
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pocikode/ratatoskr/internal/events"
+	"github.com/pocikode/ratatoskr/internal/project"
 	"github.com/pocikode/ratatoskr/internal/store"
 )
 
@@ -41,21 +45,24 @@ type Response struct {
 	Code      int
 	RoundTrip time.Duration
 	CreatedAt time.Time
+	Truncated bool
 }
 
-// Entry is one completed exchange. Resp is nil when the request was never
-// answered at all.
+// Entry is a captured request and its optional response.
 type Entry struct {
-	Source    string
-	Host      string
-	Port      int
-	TLS       bool
-	Method    string
-	Target    string // request target; path and query are derived from it
-	CreatedAt time.Time
-	Truncated bool
-	Req       Side
-	Resp      *Response
+	ProjectDB  *store.DB // optional owner for records derived from an exchange
+	Source     string
+	Host       string
+	Port       int
+	TLS        bool
+	Method     string
+	Target     string // request target; path and query are derived from it
+	CreatedAt  time.Time
+	Truncated  bool
+	Dropped    bool
+	EditedFrom *int64
+	Req        Side
+	Resp       *Response
 }
 
 // Kind is what happened to a request.
@@ -82,17 +89,31 @@ type Event struct {
 type Deps struct {
 	// DB returns the open project database, or nil when no project is open;
 	// capture is then paused and entries are dropped (requests still flow).
-	DB     func() *store.DB
-	Bus    *events.Bus[Event]
-	Logger *slog.Logger
+	DB        func() *store.DB
+	Subscribe func(context.Context) <-chan project.Change
+	Bus       *events.Bus[Event]
+	Logger    *slog.Logger
 }
 
 // Capture batches entries into the project database.
 type Capture struct {
 	deps    Deps
-	in      chan Entry
+	in      chan captureOp
 	paused  atomic.Bool
 	dropped atomic.Int64
+
+	mu      sync.Mutex
+	db      *store.DB
+	lastID  int64
+	pending map[int64]*store.DB
+}
+
+type captureOp struct {
+	db       *store.DB
+	id       int64
+	entry    Entry
+	complete bool
+	written  chan struct{}
 }
 
 // New creates a Capture; start its writer with [Capture.Run].
@@ -101,7 +122,7 @@ func New(deps Deps) *Capture {
 		deps.Logger = slog.Default()
 	}
 
-	return &Capture{deps: deps, in: make(chan Entry, BatchSize)}
+	return &Capture{deps: deps, in: make(chan captureOp, BatchSize), pending: make(map[int64]*store.DB)}
 }
 
 // SetPaused pauses or resumes capture; paused entries are dropped.
@@ -113,22 +134,205 @@ func (c *Capture) Paused() bool {
 	return c.paused.Load() || c.deps.DB == nil || c.deps.DB() == nil
 }
 
-// Dropped counts the entries discarded while paused or after a failed write.
+// Dropped counts capture operations that could not be stored.
 func (c *Capture) Dropped() int64 { return c.dropped.Load() }
 
 // Add queues e. It blocks while the queue is full (bounded memory beats lost
 // history) and gives up when ctx ends.
 func (c *Capture) Add(ctx context.Context, e Entry) {
-	if c.Paused() {
+	c.add(ctx, e, false)
+}
+
+// NewPending returns the ID as soon as the request enters the capture queue.
+// It returns zero when the request could not be queued.
+func (c *Capture) NewPending(ctx context.Context, e Entry) int64 {
+	e.Resp = nil
+
+	return c.add(ctx, e, true)
+}
+
+func (c *Capture) add(ctx context.Context, e Entry, pending bool) int64 {
+	if c.paused.Load() || c.deps.DB == nil {
+		c.dropped.Add(1)
+
+		return 0
+	}
+
+	c.mu.Lock()
+	db, err := c.refreshProject(ctx)
+	if err != nil || db == nil || e.ProjectDB != nil && e.ProjectDB != db {
+		c.mu.Unlock()
+		c.dropped.Add(1)
+		if err != nil {
+			c.deps.Logger.Error("capture: allocate request ID", "error", err)
+		}
+
+		return 0
+	}
+
+	// An outstanding ID from a previous project still names that exchange.
+	c.lastID++
+	for c.pending[c.lastID] != nil {
+		c.lastID++
+	}
+	id := c.lastID
+	if pending {
+		c.pending[id] = db
+	}
+	c.mu.Unlock()
+
+	if !c.enqueue(ctx, captureOp{db: db, id: id, entry: e}) {
+		if pending {
+			c.takePending(id)
+		}
+
+		return 0
+	}
+
+	return id
+}
+
+// refreshProject must be called with mu held. The DB pointer distinguishes
+// different opens of the same project.
+func (c *Capture) refreshProject(ctx context.Context) (*store.DB, error) {
+	if c.deps.DB == nil {
+		return nil, nil
+	}
+
+	db := c.deps.DB()
+	if db == c.db {
+		return db, nil
+	}
+
+	var lastID int64
+	if db != nil {
+		if err := db.Reader().QueryRowContext(ctx, "SELECT COALESCE(MAX(id), 0) FROM requests").Scan(&lastID); err != nil {
+			return nil, fmt.Errorf("history: read maximum request ID: %w", err)
+		}
+	}
+
+	c.db, c.lastID = db, lastID
+
+	return db, nil
+}
+
+func (c *Capture) takePending(id int64) *store.DB {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	db := c.pending[id]
+	delete(c.pending, id)
+
+	return db
+}
+
+// PendingDB returns the database that owns id until the exchange is completed.
+func (c *Capture) PendingDB(id int64) *store.DB {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.pending[id]
+}
+
+// Written waits until the pending request row is readable in its project.
+func (c *Capture) Written(ctx context.Context, id int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	owner := c.PendingDB(id)
+
+	var db *store.DB
+	if c.deps.DB != nil {
+		db = c.deps.DB()
+	}
+	if db == nil || owner != nil && owner != db {
+		return errCaptureProjectChanged
+	}
+
+	found, err := c.requestWritten(ctx, db, id)
+	if err != nil || found {
+		return err
+	}
+
+	// The barrier follows the insert through the queue even when they share
+	// a transaction. Only callers that need to wait allocate one.
+	ready := make(chan struct{})
+	select {
+	case c.in <- captureOp{db: db, id: id, written: ready}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-ready:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	found, err = c.requestWritten(ctx, db, id)
+	if err != nil || found {
+		return err
+	}
+
+	return fmt.Errorf("history: pending request %d was not written", id)
+}
+
+var errCaptureProjectChanged = errors.New("history: capture project closed or changed")
+
+func (c *Capture) requestWritten(ctx context.Context, db *store.DB, id int64) (bool, error) {
+	if c.deps.DB() != db {
+		return false, errCaptureProjectChanged
+	}
+
+	var found bool
+	err := db.Reader().QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM requests WHERE id = ?)", id).Scan(&found)
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	if err != nil {
+		return false, fmt.Errorf("history: check pending request %d: %w", id, err)
+	}
+	if c.deps.DB() != db {
+		return false, errCaptureProjectChanged
+	}
+
+	return found, nil
+}
+
+// Complete queues the response to a pending request. A project switch
+// invalidates outstanding completions from the previous database. A nil
+// response releases the pending ID without storing a response.
+func (c *Capture) Complete(ctx context.Context, id int64, resp *Response) {
+	c.complete(ctx, id, resp, false)
+}
+
+// CompleteDropped marks a pending exchange as dropped. A response is kept
+// when the response side was dropped.
+func (c *Capture) CompleteDropped(ctx context.Context, id int64, resp *Response) {
+	c.complete(ctx, id, resp, true)
+}
+
+func (c *Capture) complete(ctx context.Context, id int64, resp *Response, dropped bool) {
+	db := c.takePending(id)
+	if db == nil || db != c.deps.DB() {
 		c.dropped.Add(1)
 
 		return
 	}
 
+	if resp != nil || dropped {
+		c.enqueue(ctx, captureOp{db: db, id: id, entry: Entry{Resp: resp, Dropped: dropped}, complete: true})
+	}
+}
+
+func (c *Capture) enqueue(ctx context.Context, op captureOp) bool {
 	select {
-	case c.in <- e:
+	case c.in <- op:
+		return true
 	case <-ctx.Done():
 		c.dropped.Add(1)
+
+		return false
 	}
 }
 
@@ -137,21 +341,47 @@ func (c *Capture) Run(ctx context.Context) {
 	tick := time.NewTicker(FlushInterval)
 	defer tick.Stop()
 
-	batch := make([]Entry, 0, BatchSize)
+	var changes <-chan project.Change
+	if c.deps.Subscribe != nil {
+		changes = c.deps.Subscribe(ctx)
+		c.selectProject(ctx)
+	}
+
+	batch := make([]captureOp, 0, BatchSize)
 
 	flush := func(ctx context.Context) {
 		if len(batch) > 0 {
 			c.flush(ctx, batch)
+			clear(batch)
 			batch = batch[:0]
+		}
+	}
+
+	appendOp := func(ctx context.Context, op captureOp) {
+		if op.written != nil && !slices.ContainsFunc(batch, func(queued captureOp) bool {
+			return queued.id == op.id && queued.db == op.db && queued.written == nil && !queued.complete
+		}) {
+			// The insert was already processed in an earlier batch. The caller
+			// checks whether it committed.
+			close(op.written)
+
+			return
+		}
+		if batch = append(batch, op); len(batch) >= BatchSize {
+			flush(ctx)
 		}
 	}
 
 	for {
 		select {
-		case e := <-c.in:
-			if batch = append(batch, e); len(batch) >= BatchSize {
-				flush(ctx)
+		case change, ok := <-changes:
+			if !ok {
+				changes = nil
+			} else if change.Kind == project.Selected {
+				c.selectProject(ctx)
 			}
+		case op := <-c.in:
+			appendOp(ctx, op)
 		case <-tick.C:
 			flush(ctx)
 		case <-ctx.Done():
@@ -160,10 +390,8 @@ func (c *Capture) Run(ctx context.Context) {
 
 			for {
 				select {
-				case e := <-c.in:
-					if batch = append(batch, e); len(batch) >= BatchSize {
-						flush(fctx)
-					}
+				case op := <-c.in:
+					appendOp(fctx, op)
 				default:
 					flush(fctx)
 
@@ -174,86 +402,126 @@ func (c *Capture) Run(ctx context.Context) {
 	}
 }
 
-func (c *Capture) flush(ctx context.Context, batch []Entry) {
-	var db *store.DB
-	if c.deps.DB != nil {
-		db = c.deps.DB()
+func (c *Capture) selectProject(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, err := c.refreshProject(ctx); err != nil {
+		c.deps.Logger.Error("capture: initialize project IDs", "error", err)
+	}
+}
+
+func (c *Capture) flush(ctx context.Context, batch []captureOp) {
+	db := c.deps.DB()
+	var err error
+
+	for i := range batch {
+		if batch[i].db == db && batch[i].written == nil {
+			err = c.write(ctx, db, batch[i:])
+			break
+		}
 	}
 
-	if db == nil {
-		c.dropped.Add(int64(len(batch)))
-
-		return
-	}
-
-	ids, err := c.write(ctx, db, batch)
-	if err != nil {
-		c.dropped.Add(int64(len(batch)))
+	if err != nil && db == c.deps.DB() {
 		c.deps.Logger.Error("capture: write batch", "component", "history", "rows", len(batch), "error", err)
-
-		return
 	}
 
-	if c.deps.Bus == nil {
-		return
-	}
-
-	for i, id := range ids {
-		c.deps.Bus.Publish(Event{Kind: Added, RequestID: id})
-
-		if batch[i].Resp != nil {
-			c.deps.Bus.Publish(Event{Kind: Updated, RequestID: id})
+	for _, op := range batch {
+		switch {
+		case op.written != nil:
+			close(op.written)
+		case op.db != db || op.id == 0 || err != nil:
+			c.dropped.Add(1)
+		case c.deps.Bus == nil || db != c.deps.DB():
+		default:
+			if !op.complete {
+				c.deps.Bus.Publish(Event{Kind: Added, RequestID: op.id})
+			}
+			if op.entry.Resp != nil || op.complete && op.entry.Dropped {
+				c.deps.Bus.Publish(Event{Kind: Updated, RequestID: op.id})
+			}
 		}
 	}
 }
 
-func (c *Capture) write(ctx context.Context, db *store.DB, batch []Entry) ([]int64, error) {
-	// Requests, responses and headers share one transaction: a failure leaves
-	// no request without its answer.
-	ids := make([]int64, 0, len(batch))
-
-	err := db.Write(ctx, func(tx *sql.Tx) error {
+func (c *Capture) write(ctx context.Context, db *store.DB, batch []captureOp) error {
+	return db.Write(ctx, func(tx *sql.Tx) error {
+		var insertResponse *sql.Stmt
 		for i := range batch {
-			e := &batch[i]
-
-			id, err := store.InsertRequestTx(ctx, tx, requestRow(e))
-			if err != nil {
-				return err
-			}
-
-			ids = append(ids, id)
-
-			if err := insertHeaders(ctx, tx, insertRequestHeaderSQL, ids[i], e.Req.Headers); err != nil {
-				return err
-			}
-
-			if e.Resp == nil {
+			op := &batch[i]
+			if op.db != db || op.written != nil {
 				continue
 			}
-
-			if _, err := tx.ExecContext(ctx, `INSERT INTO responses
-				(request_id, code, raw, body_offset, len, roundtrip_ms, created_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				ids[i], e.Resp.Code, e.Resp.Raw, e.Resp.BodyOffset, len(e.Resp.Raw),
-				e.Resp.RoundTrip.Milliseconds(), e.Resp.CreatedAt.UnixMilli()); err != nil {
-				return fmt.Errorf("history: insert response: %w", err)
+			if !op.complete {
+				row := requestRow(&op.entry)
+				row.ID = op.id
+				if _, err := store.InsertRequestTx(ctx, tx, row); err != nil {
+					return err
+				}
+				if err := insertHeaders(ctx, tx, insertRequestHeaderSQL, op.id, op.entry.Req.Headers); err != nil {
+					return err
+				}
 			}
 
-			if err := insertHeaders(ctx, tx, insertResponseHeaderSQL, ids[i], e.Resp.Headers); err != nil {
-				return err
+			if resp := op.entry.Resp; resp != nil {
+				if insertResponse == nil {
+					stmt, err := tx.PrepareContext(ctx, insertResponseSQL)
+					if err != nil {
+						return fmt.Errorf("history: prepare response insert: %w", err)
+					}
+					insertResponse = stmt
+				}
+				if err := op.writeResponse(ctx, tx, insertResponse, resp); err != nil {
+					return err
+				}
+			}
+
+			dropped := op.complete && op.entry.Dropped
+			truncated := op.entry.Resp != nil && op.entry.Resp.Truncated
+			if op.id != 0 && (dropped || truncated) {
+				result, err := tx.ExecContext(ctx,
+					"UPDATE requests SET is_dropped = is_dropped OR ?, truncated = truncated OR ? WHERE id = ?",
+					dropped, truncated, op.id)
+				if err := op.checkWrite("update request flags", result, err); err != nil {
+					return err
+				}
 			}
 		}
 
 		return nil
 	})
-	if err != nil {
-		return nil, err
+}
+
+func (op *captureOp) writeResponse(ctx context.Context, tx *sql.Tx, insertResponse *sql.Stmt, resp *Response) error {
+	res, err := insertResponse.ExecContext(ctx,
+		resp.Code, resp.Raw, resp.BodyOffset, len(resp.Raw),
+		resp.RoundTrip.Milliseconds(), resp.CreatedAt.UnixMilli(), op.id)
+	if err := op.checkWrite("insert response", res, err); err != nil || op.id == 0 {
+		return err
 	}
 
-	return ids, nil
+	return insertHeaders(ctx, tx, insertResponseHeaderSQL, op.id, resp.Headers)
+}
+
+func (op *captureOp) checkWrite(action string, result sql.Result, err error) error {
+	if err != nil {
+		return fmt.Errorf("history: %s: %w", action, err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("history: %s row count: %w", action, err)
+	}
+	if n == 0 {
+		op.id = 0 // The pending request was deleted or its insert failed.
+	}
+
+	return nil
 }
 
 const (
+	insertResponseSQL = `INSERT INTO responses
+		(request_id, code, raw, body_offset, len, roundtrip_ms, created_at)
+		SELECT id, ?, ?, ?, ?, ?, ? FROM requests WHERE id = ?`
 	insertRequestHeaderSQL  = "INSERT INTO request_headers (request_id, idx, name, name_lc, value) VALUES (?, ?, ?, ?, ?)"
 	insertResponseHeaderSQL = "INSERT INTO response_headers (request_id, idx, name, name_lc, value) VALUES (?, ?, ?, ?, ?)"
 )
@@ -293,6 +561,8 @@ func requestRow(e *Entry) store.Request {
 		BodyOffset: e.Req.BodyOffset,
 		CreatedAt:  e.CreatedAt.UnixMilli(),
 		Truncated:  e.Truncated,
+		Dropped:    e.Dropped,
+		EditedFrom: e.EditedFrom,
 	}
 }
 

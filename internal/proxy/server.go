@@ -45,9 +45,10 @@ const (
 	tlsHandshakeRecordTag = 0x16
 )
 
-// Capture receives each finished exchange. *history.Capture implements it.
+// Capture records requests and their responses. *history.Capture implements it.
 type Capture interface {
-	Add(ctx context.Context, e history.Entry)
+	NewPending(ctx context.Context, e history.Entry) int64
+	Complete(ctx context.Context, id int64, resp *history.Response)
 }
 
 // CA supplies the MITM certificates. *ca.Service implements it.

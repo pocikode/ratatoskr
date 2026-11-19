@@ -3,9 +3,9 @@ id: T-100
 title: History pending records, edited pairs and editedBy
 milestone: M2
 role: backend
-status: todo
+status: done
 depends_on: [T-030]
-owner: ""
+owner: Codex
 branch: task/T-100-history-pending-edited
 paths:
   - internal/history/**
@@ -13,8 +13,10 @@ paths:
   - internal/store/requests*.go
   - internal/api/graphql/resolvers/history*.go
   - internal/api/graphql/resolvers/stubs_history_edited.go
+  - internal/app/app.go
 spec:
   - docs/03-architecture.md §4 (pending rows, T-100 paragraph), §5, §7
+  - docs/01-feature-spec.md#F-NET-1 (upstream failures)
   - docs/01-feature-spec.md#F-HIST-4 (pair model)
 ---
 
@@ -24,22 +26,30 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 
 ## Scope
 - In: `history.Capture.NewPending(ctx, Entry) int64` (ID returned at once; IDs from `MAX(id)+1` at project open),
-  `Complete(ctx, id, *Response)`, a dropped flag, `EditedFrom` + `Source` on entries; the proxy switched from "insert when
-  complete" to `NewPending` at request read and `Complete` after the response (or failure); `editedBy` lookup in
-  `history.Service` + resolver (delete `stubs_history_edited.go`).
+  `Complete(ctx, id, *Response)`, `Written(ctx, id) error` (returns once the pending row of `id` is committed, at
+  once if it already is, with an error on cancellation or project closure first). Capture records dropped state and
+  `EditedFrom` + `Source` on entries. For T-105, `PendingDB` identifies the row's project, `Entry.ProjectDB` binds the
+  edited row to that project, and `CompleteDropped` marks a pending row after a hold. The proxy calls `NewPending` at
+  request read and `Complete` after the response or failure. `history.Service` and the GraphQL resolver implement
+  `editedBy`.
 - Out: creating edited pairs from the proxy (T-105 calls the API added here), intercept, M&R.
 
 ## Acceptance criteria
-- [ ] `NewPending` returns without waiting for a flush (`testing/synctest`: returns before `FlushInterval` elapses); IDs are
+- [x] `NewPending` returns without waiting for a flush (`testing/synctest`: returns before `FlushInterval` elapses); IDs are
       unique and increasing, also after closing and reopening the project.
-- [ ] Proxy integration test with a slow test server: the request is listed by `Service.List` with no response before the
+- [x] Proxy integration test with a slow test server: the request is listed by `Service.List` with no response before the
       server answers; `Added` then `Updated` events fire in that order; the final row equals what M1 stored (bytes, timing).
-- [ ] An exchange that fails upstream (502 from the proxy) is completed as today (no response, record kept).
-- [ ] `Complete` for an ID whose project was closed meanwhile is dropped and counted in `Dropped()`, no error, no panic.
-- [ ] Dropped flag stored as `is_dropped = 1`; an entry with `EditedFrom` stores `edited_from`; `editedBy` returns the edited
+- [x] An exchange that fails upstream is completed as today (F-NET-1): the pending row is completed with the
+      proxy-generated `502` as its response, error text in the body. `TestUpstreamErrorIs502AndRecorded` stays as is.
+- [x] `Written` (synctest): blocks until the batch holding `id` commits, then `Service.Get(id)` finds it; returns at once
+      for a committed ID; returns ctx's error on cancel and an error when the project closes first; no goroutine leak.
+- [x] `Complete` for an ID whose project was closed meanwhile is dropped and counted in `Dropped()`, no error, no panic.
+- [x] Dropped flag stored as `is_dropped = 1`; an entry with `EditedFrom` stores `edited_from`; `editedBy` returns the edited
       record, null otherwise (service + resolver tests).
-- [ ] Capture benchmark (add `BenchmarkCapture` if missing): pending + complete within 15% of the M1 single insert; numbers in Handoff.
-- [ ] `make check` and `make test-int` green.
+- [x] A pending row can be marked dropped after commit. Finishing a dropped request keeps its response null and
+      finishing a dropped response keeps the upstream bytes. An edited entry pinned to a closed project is discarded.
+- [x] Capture benchmark (add `BenchmarkCapture` if missing): pending + complete within 15% of the M1 single insert; numbers in Handoff.
+- [x] `make check` and `make test-int` green.
 
 ## Notes from lead
 - Keep one writer goroutine per DB: pending inserts and completions go through the same channel so a completion can never
@@ -47,16 +57,81 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 - The in-memory ID counter is per open project; reset it on project switch (`project.Service.Subscribe`).
 - Plan mode required (`internal/proxy`, `internal/store`).
 
+- **Scope added (lead, 2026-11-19, from T-031):** `Capture.Written` above. T-105 calls it before every hold so the
+  intercept queue never shows a record history cannot read yet (F-INT-1). Spec text lands with the T-031 branch.
+
 ## Plan (implementer, ≤15 lines)
+- Confirm how history should record upstream failures and authorize the project subscription wiring.
+- Allocate IDs per open project and batch pending inserts and completions on the capture writer.
+- Acknowledge committed pending rows through the same writer for `Written`.
+- Publish pending proxy records while preserving streaming and final request and response bytes.
+- Persist dropped and edited metadata and resolve `editedBy`.
+- Cover capture, proxy, and resolver behavior, then benchmark and run both check targets.
 
 ## Out-of-scope change needed (if any)
+- ~~Add `internal/app/app.go` to `paths`~~ → granted by lead (see below).
+
+## Blocked questions
+- Should a failed upstream exchange keep `response: null` in history, as the acceptance criterion
+  says, or store the proxy-generated 502, as `TestUpstreamErrorIs502AndRecorded` currently requires?
+  The client receives a 502 in either case.
+  - **Lead (2026-11-19):** store the 502. F-NET-1 is the source of truth; the AC wording was wrong and is fixed.
+    `Complete(ctx, id, resp)` gets the generated 502 response, same as M1 stores it today. `response: null` remains
+    only for rows still pending (and dropped rows, T-105).
+- Can T-100 include `internal/app/app.go` for the project subscription wiring?
+  - **Lead (2026-11-19):** yes, `internal/app/app.go` added to `paths`, limited to wiring capture to
+    `project.Service.Subscribe` (ID-counter reset on project switch). No other app changes; the rest of M2 wiring stays
+    in T-109, which runs after T-105 → T-100, so there is no overlap.
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- Capture reseeds IDs from the open project's database and reserves IDs held by unfinished exchanges across project switches.
+  The same writer queues inserts, completions and `Written` acknowledgments. A completion after switching projects counts as dropped.
+- The proxy records bodyless requests after reading the head and body-bearing requests after streaming the upload, before it
+  reads the upstream response. History keeps exact captured bytes and generated 502 responses.
+- Capture stores dropped state and edited links. GraphQL `editedBy` resolves the edited record when it exists.
+- T-031's F-INT-1 clarification makes `Written` a precondition of T-105's hold calls. T-105 can pass
+  `PendingDB(id)` to the hold so T-031 can decline it after a switch, and use that database in `Entry.ProjectDB`
+  when storing the edited row. `CompleteDropped` marks the already-persisted original, keeping a response only
+  when one exists. A receipt queued just after its insert commits completes without another flush.
+- The branch merges cleanly with T-031 at `f364083`. A temporary combined tree passed the intercept, resolver,
+  history, proxy and app race tests with `-p 1 -tags integration`. A smoke test used actual capture and intercept
+  services to verify that history is readable during a hold, the drop is persisted and an old project's hold is declined.
+- `make test-int` and `VITEST_MAX_WORKERS=2 make check` passed. The worker cap avoided the sitemap test timeout on the
+  first run. `TestHistoryListsPendingBeforeUpstreamResponse` verifies the pending row, event order, final bytes
+  and timing. The history and resolver tests cover project switches, `Written`, dropped rows and edited pairs.
+- `BenchmarkCapture` used seven interleaved one-second runs per version on Darwin/arm64 with `-cpu=2 -benchmem`.
+  M1 used the same fixture and benchmark with `Capture.Add` and the original capture and store code from `607c0a6`.
+  Median M1 was 67.79 µs/op, 4,177 B/op, 89 allocs/op. Pending and complete measured 76.62 µs/op, 4,324 B/op,
+  90 allocs/op, 13.0% slower and within the 15% limit.
+- The capture queue retains bounded backpressure when full. T-105 will wire in interception and creation of edited pairs.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: approve
+- Checked: all 14 changed files are inside `paths` (`app.go` only wires `Subscribe`). `make check` passed (Go race tests and
+  41 web files / 295 web tests). `make test-int` passed. Every acceptance criterion has a test. No hard-rule violations.
+  The `nolint` has a task ID. No new deps. Every exit of `forward` that registers a pending ID also completes it, so
+  the `pending` map cannot leak. A failed insert sends its later completion to `RowsAffected == 0`, which counts it
+  as dropped and emits no event.
 - Findings:
+  - [ ] [minor] internal/store/requests.go:37-45 + internal/history/capture.go:458 — a second edited entry for the same
+    original makes `InsertRequestTx` fail, and `db.Write` then rolls back the whole capture batch (up to 200 unrelated
+    requests and completions are lost). Only a caller bug (T-105) can trigger it, but one bad edit should not cost other
+    users' history → in `write`, skip that op instead: return a sentinel from the store check, or use
+    `INSERT … WHERE NOT EXISTS (…edited_from = ?)` and route `RowsAffected == 0` through `checkWrite`, so only that op
+    counts as dropped.
+  - [ ] [minor] internal/proxy/forward.go:53-58 — a body-less request with `Expect: 100-continue` whose `100 Continue`
+    write fails calls `Complete(id, nil)`. That frees the ID but leaves the row with `response: null` forever, which
+    looks like an exchange still in flight. The lead's answer says null stays only for pending and dropped rows → wait
+    to call `pending()` until after the 100 write (for `FramingNone`, move the early call below the Expect block), so
+    this path records nothing, as M1 did. Otherwise mark the row with `CompleteDropped`. No test covers this path.
+  - [ ] [minor] internal/history/capture.go (ID allocation) — IDs are reserved in memory, while `store.InsertRequests`
+    with `ID == 0` still lets SQLite pick `MAX(rowid)+1`. Nothing outside tests writes this way today. A later writer
+    (Replay, Automate) that bypasses Capture would take an ID that is reserved but not yet flushed. The capture insert
+    would then fail UNIQUE and lose its batch → follow-up for the lead: route every `requests` insert through Capture
+    (or its ID allocator), or record this limit in docs/03 §4.
+  - [ ] [nit] internal/history/capture.go:142 — `Capture.Add` no longer has a product caller (tests only). Delete it and
+    port its four tests to `NewPending`+`Complete`, or keep it on purpose for T-105 or Replay and say so in its doc comment.
+  - [ ] [nit] internal/history/capture.go:238 — after an exchange completes, `Written(id)` for an ID that belonged to a
+    previous project open looks the ID up in the current project. It can then return nil for an unrelated row with the
+    same ID. T-105 only calls it while the request is pending, so this is not reachable today. Note it in the doc
+    comment ("valid only while id is pending").
