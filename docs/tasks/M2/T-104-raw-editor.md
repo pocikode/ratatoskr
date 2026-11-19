@@ -3,9 +3,9 @@ id: T-104
 title: RawEditor - byte-preserving editable HTTP editor with {{var}} highlighting
 milestone: M2
 role: frontend
-status: todo
+status: in_review
 depends_on: []
-owner: ""
+owner: "claude-sonnet-5.5"
 branch: task/T-104-raw-editor
 paths:
   - web/src/lib/editor/**
@@ -44,13 +44,16 @@ changes bytes the user did not edit.
 - Runs in parallel with every other M2 task (own folder only).
 
 ## Plan (implementer, ≤15 lines)
+- Doc = UTF-8 text with CR/LF kept as characters (`lineSeparator "\n"`, CR not flagged as special char) so decode→encode is identity; Enter inserts CRLF.
+- Invalid UTF-8: lossy display, read-only, notice, no emit. External `value` pushed in with an annotation so it is not echoed.
+- `{{var}}` via ViewPlugin decorations + `title` hover; HTTP StreamLanguage; search via @codemirror/search; Wrap button.
 
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
+- What changed: `web/src/lib/editor/{bytes.ts,http.ts,RawEditor.svelte}` + tests; added `@codemirror/search`.
+- How to verify: `make check`; `bunx vitest run src/lib/editor`.
+- Known limitations: hover uses native `title` (not a styled tooltip); wrap toggle is a button, not a registry command (no consumer page yet); cursor can sit between CR and LF; no Playwright spec (component not mounted in a page until T-032/T-107).
 - Follow-ups (proposed tasks):
 
 ## Review (reviewer)
