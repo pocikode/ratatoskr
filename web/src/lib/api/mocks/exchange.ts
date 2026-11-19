@@ -1,4 +1,5 @@
-// urql exchange that answers HTTP History, Intercept, scope- and filter-preset operations from a fake backend, so the UI
+// urql exchange that answers HTTP History, Intercept, scope- and filter-preset, Replay and
+// Environment operations from a fake backend, so the UI
 // works with no server (docs/07-agent-workflow.md: contract-first mocks). It validates
 // and runs the real schema with graphql-js, so selections, arguments and errors behave
 // as on the wire. Operations touching any other root field are forwarded unchanged.
@@ -16,7 +17,9 @@ import { filter, make, merge, mergeMap, pipe, share, takeUntil } from 'wonka';
 import sdl from '../generated/schema.graphql?raw';
 import { createHistoryMock, type MockHistoryOptions } from './history';
 import { createInterceptMock } from './intercept';
+import { createEnvironmentMock } from './environment';
 import { createPresetsMock } from './presets';
+import { createReplayMock } from './replay';
 import { createSitemapMock } from './sitemap';
 
 const schema = buildSchema(sdl);
@@ -24,6 +27,8 @@ const schema = buildSchema(sdl);
 export interface MockExchangeOptions extends MockHistoryOptions {
   /** Interval in ms at which Intercept holds a new request while queuing; 0 (default) disables it. */
   interceptLiveIntervalMs?: number;
+  /** How long a Replay send takes in ms (default 300). */
+  replaySendDelayMs?: number;
 }
 
 function rootFields(doc: DocumentNode): string[] {
@@ -42,11 +47,13 @@ function isIterator(v: unknown): v is AsyncGenerator<ExecutionResult> {
 
 /**
  * Exchange serving the history, intercept, preset and sitemap contracts ({@link createHistoryMock},
- * {@link createInterceptMock}, {@link createPresetsMock}, {@link createSitemapMock}).
+ * {@link createInterceptMock}, {@link createPresetsMock}, {@link createSitemapMock},
+ * {@link createReplayMock}, {@link createEnvironmentMock}).
  */
 export function mockHistoryExchange(opts: MockExchangeOptions = {}): Exchange {
   const history = createHistoryMock(opts);
   const presets = createPresetsMock().root;
+  const env = createEnvironmentMock();
   const root = {
     ...history.root,
     ...presets,
@@ -54,6 +61,15 @@ export function mockHistoryExchange(opts: MockExchangeOptions = {}): Exchange {
     ...createInterceptMock(history, (id) => presets.scopePreset({ id }), {
       liveIntervalMs: opts.interceptLiveIntervalMs,
     }).root,
+    ...env.root,
+    ...createReplayMock(
+      {
+        addRecord: history.addRecord,
+        request: (id) => history.root.request({ id }),
+        interpolate: env.interpolate,
+      },
+      { sendDelayMs: opts.replaySendDelayMs },
+    ).root,
   };
   const handles = (op: Operation) => {
     const fields = rootFields(op.query);

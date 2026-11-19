@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: in_progress
+status: in_review
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -53,14 +53,14 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 - Out: WS/Pipeline sessions, HTTP/2, subscriptions (pages refetch after their own mutations).
 
 ## Acceptance criteria
-- [ ] Every type/field/argument documented with the F-REP-1/F-REP-2/F-ENV-1 contract rules and error codes: `CONFLICT`
+- [x] Every type/field/argument documented with the F-REP-1/F-REP-2/F-ENV-1 contract rules and error codes: `CONFLICT`
       (delete Default collection, send while sending, rename/delete Global, duplicate environment name), `BAD_INPUT` (empty or
       long names, timeout outside 1000–300000 ms, port outside 1–65535, truncated source request, invalid variable name,
       duplicate variable name, value > 1 MiB, reorder ids not the exact set), `NOT_FOUND` (unknown IDs).
-- [ ] Send semantics documented on the field: draft saved first, blocking until done/timeout/cancel, interpolation → M&R →
+- [x] Send semantics documented on the field: draft saved first, blocking until done/timeout/cancel, interpolation → M&R →
       Content-Length order, fresh connection, failures as entries with `error`.
-- [ ] `make gen` clean; stubs compile; `make check` green.
-- [ ] Mocks cover CRUD, move, duplicate `(copy)`, send + cancel, env select/variables (vitest).
+- [x] `make gen` clean; stubs compile; `make check` green.
+- [x] Mocks cover CRUD, move, duplicate `(copy)`, send + cancel, env select/variables (vitest).
 
 ## Notes from lead
 - Default collection: created lazily by the service, so `replayCollections` never returns an empty list.
@@ -77,12 +77,32 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 5. Mocks: `replay.ts`, `environment.ts` (+ vitest), merged in `exchange.ts`. `make check`.
 
 ## Out-of-scope change needed (if any)
+- `docs/01-feature-spec.md` (not in `paths`): the contract settles these details, which should be copied into the
+  F-REP-1/F-REP-2/F-ENV-1 contract bullets in a docs task. Schema descriptions are authoritative until then.
+  - Collection and session names: trimmed, 1–200 characters, no control characters, need not be unique;
+    `(copy)` names cut the source to 193 characters. Default name `Untitled` when the bytes have no request line.
+  - `draft`/`raw` at most 16 MiB decoded (`BAD_INPUT`). Send requires the bytes after interpolation, M&R and
+    Content-Length update to parse as an HTTP/1.x request head (`BAD_INPUT`, no entry, draft stays saved);
+    the body is every byte after the blank line.
+  - Deleting a session or collection cancels in-flight sends. `moveReplaySession` index is 0-based; past the end
+    appends; negative is `BAD_INPUT`. `updateReplaySession` is allowed while sending.
+  - `cancelReplaySend` returns false when nothing is in flight; the cancelled send returns an entry with error `cancelled`.
+  - `Environment.selected` is always false for Global; `selectEnvironment(<Global id>)` is `BAD_INPUT` (pass null).
+    Deleting the selected environment leaves none selected. Connection `sni: ""` is `BAD_INPUT` (null = no override).
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `replay.graphqls` and `environment.graphqls` (every type, field and argument documented, with the
+  error codes from the acceptance criteria and the send pipeline on `sendReplaySession`). `gqlgen.yml`: lazy field
+  resolvers for `ReplayCollection.sessions`, `ReplaySession.collection/entries`, `ReplayEntry.request`. Stubs:
+  `stubs_replay.go` (CRUD + field resolvers, T-033), `stubs_replay_send.go` (send/cancel, T-106),
+  `stubs_environment.go` (T-037); `Deps.Replay`, `Deps.ReplaySend`, `Deps.Environment` placeholder interfaces.
+  Mocks: `mocks/replay.ts`, `mocks/environment.ts` merged into the mock exchange (`replaySendDelayMs` option,
+  default 300 ms); send runs `{{var}}` interpolation from the environment mock; `mocks/replay.test.ts`.
+- How to verify: `make gen` (no diff), `make check`, `cd web && bun run test -- src/lib/api/mocks`.
+- Known limitations: the replay mock skips Match & Replace, Content-Length update and redirects, and checks only the
+  request line (marked `shortcut:`). The generated models keep the lazy fields (e.g. `ReplayEntry.Request`) as plain
+  struct fields; T-033/T-106 can set the ID there for the field resolver to load.
+- Follow-ups (proposed tasks): docs task to copy the decisions above into `docs/01-feature-spec.md`.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested

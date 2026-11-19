@@ -13,12 +13,15 @@ import (
 // ReplayService serves the Replay collection and session operations. Placeholder until T-033 defines its methods.
 type ReplayService any
 
+// ReplayCollection returns the ReplayCollection field resolver.
 func (r *Resolver) ReplayCollection() generated.ReplayCollectionResolver {
 	return &replayCollectionResolver{r}
 }
 
+// ReplaySession returns the ReplaySession field resolver.
 func (r *Resolver) ReplaySession() generated.ReplaySessionResolver { return &replaySessionResolver{r} }
 
+// ReplayEntry returns the ReplayEntry field resolver.
 func (r *Resolver) ReplayEntry() generated.ReplayEntryResolver { return &replayEntryResolver{r} }
 
 type (
