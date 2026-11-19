@@ -3,7 +3,7 @@ id: T-104
 title: RawEditor - byte-preserving editable HTTP editor with {{var}} highlighting
 milestone: M2
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: []
 owner: "claude-sonnet-5.5"
 branch: task/T-104-raw-editor
@@ -37,11 +37,33 @@ changes bytes the user did not edit.
 - [ ] `{{name}}` and `{{ name }}` are decorated; known/unknown use different classes; hover text shows the value or the mask.
 - [ ] Component test: typing emits `onchange` with the new bytes; `readonly` blocks edits.
 - [ ] `bun run check` / unit tests green (`make check`).
+- [ ] Line-ending rule (F-REP-2, added at the lead escalation): in `a\r\nb`, `a\nb` and `a\rb`, End, Shift+End,
+      Backspace, Shift+Backspace, Delete, Alt+Up/Down and Mod+Backspace emit bytes in which every untouched line break
+      keeps its original bytes and every new one is CRLF. Undo after deleting an LF or CR break restores the exact bytes.
+- [ ] Mod+Enter reaches a `window` listener with `defaultPrevented === false` and emits nothing.
 
 ## Notes from lead
 - CodeMirror normalises line breaks by default. Keep the document lossless (e.g. a custom `lineSeparator` plus a
   transaction filter, or map CR/LF explicitly) and prove it with the round-trip tests above; do not ship a "close enough" mapping.
 - Runs in parallel with every other M2 task (own folder only).
+- **Escalation decision (lead, 2026-11-19, after review round 3).** Three rounds patched one CodeMirror command at a
+  time (End, Backspace, Shift+Backspace, line move…) because CR lives inside the line as an ordinary character. Every
+  default command, mouse path and platform key will keep finding the same hole. Change the representation:
+  - Drop `lineSeparator.of('\n')`, `crlfCursor`, `eraser` and the CR special-char handling. Use CodeMirror's default
+    splitting (`/\r\n?|\n/`), so every break is one `\n` in the document and stock commands are correct by
+    construction.
+  - Keep the original terminator out of band in a `StateField<RangeSet>` in `web/src/lib/editor/lineEndings.ts`.
+    Place a marker only for non-CRLF breaks (`lf`/`cr`) at `line.to`. Map it through changes and drop markers inside
+    changed ranges, filtered to the touched lines to keep keystrokes O(change), not O(lines). A break without a marker
+    is CRLF, which gives Enter, paste and line commands CRLF for free.
+  - Undo: register `invertedEffects` (from `@codemirror/commands`) that re-add the markers a transaction removed, with a
+    `map` on the effect. Encode = walk lines + markers → bytes. Decode builds markers with the same regex.
+  - Enter/Shift+Enter: bind `insertNewline` (no auto-indent, which would add or strip whitespace bytes). Keep the
+    Mod-Enter filter.
+  - Unit-test `lineEndings.ts` without a view (round-trip, edits, undo). Component tests then only cover wiring and
+    the AC key list above. Moving the logic out also resolves the 250-line finding.
+- Review budget: the lead authorises **one more review round (round 4)** on this redesign. If it still fails, the lead
+  takes the task back.
 
 ## Plan (implementer, ≤15 lines)
 - Doc = UTF-8 text with CR/LF kept as characters (`lineSeparator "\n"`, CR not flagged as special char) so decode→encode is identity; Enter inserts CRLF.
@@ -56,6 +78,8 @@ changes bytes the user did not edit.
 - Known limitations: hover uses native `title` (not a styled tooltip); wrap toggle is a button, not a registry command (no consumer page yet); cursor can sit between CR and LF; no Playwright spec (component not mounted in a page until T-032/T-107).
 - Review round 2: all 5 findings fixed (history reset on prop replace, CRLF-aware Backspace/Delete + Shift-Enter, getClientRects shim, blankLine body phase, mixed-ending component test). `make check` green.
 - Review round 3: CRLF-aware cursor (transaction filter keeps caret out of CR|LF); new optional `identity` prop resets doc+history on message change (consumers T-032/T-107 should pass the message id); Mod-Enter removed from editor keymap; lexer test uses `\n` separator. Also fixed editor being rebuilt on prop updates (`new EditorView` now untracked), which had made earlier undo tests vacuous.
+- Round 4 (lead redesign): `lineEndings.ts` keeps the doc on default splitting (every break = `\n`) and stores lf/cr terminators out of band in a RangeSet (filtered to touched ranges, mapped through changes, `invertedEffects` restores them on undo). Removed `lineSeparator`, `crlfCursor`, `eraser`, CR special-char handling; Enter/Shift+Enter = `insertNewline`; Mod-Enter still filtered. Component is now 207 lines. Unit tests (no view) in `lineEndings.test.ts`; component tests cover the AC key list for CRLF/LF/CR and Mod+Enter reaching a window listener unprevented.
+- Round 4 limitation: Alt+Up/Down test is loose (jsdom has no layout); lines moved by a line command lose their lone LF/CR and become CRLF (new break rule).
 - Follow-ups (proposed tasks):
 
 ## Review (reviewer)
@@ -86,10 +110,13 @@ changes bytes the user did not edit.
 
 - Verdict: `changes_requested`. This is the third review round. Escalate the remaining CRLF editing defects to the lead under `docs/07-agent-workflow.md` §7.
 - Reviewed `main...f00c0d7` for one operator editing messages up to 5 MB. The product changes are within the task paths. The new tests cover identity changes, parent echoes, and the lexer’s retained-CR path. Chromium confirmed ordinary End followed by typing or Delete works from the start of a line and that both Ctrl+Enter and Cmd+Enter bubble without editing.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:104 — The cursor filter uses the old position to infer rightward motion. Starting at the beginning of `a\r\nb`, Right then End then `x` emits `a\r\nxb`. Right then Shift+End then `x` emits `axb`, deleting the separator. Give End and Shift+End an explicit CRLF-aware line-end target and test them with the caret already at the visual end.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:152 — Shift+Backspace bypasses the custom eraser. At the start of the second line in `a\r\nb`, it emits `a\rb`. Bind Shift+Backspace to the same eraser and assert the emitted bytes.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:157 — The default line-move command treats CR as part of the line and reinserts LF as the separator. Alt+Down on the first line of `a\r\nb` emits `b\na\r`. Drop the optional line-move bindings and test that the shortcut leaves the bytes intact.
-- [ ] [minor] web/src/lib/editor/RawEditor.test.ts:136 — The Mod+Enter test only checks for emitted bytes. An editor handler that calls `preventDefault()` without editing would pass, but the app would skip Send and Forward. Assert that the key reaches a window listener with `defaultPrevented` false.
-- [ ] [minor] web/src/lib/editor/RawEditor.svelte:101 — The component is 270 lines, above the 250-line limit in `docs/06-frontend-conventions.md` §3. Use the CRLF fixes to move the keyboard handling into a module beside the component.
+- [x] [major] web/src/lib/editor/RawEditor.svelte:104 — The cursor filter uses the old position to infer rightward motion. Starting at the beginning of `a\r\nb`, Right then End then `x` emits `a\r\nxb`. Right then Shift+End then `x` emits `axb`, deleting the separator. Give End and Shift+End an explicit CRLF-aware line-end target and test them with the caret already at the visual end.
+- [x] [major] web/src/lib/editor/RawEditor.svelte:152 — Shift+Backspace bypasses the custom eraser. At the start of the second line in `a\r\nb`, it emits `a\rb`. Bind Shift+Backspace to the same eraser and assert the emitted bytes.
+- [x] [major] web/src/lib/editor/RawEditor.svelte:157 — The default line-move command treats CR as part of the line and reinserts LF as the separator. Alt+Down on the first line of `a\r\nb` emits `b\na\r`. Drop the optional line-move bindings and test that the shortcut leaves the bytes intact.
+- [x] [minor] web/src/lib/editor/RawEditor.test.ts:136 — The Mod+Enter test only checks for emitted bytes. An editor handler that calls `preventDefault()` without editing would pass, but the app would skip Send and Forward. Assert that the key reaches a window listener with `defaultPrevented` false.
+- [x] [minor] web/src/lib/editor/RawEditor.svelte:101 — The component is 270 lines, above the 250-line limit in `docs/06-frontend-conventions.md` §3. Use the CRLF fixes to move the keyboard handling into a module beside the component.
+- **Lead disposition (escalation):** findings 1–3 are symptoms of CR-in-line and are superseded by the
+  representation change in *Notes from lead*. They stay open until round 4 verifies the listed keys against the new AC.
+  Findings 4–5 stand as written.
 - Verification: `make check` passed, including all 253 web tests. Chromium reproduced the three open editing defects. A local Chromium smoke check loaded two 5,000,000-byte fixtures, one multiline and one with a single-line body. Both emitted 5,000,001 bytes after typing one character.
 - The app’s Playwright suite and cross-browser behavior were outside this review. The component has no route-level consumer on this branch.

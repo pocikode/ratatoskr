@@ -1,6 +1,5 @@
-// Bytes <-> editor text. The editor document is the UTF-8 text with every CR and LF kept as a
-// character (RawEditor sets lineSeparator "\n"), so decode -> encode is the identity for any
-// valid UTF-8 input, including lone CR/LF, a trailing CRLFCRLF and an empty body.
+// Bytes <-> text. Plain UTF-8 decode/encode is the identity for any valid input; the editor keeps its
+// line breaks lossless through lineEndings.ts.
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const lossy = new TextDecoder('utf-8', { ignoreBOM: true });
 const encoder = new TextEncoder();

@@ -312,6 +312,9 @@ Open in browser · Filter by this host/path/status · Delete · Export.
   - History navigation (`‹ ›`, dropdown) shows an entry's request in the editor and its response; editing it makes it the draft.
   - The editor keeps loaded bytes exactly (CR/LF untouched) and Enter inserts CRLF. A message that is not valid UTF-8
     opens read-only with a notice. HTTP/1.x only in M2 (HTTP/2: T-081).
+  - Line-ending rule (lead, 2026-11-19, T-104 escalation): CRLF, lone LF and lone CR are each one line break, so the caret
+    never sits inside CRLF. A line break the user did not touch keeps its original bytes. A line break the edit creates
+    (Enter, Shift+Enter, paste, line commands) is CRLF. Undo and redo restore the original bytes of line breaks.
   - The connection bar's environment selector changes the project's selected environment (F-ENV-1); it is not per session.
 
 ### F-REP-3 WebSocket session

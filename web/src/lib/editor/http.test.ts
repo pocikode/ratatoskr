@@ -6,7 +6,7 @@ import { httpLanguage } from './http';
 function headerCount(doc: string): number {
   const state = EditorState.create({
     doc,
-    extensions: [EditorState.lineSeparator.of('\n'), httpLanguage],
+    extensions: [httpLanguage],
   });
   let n = 0;
   syntaxTree(state).iterate({ enter: (node) => void (node.name === 'propertyName' && n++) });

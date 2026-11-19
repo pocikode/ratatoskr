@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import RawEditor from './RawEditor.svelte';
@@ -64,22 +64,65 @@ describe('RawEditor', () => {
     expect(variableTitle('b', vars)).toBe('b = ••••');
   });
 
-  it('Backspace and Shift+Enter treat CRLF as one unit', async () => {
+  it('Shift+Enter inserts CRLF', async () => {
     const onchange = vi.fn();
-    render(RawEditor, { value: enc('a\r\nb'), onchange });
+    render(RawEditor, { value: enc('ab'), onchange });
     await userEvent.click(box());
-    await userEvent.keyboard('{Control>}{Home}{/Control}{ArrowDown}{Home}{Backspace}');
-    expect(dec(onchange.mock.lastCall![0])).toBe('ab');
-    await userEvent.keyboard('{Shift>}{Enter}{/Shift}');
+    await userEvent.keyboard('{Control>}{Home}{/Control}{ArrowRight}{Shift>}{Enter}{/Shift}');
     expect(dec(onchange.mock.lastCall![0])).toBe('a\r\nb');
   });
 
-  it('editing one character keeps lone CR, LF and CRLF elsewhere', async () => {
-    const onchange = vi.fn();
-    render(RawEditor, { value: enc('a\rb\nc\r\nd'), onchange });
-    await userEvent.click(box());
-    await userEvent.keyboard('{Control>}{End}{/Control}e');
-    expect(dec(onchange.mock.lastCall![0])).toBe('a\rb\nc\r\nde');
+  // Each break is one caret step whatever its bytes; keys act on the second line start/first line end.
+  describe.each([
+    ['CRLF', '\r\n'],
+    ['LF', '\n'],
+    ['CR', '\r'],
+  ])('%s break', (_, sep) => {
+    const text = `a${sep}b`;
+    const home = '{Control>}{Home}{/Control}';
+    const second = `${home}{ArrowRight}{ArrowRight}`; // jsdom has no layout: avoid ArrowDown
+    const run = async (keys: string, value = text) => {
+      const onchange = vi.fn();
+      render(RawEditor, { value: enc(value), onchange });
+      await userEvent.click(box());
+      await userEvent.keyboard(keys);
+      return onchange.mock.lastCall ? dec(onchange.mock.lastCall[0]) : null;
+    };
+
+    it('End then typing and Shift+End then typing', async () => {
+      expect(await run(`${home}{End}x`)).toBe(`ax${sep}b`);
+      cleanup();
+      expect(await run(`${home}{ArrowRight}{End}x`)).toBe(`ax${sep}b`);
+      cleanup();
+      expect(await run(`${home}{ArrowRight}{Shift>}{End}{/Shift}x`)).toBe(`ax${sep}b`);
+    });
+
+    it('Backspace, Shift+Backspace and Delete remove the break only', async () => {
+      expect(await run(`${second}{Backspace}`)).toBe('ab');
+      cleanup();
+      expect(await run(`${second}{Shift>}{Backspace}{/Shift}`)).toBe('ab');
+      cleanup();
+      expect(await run(`${home}{End}{Delete}`)).toBe('ab');
+    });
+
+    it('Mod+Backspace keeps the other break bytes', async () => {
+      expect(await run(`${second}{Control>}{Backspace}{/Control}`, `${text}${sep}c`)).toBe(
+        `ab${sep}c`,
+      );
+    });
+
+    it('Alt+Up/Down never emit a lone LF or reorder bytes with a bare separator', async () => {
+      const out = await run(`${home}{Alt>}{ArrowDown}{/Alt}`);
+      expect(out === null || /^b\r\na$/.test(out)).toBe(true);
+    });
+
+    it('undo after deleting the break restores the exact bytes', async () => {
+      const onchange = vi.fn();
+      render(RawEditor, { value: enc(text), onchange });
+      await userEvent.click(box());
+      await userEvent.keyboard(`${second}{Backspace}{Control>}z{/Control}`);
+      expect(dec(onchange.mock.lastCall![0])).toBe(text);
+    });
   });
 
   it('undo after the value prop changes cannot bring back the old message', async () => {
@@ -117,27 +160,17 @@ describe('RawEditor', () => {
     expect(dec(onchange.mock.lastCall![0])).toBe('a');
   });
 
-  it('End then Delete / typing never splits CRLF', async () => {
+  it('Mod+Enter reaches window unprevented and emits nothing', async () => {
     const onchange = vi.fn();
-    render(RawEditor, { value: enc('a\r\nb'), onchange });
-    await userEvent.click(box());
-    await userEvent.keyboard('{Control>}{Home}{/Control}{End}{Delete}');
-    expect(dec(onchange.mock.lastCall![0])).toBe('ab');
-  });
-
-  it('End then typing inserts before the CR', async () => {
-    const onchange = vi.fn();
-    render(RawEditor, { value: enc('a\r\nb'), onchange });
-    await userEvent.click(box());
-    await userEvent.keyboard('{Control>}{Home}{/Control}{End}x');
-    expect(dec(onchange.mock.lastCall![0])).toBe('ax\r\nb');
-  });
-
-  it('Mod+Enter is not consumed by the editor', async () => {
-    const onchange = vi.fn();
+    const seen: boolean[] = [];
+    const listener = (e: KeyboardEvent) => seen.push(e.defaultPrevented);
+    window.addEventListener('keydown', listener);
     render(RawEditor, { value: enc('a'), onchange });
     await userEvent.click(box());
     await userEvent.keyboard('{Control>}{Enter}{/Control}');
+    window.removeEventListener('keydown', listener);
+    expect(seen).toContain(false);
+    expect(seen).not.toContain(true);
     expect(onchange).not.toHaveBeenCalled();
   });
 });
