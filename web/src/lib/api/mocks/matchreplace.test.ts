@@ -318,6 +318,17 @@ describe('match & replace mock', () => {
       const r = (await m(TEST, { r: ab, k: 'RESPONSE', raw: btoa(framed) })).data!.testMatchReplace;
       expect(r).toMatchObject({ output: btoa(framed), changed: false });
     }
+    // 1xx, 204 and 304 responses are bodyless on the wire: a FULL body rule must not append bytes.
+    const fullBB = { ...body, matcher: { kind: 'FULL', value: '' }, term: 'bb' };
+    for (const bodyless of [
+      'HTTP/1.1 204 No Content\r\n\r\n',
+      'HTTP/1.1 304\r\nETag: "x"\r\n\r\n',
+      'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n',
+    ]) {
+      const r = (await m(TEST, { r: fullBB, k: 'RESPONSE', raw: btoa(bodyless) })).data!
+        .testMatchReplace;
+      expect(r).toMatchObject({ output: btoa(bodyless), changed: false });
+    }
 
     expect(code(await m(TEST, { r: body, k: 'REQUEST', raw: req }))).toBe('BAD_INPUT');
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe('BAD_INPUT');

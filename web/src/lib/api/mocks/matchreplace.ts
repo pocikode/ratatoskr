@@ -172,7 +172,8 @@ function replaceBytes(text: string, v: string, term: string): string {
  * Applies a rule to one message as byte strings.
  * shortcut: only STRING/FULL `UPDATE_RAW` on headers and bodies, plus header `ADD`; every other
  * rule leaves the message unchanged and conditions always match. Body rules skip messages with a
- * `Transfer-Encoding` or `Content-Encoding` header instead of rebuilding chunk framing or codings.
+ * `Transfer-Encoding` or `Content-Encoding` header instead of rebuilding chunk framing or codings,
+ * and bodyless responses (1xx, 204, 304).
  * The real tester is T-102 (on the T-035 engine).
  */
 function applyRule(rule: MockRuleInput, raw: string): string {
@@ -219,6 +220,8 @@ function applyRule(rule: MockRuleInput, raw: string): string {
     headers.splice(0, headers.length, ...done);
   } else if (rule.section.endsWith('_BODY') && rule.operation === 'UPDATE_RAW') {
     if (headers.some((h) => /^(transfer|content)-encoding:/i.test(h))) return raw;
+    // 1xx, 204 and 304 responses have no body on the wire (internal/rawhttp/read.go).
+    if (/^HTTP\/\S+ (1\d\d|204|304)(\s|$)/.test(start!)) return raw;
     const len = measure(body);
     const isCL = (h: string) => /^content-length:/i.test(h);
     const i = headers.findIndex(isCL);

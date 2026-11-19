@@ -86,7 +86,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   values, `ADD` header term format, tester and import specifics); spec added to this task's paths for that.
 - How to verify: `make gen` (no diff), `make check`; `cd web && bunx --bun vitest run src/lib/api/mocks/matchreplace.test.ts`.
 - Known limitations: mock tester only does STRING/FULL `UPDATE_RAW` on headers/bodies plus header `ADD`, and treats
-  every condition as matched, and leaves chunked or content-coded bodies unchanged (`shortcut:` comment); mock HTTPQL check only flags unterminated strings; mock regex check
+  every condition as matched, and leaves chunked, content-coded and bodyless (1xx/204/304) response bodies unchanged (`shortcut:` comment); mock HTTPQL check only flags unterminated strings; mock regex check
   is JS `RegExp` plus a look-around/backref reject, not RE2.
 - Follow-ups (proposed tasks): none; T-035/T-102/T-036/T-108 can start.
 
@@ -340,3 +340,18 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - All 24 focused Vitest tests passed. Both framing cases were reproduced directly through the
   mock resolver using synthetic request bytes. Review assumed one desktop user within the
   documented tester limits. Full `make check`, browser E2E and Go integration were skipped.
+
+### Review of `5328647`
+
+- Verdict is `changes_requested`. The duplicate-length and header-only request
+  regressions pass.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:220` — A FULL response-body
+  rule with term `bb` appends those bytes to a valid 204 No Content response and
+  reports `changed: true`. The wire parser treats 1xx, 204 and 304 responses as
+  bodyless (`internal/rawhttp/read.go:354`), so the extra bytes are outside the
+  response. Skip body rules for those statuses and cover the 204 case in the tester.
+  → Fixed: body rules leave 1xx, 204 and 304 responses unchanged (`changed: false`), stated in the
+  `applyRule` `shortcut:` comment; tested with 204, 304 and 101 and a FULL `bb` term.
+- Reproduced through the mock resolver with synthetic bytes. All 24 focused
+  Vitest tests passed. Review assumed a single desktop user and the documented
+  tester size caps. Full checks, browser E2E, and Go integration were skipped.
