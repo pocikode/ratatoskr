@@ -3,7 +3,7 @@ id: T-034
 title: Replay page shell - session sidebar, collections, tab strip
 milestone: M2
 role: frontend
-status: in_review
+status: blocked
 depends_on: [T-098]
 owner: "claude-sonnet-5.5"
 branch: task/T-034-replay-shell
@@ -129,3 +129,25 @@ What this change does: Adds the Replay collections sidebar, session tabs, URL di
 Verdict: fix 1–6 first; add the missing acceptance coverage in 7 before re-review.
 
 Not checked: browser E2E, real Replay backend integration and load benchmarks; no source files changed during review. Integration tests were not required because proxy/store/rawhttp did not change.
+
+### Re-review of `079813d`
+
+What this change does: Adds the Replay collections tree, session tabs, URL dialog and per-project tab persistence. This revision adds keyboard moves, fixes filtered move indices and restores the previous tree when a single move fails.
+
+- Verdict: changes_requested. Blocked pending the lead decisions in findings 2–4.
+- Reviewed `main...HEAD` for one local operator using multiple Replay collections and sessions. `make check` passed, including Go race tests, Svelte checks, lint and 348 frontend tests. The added tests cover sidebar rename, individual move rollback, filtered indices, UTF-8 creation, collection CRUD, colour selection and close variants.
+
+#### Must fix
+
+- [ ] [major] web/src/pages/replay/replay.svelte.ts:232 — **1. Two failed moves can leave an unsaved move visible.** The second move captures a tree that still includes the first optimistic move. If both requests fail in submission order, the second rollback puts the first failed move back on screen. Allow one move at a time through settlement and refresh, and test two attempts against deferred mutation results.
+- [ ] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **2. Generated files still fall outside the allowed paths.** The previous review's scope finding remains open. The handoff requests approval and the branch still includes both generated files. Can the lead authorize `web/src/lib/api/generated/gql.ts` and `web/src/lib/api/generated/graphql.ts` in the task paths?
+- [ ] [major] web/src/pages/replay/commands.ts:19 — **3. Collections have no Duplicate action.** The acceptance criterion explicitly includes collections, while F-REP-1 defines session copies and the schema and mock expose only `duplicateReplaySession`. Should collection duplication be removed from this task's acceptance criterion, or should the lead define and schedule a contract for copying a collection and its sessions?
+- [ ] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **4. Users cannot reorder open tabs.** The linked UI spec lists drag reorder and the task's tab acceptance criterion omits it. Should T-034 implement shared tab reorder or should the lead assign it to a follow-up in the task and spec?
+- [ ] [major] web/src/pages/replay/replay.svelte.ts:247 — **5. Sidebar search decodes every saved request body on each keystroke.** The collection query fetches entire base64 drafts even though search only needs the request target. A local Bun probe of this decode loop took about 2.1 seconds for ten 5 MiB drafts, before rendering. Match name and host first and cache the request target by draft, decoding only far enough to read the first line. Coordinate a compact target field with the lead if the collection query still exceeds the page budget.
+- [ ] [major] web/src/lib/components/SessionSidebar/SessionSidebar.svelte:97 — **6. A keyboard move into a collapsed collection loses focus.** The source row disappears and the destination row is unmounted, so the focus lookup finds nothing. Open the destination before restoring focus and test the keyboard move with a collapsed destination.
+
+#### Should fix
+
+- [ ] [minor] web/src/pages/replay/ReplayPage.test.ts:161 — **7. No browser test exercises the drag flow.** The component test dispatches keyboard input and the state tests call `move` directly. A broken drag-start or drop binding can pass all of them. Add a mock-backed Playwright flow for dragging a row to another collection and checking placement, or get the lead to schedule the browser coverage with T-033.
+
+Browser interaction and the real Replay backend remain unverified. The Go Replay resolvers are stubs pending T-033.
