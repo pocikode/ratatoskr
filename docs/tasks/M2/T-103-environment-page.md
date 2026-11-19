@@ -3,7 +3,7 @@ id: T-103
 title: Environment page and status-bar environment switcher
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "opencode (deepseek-v4.1-flash-1017)"
 branch: task/T-103-environment-page
@@ -66,5 +66,21 @@ Replay (T-107) reads variables from the same store.
 - Follow-ups (proposed tasks): E2E for F-ENV-1 once T-037 lands; a dev `?mock=environment` hook if wanted before then.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
+- Checks: diff is inside `paths` (generated files are codegen output). Web `check` (svelte-check, eslint, prettier) and
+  `bun run test` (339 tests) are green. `make check` failed once in `go test -race ./...`:
+  `--- FAIL: TestUpstreamErrorIs502AndRecorded` (`internal/proxy/proxy_test.go:175`, entries = [...] with `Resp:<nil>`).
+  This branch changes no Go file, and `go test -race -count=1 ./internal/proxy` passed on re-run, so it is a flaky proxy
+  test, not this task. Please re-run `make check` before moving back to `in_review`, and report the flake to the lead.
 - Findings:
+- [ ] [major] web/src/pages/environment/EnvironmentPage.svelte:23,81,122,166 — `renaming` is not tied to an environment. Click Rename on A, then click B in the list: the rename form stays open for B with A's name, and "Save name" renames B to A's name (the server only refuses while A still exists). → store `renaming` as `{ id, name }` and show the form only when `renaming.id === active.id`, or set `renaming = null` in the list `onclick`.
+- [ ] [major] web/src/pages/environment/EnvironmentPage.svelte:19,36,50,206 — reveal state is keyed by row index. Reveal secret row 3, remove row 1: the secret that moves to index 2 shows in clear text, though the user never revealed it. AC "reveal is per row" is broken after a remove. → key `revealed` by a stable row id (add a client-side `key` to each row), or clear `revealed` in `removeRow`.
+- [ ] [minor] web/src/pages/environment/EnvironmentPage.svelte:31-38 — the effect resets `rows` whenever `store.environments` changes. Edit a value, then pick another environment in the status bar (it refetches): the unsaved edits are dropped with no warning. → reset only when `active?.id` changes, or when the grid is not dirty.
+- [ ] [minor] web/src/pages/environment/EnvironmentPage.svelte:173 — Delete runs at once with no confirmation, and it deletes the environment with all its (sealed) secrets. → confirm first (bits-ui AlertDialog or a two-step button).
+- [ ] [minor] web/src/lib/components/StatusBar.svelte:62,70 — `void env.select(...)` drops the result. If the mutation fails, `store.error` is set but only the Environment page shows it; the status bar stays silent. → show the error (toast or title) or at least keep the old selection visibly.
+- [ ] [minor] web/src/lib/components/StatusBar.svelte:18 + EnvironmentPage.svelte:29 — both call `store.start()` on the same singleton. On the Environment page that is two refetches at mount and two `projects.onReset` subscriptions. → start the store once (status bar only) and drop it from the page, or make `start()` ref-counted.
+- [ ] [minor] web/src/pages/environment/EnvironmentPage.svelte:76 — `errorName` is parsed from the first quoted string in the message. A `BAD_INPUT` that quotes nothing (invalid name, value too long) highlights no row, and a quoted name in another position is mis-parsed. The test only covers the duplicate message. → ask the lead whether `extensions` can carry the row (index/name); until then show the message next to the grid and add a test for the unquoted case.
+- [ ] [nit] web/src/lib/stores/environment.svelte.ts:49 — two overlapping `refresh()` calls can resolve out of order, so an older list can overwrite a newer one. → keep a request counter and ignore stale results.
+- [ ] [nit] web/src/pages/environment/EnvironmentPage.svelte:97 — `h-[calc(100vh-140px)]` is a magic number tied to the shell; use the layout's flex height.
+- Missing tests for the two majors (rename form after switching environment; reveal after removing a row).
+- AC coverage otherwise OK: Global pinned and without actions, grid saved together, status bar select/none, store `variables` override.
