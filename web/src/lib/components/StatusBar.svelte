@@ -1,14 +1,23 @@
 <script lang="ts">
+  import { DropdownMenu } from 'bits-ui';
   import { getApi } from '$lib/api/client';
   import { connection, type ConnectionState } from '$lib/api/connection.svelte';
+  import { environment as defaultEnv, type EnvironmentStore } from '$lib/stores/environment.svelte';
 
-  // Listener/project/env slots arrive with their tasks.
   let {
     conn = connection,
     start = () => conn.start(getApi()),
-  }: { conn?: ConnectionState; start?: () => () => void } = $props();
+    env = defaultEnv,
+  }: {
+    conn?: ConnectionState;
+    start?: () => () => void;
+    env?: EnvironmentStore;
+  } = $props();
 
   $effect(() => start());
+  $effect(() => env.start());
+
+  const projectEnvs = $derived(env.environments.filter((e) => !e.isGlobal));
 
   const LABELS = {
     connecting: 'Connecting…',
@@ -33,6 +42,41 @@
     <span class="inline-block size-2 rounded-full {DOTS[conn.status]}" aria-hidden="true"></span>
     {LABELS[conn.status]}
   </span>
+
+  <DropdownMenu.Root>
+    <DropdownMenu.Trigger
+      class="rounded-token px-1 hover:bg-hover"
+      aria-label="Environment"
+      title="Selected environment (F-ENV-1)"
+    >
+      env: {env.selected?.name ?? 'No environment'}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Portal>
+      <DropdownMenu.Content
+        align="start"
+        sideOffset={4}
+        class="z-50 min-w-40 rounded-token border border-line bg-elevated p-1 shadow-lg"
+      >
+        <DropdownMenu.Item
+          class="flex cursor-default items-center justify-between rounded-token px-2 py-1 outline-none data-highlighted:bg-hover"
+          onSelect={() => void env.select(null)}
+        >
+          No environment
+          {#if !env.selected}<span aria-label="current">✓</span>{/if}
+        </DropdownMenu.Item>
+        {#each projectEnvs as e (e.id)}
+          <DropdownMenu.Item
+            class="flex cursor-default items-center justify-between rounded-token px-2 py-1 outline-none data-highlighted:bg-hover"
+            onSelect={() => void env.select(e.id)}
+          >
+            {e.name}
+            {#if e.selected}<span aria-label="current">✓</span>{/if}
+          </DropdownMenu.Item>
+        {/each}
+      </DropdownMenu.Content>
+    </DropdownMenu.Portal>
+  </DropdownMenu.Root>
+
   {#if conn.server}
     <span
       class="ml-auto"
