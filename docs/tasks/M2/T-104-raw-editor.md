@@ -3,7 +3,7 @@ id: T-104
 title: RawEditor - byte-preserving editable HTTP editor with {{var}} highlighting
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: []
 owner: "claude-sonnet-5.5"
 branch: task/T-104-raw-editor
@@ -120,3 +120,13 @@ changes bytes the user did not edit.
   Findings 4–5 stand as written.
 - Verification: `make check` passed, including all 253 web tests. Chromium reproduced the three open editing defects. A local Chromium smoke check loaded two 5,000,000-byte fixtures, one multiline and one with a single-line body. Both emitted 5,000,001 bytes after typing one character.
 - The app’s Playwright suite and cross-browser behavior were outside this review. The component has no route-level consumer on this branch.
+
+### Re-review of `b22ec54`
+
+- Verdict: `changes_requested`. This closes the lead-authorized fourth round. Return T-104 to the lead under the escalation decision above.
+- Reviewed `main...b22ec54` for one operator editing a message up to 5 MB. Source and dependency changes are within the task paths. The branch also includes the task record and the lead's F-REP-2 amendment to `docs/01-feature-spec.md`, outside the listed frontend paths.
+- [ ] [major] web/src/lib/editor/RawEditor.svelte:119 — The prop effect treats different bytes as a parent echo when an invalid replacement has the same lossy display. In Chromium, replace `a` with `�`, load `[0xff]`, then load the valid UTF-8 bytes for `�` under the same optional identity. Undo then emits `a` for the replacement. Compare against the exact loaded or last-emitted bytes and reset history on a genuine replacement. Perform this check before parsing: five local Chromium edits of a 5 MB LF-delimited fixture took 211–233 ms each with a parent echo, compared with 69–74 ms without one. The echo currently reparses the bytes and re-encodes the document to decide it has nothing to do.
+- [ ] [major] web/src/lib/editor/RawEditor.svelte:87 — Read-only content cannot receive focus by click or Tab, so Cmd+F after clicking it does not open CodeMirror search in Chromium. Give read-only content a tab stop, and guard Enter and Shift+Enter with `state.readOnly`. With a tab stop added in the browser, `insertNewline` changed `ab` to `ab\n\n` on those two keys despite the lock, while the callback emitted nothing. Test both search and the unchanged document while locked.
+- [ ] [minor] web/src/lib/editor/RawEditor.test.ts:114 — The line-move test runs only Alt+Down and accepts zero emissions. It passes with either shortcut broken or removed and cannot detect changes to a neighboring break. Run both directions from a movable line in a three-line mixed-ending document, and assert the emitted sequence including the untouched break. CodeMirror's line-move commands can also be exercised without layout through the state tests.
+- [ ] [minor] web/src/lib/editor/RawEditor.test.ts:166 — The listener records all keydowns. The Ctrl keydown alone satisfies the assertion if the Enter keydown is swallowed without editing. Record only the modified Enter event and require exactly one visit with `defaultPrevented === false`.
+- Verification: `make check` passed, including 279 web tests. A standalone Chromium run verified End, Shift+End, Backspace, Shift+Backspace, Delete, Mod+Backspace, both line-move directions, and undo/redo with CRLF, LF and CR. It also verified that Ctrl+Enter and Cmd+Enter reached `window` unprevented with no emitted bytes. The app's Playwright suite and other browser engines were outside the checks run. The component has no route-level caller on this branch.
