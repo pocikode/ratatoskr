@@ -127,7 +127,10 @@ response header 60 s (configurable).
 ```
 requests(id INTEGER PK, source TEXT, host TEXT, port INT, tls INT, method TEXT, path TEXT, query TEXT, ext TEXT,
          raw BLOB, body_offset INT, len INT, created_at INT, edited_from INT NULL, color TEXT NULL, note TEXT NULL,
-         is_dropped INT DEFAULT 0, truncated INT DEFAULT 0, plugin_id TEXT NULL, automate_attack_id INT NULL)
+         is_dropped INT DEFAULT 0, truncated INT DEFAULT 0, request_truncated INT DEFAULT 0, plugin_id TEXT NULL,
+         automate_attack_id INT NULL)
+-- truncated: request or response bytes were cut (History `isTruncated`); request_truncated: the request bytes were cut
+-- (set at insert, never changed; Replay copies). Rows older than migration 0003 get request_truncated = truncated.
 responses(request_id PK/FK, code INT, raw BLOB, body_offset INT, len INT, roundtrip_ms INT, created_at INT, edited_from INT NULL)
 request_headers(request_id, idx, name, name_lc, value)      -- indexed (name_lc), for header.* queries
 response_headers(request_id, idx, name, name_lc, value)

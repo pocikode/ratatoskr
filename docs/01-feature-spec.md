@@ -303,8 +303,10 @@ Open in browser · Filter by this host/path/status · Delete · Export.
   - A session holds: name, collection, position, tag colour (`RequestColor`, optional), connection (host, port, TLS, SNI
     override), options (follow redirects off, update Content-Length on, timeout 60 s within 1–300 s, Apply Match &
     Replace off) and the draft request bytes. New sessions are named `METHOD path` cut to 60 characters.
-  - From a history request: its stored request bytes and connection are copied (`BAD_INPUT` when the stored request was
-    truncated). From scratch: host, port, TLS and request bytes are given; the URL dialog builds `GET <path> HTTP/1.1`
+  - From a history request: its stored request bytes and connection (host, port, TLS) are copied; the SNI override stays
+    unset, so the host is used as SNI (F-REP-2) and follows later host edits. `BAD_INPUT` when the stored *request*
+    bytes were truncated; a truncated response does not block the copy. Records stored before request-only
+    truncation was tracked (project migration 0003) count as truncated when their record-level flag is set. From scratch: host, port, TLS and request bytes are given; the URL dialog builds `GET <path> HTTP/1.1`
     with a `Host` header.
   - Duplicate copies draft, connection, options and colour (not entries) as `<name> (copy)`.
   - Session search, open tabs and the active tab are client-side; open tabs persist in `localStorage` per project.

@@ -40,14 +40,14 @@ func parsePresetID(kind, id string) (int64, error) {
 	return n, nil
 }
 
-// parseOrderIDs is for reorder: an unparsable ID can never be a current preset, so BAD_INPUT.
+// parseOrderIDs is for reorder: an unparsable ID can never be a current ID, so BAD_INPUT.
 func parseOrderIDs(ids []string) ([]int64, error) {
 	out := make([]int64, len(ids))
 
 	for i, id := range ids {
 		n, err := strconv.ParseInt(id, 10, 64)
 		if err != nil {
-			return nil, apperr.New(apperr.BadInput, "unknown preset %q in order", id)
+			return nil, apperr.New(apperr.BadInput, "unknown ID %q in order", id)
 		}
 
 		out[i] = n

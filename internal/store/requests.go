@@ -22,15 +22,15 @@ type Request struct {
 	CreatedAt        int64 // unix milliseconds
 	PluginID         *string
 	AutomateAttackID *int64
-	Truncated        bool
+	Truncated        bool // request bytes were cut; response truncation is recorded later
 	Dropped          bool
 	EditedFrom       *int64
 }
 
 const insertRequestSQL = `INSERT INTO requests
 	(id, source, host, port, tls, method, path, query, ext, raw, body_offset, len,
-	 created_at, truncated, is_dropped, edited_from, plugin_id, automate_attack_id)
-	VALUES (NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	 created_at, truncated, request_truncated, is_dropped, edited_from, plugin_id, automate_attack_id)
+	VALUES (NULLIF(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // InsertRequestTx inserts one row inside tx and returns its id.
 func InsertRequestTx(ctx context.Context, tx *sql.Tx, r Request) (int64, error) {
@@ -45,7 +45,7 @@ func InsertRequestTx(ctx context.Context, tx *sql.Tx, r Request) (int64, error) 
 	}
 
 	res, err := tx.ExecContext(ctx, insertRequestSQL, r.ID, r.Source, r.Host, r.Port, r.TLS, r.Method, r.Path,
-		r.Query, r.Ext, r.Raw, r.BodyOffset, len(r.Raw), r.CreatedAt, r.Truncated,
+		r.Query, r.Ext, r.Raw, r.BodyOffset, len(r.Raw), r.CreatedAt, r.Truncated, r.Truncated,
 		r.Dropped, r.EditedFrom, r.PluginID, r.AutomateAttackID)
 	if err != nil {
 		return 0, fmt.Errorf("store: insert request: %w", err)
