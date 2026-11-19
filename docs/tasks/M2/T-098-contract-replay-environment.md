@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -185,3 +185,12 @@ T-098 gives the Replay and Environments teams a shared GraphQL contract, Go stub
 - [x] [minor] `web/src/lib/api/mocks/replay.ts:133` — New History records inherit a synthetic timestamp from `makeRequest`. One zero-delay send reported `request.createdAt` 550 ms before the entry's start and a 42 ms round trip despite a 551 ms gap between the request and response timestamps. History sorts by this field. Reuse the captured send start for the History request and derive the round trip from the same request and response timestamps.
 - `make check` passed, including all 316 web tests. `make gen` reproduced both generated directories in a temporary checkout. In-memory GraphQL checks reproduced both findings. `git diff --check main...HEAD` still reports trailing whitespace emitted in the generated web SDL.
 - Review assumes one frontend developer using the in-memory exchange. The branch changes no proxy, store, or raw HTTP code, so the review did not run `make test-int`. Both findings go to the lead under the existing escalation.
+
+### Recheck of `ceaa58c`
+
+T-098 defines the Replay and Environments GraphQL contracts and supplies Go stubs and mocks for one frontend developer working locally. The tests for the `/à` target and the send-start timestamps pass.
+
+- Verdict: `changes_requested`.
+- [ ] [major] `web/src/lib/api/mocks/replay.ts:253` — Deleting a Replay request through `deleteRequests` removes it from History, but Replay still returns the entry and the deleted request through `entries`. SQLite deletes the entry with its request under `internal/store/migrations/project/0001_init.sql:145`. Remove matching entries when the shared History mock deletes their requests, and test that a Replay refetch drops the entry and updates `totalCount`. Otherwise the mock teaches the editor to keep displaying a result that disappears with the real backend.
+- `make check` passed with 318 web tests. `make gen` reproduced both generated directories in a temporary checkout. An in-memory GraphQL check reproduced the stale entry, and a SQLite check using the checked-in migration confirmed the cascade. `git diff --check main...HEAD` reported trailing whitespace in the generated web SDL only.
+- The branch changes no proxy, store, or raw HTTP code, so this review skipped `make test-int`. The finding goes to the lead under the existing escalation.
