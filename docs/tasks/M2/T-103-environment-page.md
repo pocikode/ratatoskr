@@ -3,9 +3,9 @@ id: T-103
 title: Environment page and status-bar environment switcher
 milestone: M2
 role: frontend
-status: todo
+status: in_progress
 depends_on: [T-098]
-owner: ""
+owner: "opencode (deepseek-v4.1-flash-1017)"
 branch: task/T-103-environment-page
 paths:
   - web/src/pages/environment/**
@@ -41,6 +41,14 @@ Replay (T-107) reads variables from the same store.
 - Re-read docs/00 §4 before writing copy.
 
 ## Plan (implementer, ≤15 lines)
+1. `pages/environment/environment.graphql`: Environments query + create/rename/delete/setVariables/select mutations.
+2. `lib/stores/environment.svelte.ts`: `EnvironmentStore` (list, `selected`, `variables` map = selected over Global,
+   mutations refetch, `start()` refetches on project switch via `projects.onReset`).
+3. `pages/environment/EnvironmentPage.svelte`: env list (Global pinned, no actions), create/rename/delete, variables grid
+   (name, value, secret, add/remove, Save), secret value masked with per-row reveal, BAD_INPUT row highlight.
+4. `StatusBar.svelte`: `env: <name>` / "No environment" dropdown that selects one or none.
+5. Tests: store (`variables` resolution + selection change), page component, status bar (mock `selectEnvironment`).
+6. `bun run codegen`, `make check`.
 
 ## Out-of-scope change needed (if any)
 
