@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -156,3 +156,14 @@ Reviewed `147ce74` against `main`. T-098 defines the Replay and Environments Gra
 - [x] [major] `web/src/lib/api/mocks/replay.ts:136` — A Replay request with the target `http://example.test/docs?q=abc` records `path: "http://example.test/docs"`. History capture records `path: "/docs"` for the same target (`internal/history/capture.go:277`). Match History's path and query extraction for absolute URLs while preserving the request bytes, and add a regression test. Otherwise a History path filter for `/docs` misses the mock record.
 - `make check` passed, including all 312 web tests. `make gen` in a temporary checkout reproduced both generated directories. Both findings were reproduced with GraphQL against the in-memory mock resolvers. `git diff --check main...HEAD` flags trailing whitespace in the generated web schema.
 - Review assumes one frontend developer using the in-memory mock. `make test-int` was outside this review because the branch changes no proxy, store or raw HTTP code.
+
+### Recheck after escalation fixes
+
+Reviewed `fa48f63` against `main`. T-098 defines the Replay and Environments GraphQL contracts and gives frontend developers server stubs and an in-memory mock. The regression tests for non-string `Bytes` and absolute-form targets both pass.
+
+- Verdict: changes_requested
+- [ ] [major] `web/src/lib/api/mocks/replay.ts:136` — A send with a UTF-8 target of `/café?q=東京` stores garbled path and query text. A History search for `café` returns zero rows even though the request head contains the correct bytes. Decode the extracted target as UTF-8 before assigning the metadata, preserve the original head bytes, and test both the record and a History query.
+- [ ] [minor] `web/src/lib/api/mocks/replay.ts:120` — Creating a session with the draft `hello world` names it `hello world`. The schema specifies `Untitled` when the draft has no request line. Check for an HTTP request line before deriving the name and test the fallback while preserving the draft.
+- [ ] [minor] `internal/api/graphql/schema/replay.graphqls:27` — The generated web SDL and GraphQL introspection omit the source comments that define the shared name and byte limits. A frontend developer reading the generated schema sees a reference to missing name rules and cannot find the 16 MiB limit for an editor draft. Put the rules in schema descriptions and regenerate both outputs.
+- `make check` passed, including all 314 web tests. `make gen` reproduced both generated directories in a temporary checkout. GraphQL spot checks reproduced both mock findings. The branch diff has trailing whitespace in the generated web SDL.
+- Review assumes one frontend developer using the in-memory exchange. `make test-int` was skipped because the branch changes no proxy, store or raw HTTP code. The task remains with the lead under the escalation in the third review.
