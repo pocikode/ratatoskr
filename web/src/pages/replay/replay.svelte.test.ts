@@ -63,6 +63,18 @@ describe('ReplayState.move', () => {
   });
 });
 
+describe('ReplayState.move overlap', () => {
+  it('ignores a second move while one is in flight, so a rollback never restores a failed move', async () => {
+    const tree = [col('a', '1', '2'), col('b')];
+    const { client, calls } = fake(tree, { fail: true, failQuery: true });
+    const st = new ReplayState(client, 'p');
+    st.collections = tree;
+    await Promise.all([st.move('1', 'b', 0), st.move('2', 'b', 0)]);
+    expect(calls).toHaveLength(1);
+    expect(st.collections).toBe(tree);
+  });
+});
+
 describe('ReplayState.createFromUrl', () => {
   it('sends a non-Latin-1 path as UTF-8 bytes', async () => {
     const { client, calls } = fake([col('a')]);

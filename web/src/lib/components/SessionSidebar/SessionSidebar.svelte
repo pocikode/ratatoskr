@@ -94,6 +94,7 @@
     if (!to) return false;
     const [dest, index] = to as [SidebarGroup | undefined, number];
     if (dest && index >= 0 && (dest !== g || index < g.items.length)) {
+      collapsed[dest.id] = false; // keep the destination mounted so focus can return to the row
       onmove(id, dest.id, Math.min(index, dest.items.filter((x) => x.id !== id).length));
       // The row may be re-mounted in another group: put focus back once the tree has updated.
       void tick().then(() =>

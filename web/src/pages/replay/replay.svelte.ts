@@ -222,7 +222,19 @@ export class ReplayState {
    * `index` counts the *visible* (search-filtered) sessions of the target without the moved one; it is
    * translated to a position among all of them so hidden sessions keep their order.
    */
+  #moving = false;
+
   async move(id: string, collectionId: string, visibleIndex: number): Promise<void> {
+    if (this.#moving) return; // one move at a time so a rollback never restores another failed move
+    this.#moving = true;
+    try {
+      await this.#move(id, collectionId, visibleIndex);
+    } finally {
+      this.#moving = false;
+    }
+  }
+
+  async #move(id: string, collectionId: string, visibleIndex: number): Promise<void> {
     const visible = this.filtered.find((c) => c.id === collectionId)?.sessions ?? [];
     const before = visible.filter((s) => s.id !== id)[visibleIndex];
     const all = (this.collections.find((c) => c.id === collectionId)?.sessions ?? []).filter(
@@ -245,8 +257,10 @@ export class ReplayState {
 }
 
 function matches(s: Session, q: string): boolean {
+  // Only the request line is needed: decode a 1 KiB prefix (768 bytes, multiple of 4 base64 chars) not the whole draft.
+  const head = atob(s.draft.slice(0, 1024));
   const first =
-    decodeLossy(Uint8Array.from(atob(s.draft), (c) => c.charCodeAt(0))).split(/\r?\n/, 1)[0] ?? '';
+    decodeLossy(Uint8Array.from(head, (c) => c.charCodeAt(0))).split(/\r?\n/, 1)[0] ?? '';
   const path = first.split(' ')[1] ?? '';
   return [s.name, s.connection.host, path].some((v) => v.toLowerCase().includes(q));
 }
