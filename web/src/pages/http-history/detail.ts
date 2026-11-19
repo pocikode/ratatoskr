@@ -12,6 +12,10 @@ export interface HistoryDetail {
   response: string | null;
   requestTruncated: boolean;
   responseTruncated: boolean;
+  /** The original of this record (`null` for an original). F-HIST-4. */
+  editedFromId: string | null;
+  /** The edited copy of this record (`null` for an edited record). F-HIST-4. */
+  editedById: string | null;
 }
 
 const decoder = new TextDecoder();
@@ -44,5 +48,7 @@ export function buildDetail(message: HistoryMessageFragment): HistoryDetail {
     response: response ? decodeBytes(response.head) + decodeBytes(response.body) : null,
     requestTruncated: requestTruncated(message.bodyLength, message.body),
     responseTruncated: response ? requestTruncated(response.bodyLength, response.body) : false,
+    editedFromId: message.editedFrom?.id ?? null,
+    editedById: message.editedBy?.id ?? null,
   };
 }

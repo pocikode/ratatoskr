@@ -104,6 +104,20 @@ describe('TrafficTable', () => {
     expect(within(grid).getAllByRole('row')).toHaveLength(windowSize);
   });
 
+  it('shows a cell hint as its tooltip and accessible name', () => {
+    const hinted: TrafficColumn<Row>[] = columns.map((column) =>
+      column.id === 'method'
+        ? { ...column, hint: (row) => (row.method === 'GET' ? 'Sent without a body' : null) }
+        : column,
+    );
+    setup({ rows: makeRows(2), columns: hinted });
+
+    const cells = screen.getAllByRole('gridcell', { name: 'Sent without a body' });
+    expect(cells).toHaveLength(1); // the GET row only; the POST row's hint is null
+    expect(cells[0]).toHaveAttribute('title', 'Sent without a body');
+    expect(screen.getAllByRole('gridcell', { name: 'POST' })[0]).not.toHaveAttribute('title');
+  });
+
   it('reports sorting through the callback and marks the header', async () => {
     const user = userEvent.setup();
     const onsortchange = vi.fn<(sort: SortState | null) => void>();

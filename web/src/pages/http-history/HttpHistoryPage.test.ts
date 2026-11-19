@@ -158,4 +158,89 @@ describe('HttpHistoryPage', () => {
     expect(screen.getByRole('menuitem', { name: 'Add host to scope' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Exclude host from scope' })).toBeInTheDocument();
   });
+
+  it('switches both panes between the original and the edited record of a pair', async () => {
+    const user = userEvent.setup();
+    render(HttpHistoryPage, { client: createMockClient({ count: 30, liveIntervalMs: 0 }) });
+    await screen.findByText('30 rows');
+    const grid = within(screen.getByRole('grid', { name: 'HTTP History' }));
+
+    // 24/25 is the seeded pair (mocks/history.ts); 25 is the edited copy.
+    await user.click(grid.getByRole('gridcell', { name: '25' }));
+    const request = await screen.findByRole('region', { name: 'Request' });
+    await waitFor(() => expect(request).toHaveTextContent('X-Edited: 1'));
+
+    const group = within(request).getByRole('group', { name: 'Original or modified' });
+    const original = within(group).getByRole('button', { name: 'Original' });
+    const modified = within(group).getByRole('button', { name: 'Modified' });
+    expect(modified).toHaveAttribute('aria-pressed', 'true');
+    expect(original).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(original);
+    await waitFor(() => expect(request).not.toHaveTextContent('X-Edited: 1'));
+    expect(original).toHaveAttribute('aria-pressed', 'true');
+    expect(modified).toHaveAttribute('aria-pressed', 'false');
+    const response = within(screen.getByRole('region', { name: 'Response' }));
+    expect(response.getByRole('link', { name: 'Open in browser' })).toHaveAttribute(
+      'href',
+      '/api/rest/preview/24',
+    );
+
+    // The other row of the pair starts on its own side and switches to the edited copy.
+    await user.click(grid.getByRole('gridcell', { name: '24' }));
+    await waitFor(() => expect(request).not.toHaveTextContent('X-Edited: 1'));
+    expect(original).toHaveAttribute('aria-pressed', 'true');
+    await user.click(modified);
+    await waitFor(() => expect(request).toHaveTextContent('X-Edited: 1'));
+  });
+
+  it('starts a reselected row on its own record after switching elsewhere', async () => {
+    const user = userEvent.setup();
+    render(HttpHistoryPage, { client: createMockClient({ count: 30, liveIntervalMs: 0 }) });
+    await screen.findByText('30 rows');
+    const grid = within(screen.getByRole('grid', { name: 'HTTP History' }));
+
+    await user.click(grid.getByRole('gridcell', { name: '24' }));
+    const request = await screen.findByRole('region', { name: 'Request' });
+    await waitFor(() => expect(request).not.toHaveTextContent('X-Edited: 1'));
+    await user.click(within(request).getByRole('button', { name: 'Modified' }));
+    await waitFor(() => expect(request).toHaveTextContent('X-Edited: 1'));
+
+    await user.click(grid.getByRole('gridcell', { name: '3' }));
+    await user.click(grid.getByRole('gridcell', { name: '24' }));
+
+    await waitFor(() =>
+      expect(within(request).getByRole('button', { name: 'Original' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    );
+    expect(within(request).getByRole('button', { name: 'Modified' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(request).not.toHaveTextContent('X-Edited: 1');
+  });
+
+  it('operates the viewed record from the keyboard and hides it for unedited rows', async () => {
+    const user = userEvent.setup();
+    render(HttpHistoryPage, { client: createMockClient({ count: 30, liveIntervalMs: 0 }) });
+    await screen.findByText('30 rows');
+    const grid = within(screen.getByRole('grid', { name: 'HTTP History' }));
+
+    await user.click(grid.getByRole('gridcell', { name: '25' }));
+    const request = await screen.findByRole('region', { name: 'Request' });
+    await waitFor(() => expect(request).toHaveTextContent('X-Edited: 1'));
+
+    within(request).getByRole('button', { name: 'Original' }).focus();
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(request).not.toHaveTextContent('X-Edited: 1'));
+
+    await user.click(grid.getByRole('gridcell', { name: '30' }));
+    await waitFor(() =>
+      expect(
+        within(request).queryByRole('group', { name: 'Original or modified' }),
+      ).not.toBeInTheDocument(),
+    );
+  });
 });

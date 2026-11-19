@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Client } from '@urql/core';
-  import { HistoryCompletionsDocument } from '$lib/api/generated/graphql';
+  import { HistoryCompletionsDocument, HistoryRequestDocument } from '$lib/api/generated/graphql';
   import { getApi } from '$lib/api/client';
   import { untrack } from 'svelte';
   import { registry } from '$lib/commands';
@@ -13,6 +13,7 @@
   import TrafficTable from '$lib/components/TrafficTable/TrafficTable.svelte';
   import { COLORS, historyColumns, rowColor, type HistoryRow } from './columns';
   import { historyCommands } from './commands';
+  import { buildDetail, type HistoryDetail } from './detail';
   import { HistoryState } from './history.svelte';
   import NoteDialog from './NoteDialog.svelte';
   import RowContextMenu from './RowContextMenu.svelte';
@@ -53,12 +54,49 @@
   let menu = $state<{ x: number; y: number; items: { id: string; title: string }[] } | null>(null);
   let noteRow = $state<HistoryRow | null>(null);
 
-  const requestTitle = $derived(
-    history.detail?.requestTruncated ? 'Request · first 4 MiB' : 'Request',
+  // F-HIST-4: an edited pair, and which half the panes show. Starts on the clicked row.
+  const SIDES = [
+    { id: 'original', label: 'Original' },
+    { id: 'modified', label: 'Modified' },
+  ] as const;
+  /** The record the user switched to, but only for the row it was clicked in. */
+  let chosen = $state<{ from: string; id: string } | null>(null);
+  let sibling = $state.raw<HistoryDetail | null>(null);
+  let siblingToken = 0;
+
+  const pair = $derived.by(() => {
+    const detail = history.detail;
+    if (!detail || (!detail.editedFromId && !detail.editedById)) return null;
+    return {
+      original: detail.editedFromId ?? detail.id,
+      modified: detail.editedById ?? detail.id,
+    };
+  });
+  const shown = $derived(
+    history.detail && chosen?.from === history.detail.id && sibling?.id === chosen.id
+      ? sibling
+      : history.detail,
   );
-  const responseTitle = $derived(
-    history.detail?.responseTruncated ? 'Response · first 4 MiB' : 'Response',
-  );
+
+  async function showRecord(id: string): Promise<void> {
+    const from = history.detail?.id;
+    if (!from || id === from) return;
+    const token = ++siblingToken;
+    const result = await history.client
+      .query(HistoryRequestDocument, { id }, { requestPolicy: 'network-only' })
+      .toPromise();
+    if (token !== siblingToken) return;
+    const message = result.data?.request;
+    if (result.error || !message) {
+      history.message = result.error?.message ?? `Request ${id} not found`;
+      return;
+    }
+    sibling = buildDetail(message);
+    chosen = { from, id }; // only once the bytes are here, so the switch never lies
+  }
+
+  const requestTitle = $derived(shown?.requestTruncated ? 'Request · first 4 MiB' : 'Request');
+  const responseTitle = $derived(shown?.responseTruncated ? 'Response · first 4 MiB' : 'Response');
 
   $effect(() => {
     let stop = () => {};
@@ -98,6 +136,15 @@
   // The viewers follow the row last clicked or moved to (Selection.anchor).
   $effect(() => {
     void history.showDetail(history.selection.anchor);
+  });
+
+  // A switch belongs to the row it was made in: a new selection starts on the record it shows,
+  // and an in-flight sibling fetch for the previous row is dropped.
+  $effect(() => {
+    void history.selection.anchor;
+    chosen = null;
+    sibling = null;
+    siblingToken++;
   });
 
   async function complete(text: string, cursor: number) {
@@ -230,12 +277,36 @@
         {#snippet second()}
           <SplitPane direction="horizontal" label="Resize request and response">
             {#snippet first()}
-              {#if history.detail}
+              {#if shown}
                 <MessageViewer
-                  raw={history.detail.request}
+                  raw={shown.request}
                   title={requestTitle}
                   modes={['raw', 'pretty', 'hex', 'table']}
-                />
+                >
+                  {#snippet toolbar()}
+                    {#if pair}
+                      <div
+                        role="group"
+                        aria-label="Original or modified"
+                        class="flex items-center gap-0.5 rounded-token border border-line p-0.5"
+                      >
+                        {#each SIDES as option (option.id)}
+                          <button
+                            type="button"
+                            aria-pressed={shown?.id === pair[option.id]}
+                            class="rounded-token px-1.5 py-0.5 text-xs {shown?.id ===
+                            pair[option.id]
+                              ? 'bg-accent-soft text-accent'
+                              : 'text-muted'} hover:bg-hover"
+                            onclick={() => void showRecord(pair[option.id])}
+                          >
+                            {option.label}
+                          </button>
+                        {/each}
+                      </div>
+                    {/if}
+                  {/snippet}
+                </MessageViewer>
               {:else}
                 <p class="flex h-full items-center justify-center border border-line text-muted">
                   {history.detailLoading ? 'Loading…' : 'Select a request to view it.'}
@@ -243,17 +314,15 @@
               {/if}
             {/snippet}
             {#snippet second()}
-              {#if history.detail?.response}
+              {#if shown?.response}
                 <MessageViewer
-                  raw={history.detail.response}
+                  raw={shown.response}
                   title={responseTitle}
-                  previewUrl={`/api/rest/preview/${history.detail.id}`}
+                  previewUrl={`/api/rest/preview/${shown.id}`}
                 />
               {:else}
                 <p class="flex h-full items-center justify-center border border-line text-muted">
-                  {history.detail
-                    ? 'No response for this request.'
-                    : 'Select a request to view it.'}
+                  {shown ? 'No response for this request.' : 'Select a request to view it.'}
                 </p>
               {/if}
             {/snippet}

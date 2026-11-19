@@ -134,7 +134,19 @@ export const historyColumns: readonly TrafficColumn<HistoryRow>[] = [
   { id: 'source', title: 'Source', width: 84, value: (row) => row.source.toLowerCase() },
   { id: 'color', title: 'Colour', width: 72, value: (row) => colorLabel(row.color) },
   { id: 'note', title: 'Note', width: 140, value: (row) => row.note ?? '' },
-  { id: 'edited', title: 'Edited', width: 60, value: (row) => (row.editedFrom ? '✎' : '') },
+  {
+    id: 'edited',
+    title: 'Edited',
+    width: 60,
+    // F-HIST-4: both records of a pair carry the marker; the hint says which half it is.
+    value: (row) => ((row.editedFrom ?? row.editedBy) ? '✎' : ''),
+    hint: (row) =>
+      row.editedFrom
+        ? 'Edited copy of an original request'
+        : row.editedBy
+          ? 'Original request with an edited copy'
+          : null,
+  },
 ];
 
 /** `https://host[:port]/path?query`, with the port only when it is not the scheme default. */

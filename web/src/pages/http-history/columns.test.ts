@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   colorLabel,
+  compareRows,
+  historyColumns,
   insertRow,
   requestCurl,
   requestUrl,
@@ -26,6 +28,7 @@ function row(id: number, overrides: Partial<HistoryRow> = {}): HistoryRow {
     isDropped: false,
     isTruncated: false,
     editedFrom: null,
+    editedBy: null,
     response: { code: 200, length: '80', roundtripMs: 12, createdAt: '2026-11-18T09:00:00Z' },
     ...overrides,
   };
@@ -79,5 +82,29 @@ describe('row presenters', () => {
   it('quotes shell metacharacters in method and path', () => {
     const curl = requestCurl(row(1, { method: 'A|B', path: "/x'$(id)'" }));
     expect(curl).toBe("curl -X 'A|B' 'https://api.example.com/x'\\''$(id)'\\'''");
+  });
+});
+
+describe('edited marker (F-HIST-4)', () => {
+  const column = historyColumns.find((c) => c.id === 'edited')!;
+  const original = row(1, { editedBy: { id: '2' } });
+  const edited = row(2, { editedFrom: { id: '1' } });
+
+  it('marks both records of a pair and says which half it is', () => {
+    expect(column.value(original)).toBe('✎');
+    expect(column.value(edited)).toBe('✎');
+    expect(column.hint!(original)).toBe('Original request with an edited copy');
+    expect(column.hint!(edited)).toBe('Edited copy of an original request');
+  });
+
+  it('leaves unedited rows unmarked', () => {
+    expect(column.value(row(3))).toBe('');
+    expect(column.hint!(row(3))).toBeNull();
+  });
+
+  it('sorts on editedFrom only', () => {
+    const ascending = compareRows({ field: 'EDITED', direction: 'ASC' });
+    expect(ascending(original, edited)).toBeLessThan(0);
+    expect(ascending(edited, original)).toBeGreaterThan(0);
   });
 });
