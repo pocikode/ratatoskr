@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -79,6 +79,8 @@ without changing the streaming path for traffic that neither feature touches.
 - Lead: add to F-INT-1 the operator's decision (2026-11-19, T-105 review): a 1xx `dropStatusCode` is sent as that
   interim head followed by our own 502 drop page, then the connection closes. A 101 drop status will look like a
   protocol switch to an upgrading client; the lead may want to narrow the range to exclude 101.
+- Lead: add to F-MR-1 the operator's decision (2026-11-19, T-105 review round 2): when the request of an exchange is over
+  the capture cap, no response rule runs on that exchange (logged at info); its response may still be held.
 
 ## Handoff (implementer)
 - What changed:
@@ -105,6 +107,7 @@ without changing the streaming path for traffic that neither feature touches.
   watch loop, the head-only rebuild or the HEAD close each fails its new test. `make check` green; `make test-int`
   green except the known `TestLoadNoLeakAndLatency` p99 flake under `-p=2` (5.56 ms); `./internal/proxy` integration
   passed 3/3 alone. Bench after the fixes: 1.12 ms/op, 73.8 KB, 107 allocs (unchanged).
+- Review round 2: 3 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Known limitations:
   - The edited record of a request edit stores the bytes the origin received (origin-form target); a response-only
     edit keeps the client's request bytes in both records (F-HIST-4).
@@ -139,8 +142,11 @@ Verification: `make check` and the cached `make test-int` passed. Fresh proxy an
 ### Round 2
 
 - Verdict: changes_requested
-- [ ] [major] internal/proxy/hooks.go:578 — An edited response with a valid head and an incomplete body can leave the client connection reusable. With automatic length updates off, shortening a held response body while preserving its declared length leaves the client waiting for bytes the proxy has already finished sending. Check the delivered message boundary before allowing reuse and close on a mismatch. Preserve the forwarded bytes.
+- [x] [major] internal/proxy/hooks.go:578 — An edited response with a valid head and an incomplete body can leave the client connection reusable. With automatic length updates off, shortening a held response body while preserving its declared length leaves the client waiting for bytes the proxy has already finished sending. Check the delivered message boundary before allowing reuse and close on a mismatch. Preserve the forwarded bytes.
+  - Fixed: `parseResponse` also reads the body and reports `whole` (bytes end exactly at the framed end); a changed response that is not whole is sent as given and the client connection closes. Test `TestInterceptEditedResponseBadLengthClosesClient` (short / long), mutation-checked.
 - [ ] [major] internal/proxy/hooks.go:419 — When a streamed upload exceeds the capture cap and its response fits, both response rule paths receive the captured request prefix as if it were the whole upstream request. A rule testing the full request body can therefore produce the wrong result. Carry the truncation state into the response-rule decision and settle the bounded-input behavior with the lead. Add a mixed-size integration case. The existing over-cap test puts both bodies over the cap.
+  - Fixed after asking the operator (2026-11-19: skip): when the request was cut at the capture cap (`req.Truncated()`), no response rule (`proxy` or `intercept`) runs, logged at info; the response can still be held. Spec note requested under Out-of-scope. Test `TestOverCapRequestSkipsResponseRules` (request over, response fits), mutation-checked.
 - [ ] [minor] internal/proxy/hooks.go:507 — Response Intercept rebuilds and caches a copy of the upstream request even when Match & Replace is disabled. At the existing 200-client test workload, 8 MiB uploads with small held responses would produce roughly 1.6 GiB of extra cached request copies. Build those bytes only for an active response rule and reuse the captured request bytes for the unedited hold view.
+  - Fixed: `rewrite` takes the request as a func, called only after `Active` says a rule runs; the hold view uses `req.Raw()`, or `x.upRaw` already built by a request edit.
 
 Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git diff --check main...HEAD` passed. This round used the existing 200-client load test and did not repeat the nil-hook benchmark comparison recorded above.
