@@ -78,7 +78,7 @@ Replay (T-107) reads variables from the same store.
   once during review and did not recur on two full `make check` runs — looks flaky.
 
 ## Review (reviewer)
-- Verdict: changes_requested
+- Verdict: approve (round 2; round 1 was changes_requested)
 - Checks: diff is inside `paths` (generated files are codegen output). Web `check` (svelte-check, eslint, prettier) and
   `bun run test` (339 tests) are green. `make check` failed once in `go test -race ./...`:
   `--- FAIL: TestUpstreamErrorIs502AndRecorded` (`internal/proxy/proxy_test.go:175`, entries = [...] with `Resp:<nil>`).
@@ -106,3 +106,14 @@ Replay (T-107) reads variables from the same store.
 - [x] Missing tests for the two majors (rename form after switching environment; reveal after removing a row). → added, and both were checked to fail without the fix.
 - AC coverage otherwise OK: Global pinned and without actions, grid saved together, status bar select/none, store `variables` override.
 - `make check` re-run on the branch: green (the `internal/proxy` flake did not recur).
+
+### Round 2
+- Checks: diff stays inside `paths` (plus codegen output). `make check` green on re-run (Go, svelte-check, eslint, prettier,
+  345 web tests). The `internal/proxy` flake did not recur.
+- All round-1 findings verified in code: rename form tied to `renamingId === active.id`; grid resets only on `active.id`
+  change; `removeRow` clears `revealed`; two-step delete; status-bar alert on a failed switch; single `store.start()` owner;
+  stricter `BAD_INPUT` row parse; `#request` counter in `refresh`.
+- Findings:
+- [ ] [nit] web/src/lib/stores/environment.svelte.ts:24 + StatusBar.svelte:22 — `error` is one shared field. A failed switch in the status bar also shows in the Environment page footer, and a failed save shows until the next successful refetch. → harmless now; scope the error per caller if it confuses users.
+- [ ] [nit] web/src/lib/components/StatusBar.svelte:22 — the alert stays until the next switch; it is not cleared on project reset. → clear on `projects.onReset` if wanted.
+- No blocker or major remain. AC coverage OK. The `extensions` question for `BAD_INPUT` stays with the lead.
