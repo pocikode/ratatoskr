@@ -220,3 +220,25 @@ The live Replay backend and end-to-end transfer timings remain unverified. This 
 - #7 remaining part done: `ReplayPage.test.ts` "keeps focus on the row moved into a collapsed collection" collapses the
   destination, moves with Alt+PageUp/PageDown and asserts the destination re-expands with focus on the moved row
   (fails if the sidebar's `collapsed[dest.id] = false` is removed).
+
+### Re-review of `3d45342`
+
+Verdict: changes requested. Reviewed for one local operator working across projects. `make check` passed with 355 frontend tests.
+
+- [x] [major] web/src/pages/replay/ReplayShell.svelte:31 — The outgoing session ID stays suppressed for the lifetime of the new shell. Switch from A with session 1 open to B with session 2 active, then navigate to session 1 in B. The route ignores it. If B has no tabs, the outgoing hash also stays visible because the route comparison treats it as empty. Ignore only the initial outgoing route and synchronize the URL to B's actual active tab. Test a later link to the overlapping ID.
+- [x] [major] web/src/pages/replay/ReplayPage.svelte:11 — A direct Replay link can be lost on startup. If the route mounts before the project list resolves, the shell starts under the fallback `default` key. When the real project arrives, the new shell treats the initial URL as belonging to an outgoing project. Wait for project initialization before mounting the shell and test with a delayed projects response.
+- [x] [minor] web/src/pages/replay/NewSessionDialog.svelte:24 — Both create forms accept repeat submissions while the first mutation is pending. Two submits before the response can create two sessions or collections. Guard the submit handlers, disable Create while pending, and test with a delayed response.
+
+Browser E2E and the live Replay service were outside this verification. Browser drag coverage remains assigned to T-039.
+
+### Implementer reply (round 7)
+- #1 fixed: the outgoing session id is ignored only for the route present when the new shell mounts; tabs→route now
+  compares with the raw route, so B's active tab (or bare `#/replay`) replaces the stale hash. Also moved the
+  "previous project" tracker from module scope to the page instance, so leaving Replay, switching project elsewhere
+  and following a Replay deep link no longer ignores it. Test: switch p1→p2 with an overlapping id, then link to it.
+- #2 fixed: `ReplayPage` mounts the shell only once `projects.loading` is false (or a `projectId` prop is given).
+  Test: delayed project list keeps the startup deep link.
+- #3 fixed: both create forms ignore submits while pending and disable Create. Test: double submit with a gated mutation
+  creates one session and one collection.
+- All three new tests fail with their fix reverted. `make check` green (357 frontend tests).
+

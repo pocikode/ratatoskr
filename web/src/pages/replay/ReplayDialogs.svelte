@@ -6,6 +6,7 @@
   let { replay }: { replay: ReplayState } = $props();
 
   let name = $state('');
+  let creating = $state(false);
   const pending = $derived(replay.pendingDelete);
   const doomed = $derived(
     pending?.kind === 'session'
@@ -30,9 +31,15 @@
         class="flex flex-col gap-3"
         onsubmit={async (e) => {
           e.preventDefault();
-          if (await replay.createCollection(name)) {
-            name = '';
-            replay.newCollectionOpen = false;
+          if (creating) return;
+          creating = true;
+          try {
+            if (await replay.createCollection(name)) {
+              name = '';
+              replay.newCollectionOpen = false;
+            }
+          } finally {
+            creating = false;
           }
         }}
       >
@@ -46,7 +53,9 @@
         {#if replay.error}<p role="alert" class="text-xs text-danger">{replay.error}</p>{/if}
         <div class="flex justify-end gap-2">
           <Dialog.Close type="button" class={button}>Cancel</Dialog.Close>
-          <button type="submit" class={button}>Create</button>
+          <button type="submit" disabled={creating} class="{button} disabled:opacity-50"
+            >Create</button
+          >
         </div>
       </form>
     </Dialog.Content>

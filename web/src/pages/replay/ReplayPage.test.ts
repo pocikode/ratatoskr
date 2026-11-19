@@ -1,7 +1,12 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  CreateReplayCollectionDocument,
+  CreateReplaySessionDocument,
+} from '$lib/api/generated/graphql';
 import { router } from '$lib/router/router.svelte';
+import { projects, type Project } from '$lib/stores/project.svelte';
 import { createMockClient } from '$lib/api/mocks/exchange';
 import ReplayPage from './ReplayPage.svelte';
 import { moveSession, type Collection } from './replay.svelte';
@@ -69,16 +74,45 @@ describe('ReplayPage', () => {
     expect(await screen.findByRole('tab', { name: 'POST /login' })).toBeInTheDocument();
   });
 
-  it('does not apply the previous project session route after a project switch', async () => {
-    const first = page('p1');
+  it('ignores only the outgoing project route after a project switch', async () => {
+    const r = page('p1');
     await userEvent.click(await screen.findByText('POST /login'));
     await screen.findByRole('tab', { name: 'POST /login' });
-    first.unmount();
-    document.body.innerHTML = '';
-    page('p2');
+    const loginHash = window.location.hash;
+
+    // p2 has no tabs: the outgoing session must not open and its hash must not linger.
+    await r.rerender({ projectId: 'p2' });
     await within(await tree()).findByText('POST /login');
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => expect(window.location.hash).toBe('#/replay'));
+    await waitFor(() => expect(router.location.params).toEqual([]));
     expect(screen.queryByRole('tab')).toBeNull();
+
+    // A later link to the same id in p2 is a real deep link.
+    window.location.hash = loginHash;
+    expect(await screen.findByRole('tab', { name: 'POST /login' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('keeps a startup deep link until the project list has loaded', async () => {
+    const prev = { list: projects.projects, loading: projects.loading };
+    projects.loading = true;
+    window.location.hash = '#/replay/session/rs3';
+    render(ReplayPage, { client: createMockClient({ count: 5, liveIntervalMs: 0 }) });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('tree')).toBeNull();
+    projects.projects = [{ id: 'p9', isSelected: true } as Project];
+    projects.loading = false;
+    try {
+      expect(await screen.findByRole('tab', { name: 'GET /api/v1/users' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    } finally {
+      projects.projects = prev.list;
+      projects.loading = prev.loading;
+    }
   });
 
   it('Escape cancels a tab rename without saving', async () => {
@@ -99,6 +133,44 @@ describe('ReplayPage', () => {
     await userEvent.type(screen.getByLabelText('Path'), '/cart');
     await userEvent.click(screen.getByRole('button', { name: 'Create' }));
     expect(await screen.findByRole('tab', { name: 'GET /cart' })).toBeInTheDocument();
+  });
+
+  it('creates one session and one collection on repeated submits', async () => {
+    const client = createMockClient({ count: 5, liveIntervalMs: 0 });
+    const real = client.mutation.bind(client);
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const created: string[] = [];
+    client.mutation = ((query, vars, ctx) => {
+      if (query === CreateReplaySessionDocument) created.push('CreateReplaySession');
+      if (query === CreateReplayCollectionDocument) created.push('CreateReplayCollection');
+      return {
+        toPromise: async () => {
+          await gate;
+          return real(query, vars, ctx).toPromise();
+        },
+      };
+    }) as typeof client.mutation;
+    render(ReplayPage, { client, projectId: 'p1' });
+    await tree();
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Session' }));
+    await userEvent.type(screen.getByLabelText('Host'), 'shop.test');
+    const create = screen.getByRole('button', { name: 'Create' });
+    create.closest('form')!.requestSubmit();
+    create.closest('form')!.requestSubmit();
+    await waitFor(() => expect(create).toBeDisabled());
+    expect(created).toEqual(['CreateReplaySession']);
+    release();
+    await screen.findByRole('tab', { name: 'GET /' });
+
+    await userEvent.click(screen.getByRole('button', { name: '+ Collection' }));
+    await userEvent.type(await screen.findByLabelText('Name'), 'Once');
+    const form = screen.getByRole('button', { name: 'Create' }).closest('form')!;
+    form.requestSubmit();
+    form.requestSubmit();
+    await within(await tree()).findByText('Once');
+    expect(created).toEqual(['CreateReplaySession', 'CreateReplayCollection']);
   });
 
   it('duplicates and deletes (with confirm) a session', async () => {

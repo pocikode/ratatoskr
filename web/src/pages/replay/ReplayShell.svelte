@@ -1,7 +1,3 @@
-<script lang="ts" module>
-  const last: { id: string | null } = { id: null };
-</script>
-
 <script lang="ts">
   import type { Client } from '@urql/core';
   import { untrack } from 'svelte';
@@ -18,17 +14,21 @@
 
   interface Props {
     projectId: string;
+    /** Project of the previous shell under the same page; tells a project switch from a fresh visit. */
+    last?: { id: string | null };
     /** GraphQL client override for tests; the shell otherwise uses the shared client. */
     client?: Client;
   }
 
-  let { projectId, client }: Props = $props();
+  let { projectId, client, last = { id: null } }: Props = $props();
 
   // A project switch remounts the shell while the old project's `#/replay/session/<id>` is still in
   // the URL; that id belongs to the other project, so it must not be applied as a deep link.
-  const switched = last.id !== null && last.id !== untrack(() => projectId);
-  last.id = untrack(() => projectId);
-  const staleHash = switched ? router.location.params[1] : undefined;
+  const shells = untrack(() => last);
+  const switched = shells.id !== null && shells.id !== untrack(() => projectId);
+  shells.id = untrack(() => projectId);
+  // Plain variable: only the route present at mount is ignored, later links to the same id apply.
+  let staleHash = switched ? router.location.params[1] : undefined;
 
   // Dev-only mock backend (T-013): `?mock=replay` or `localStorage['replay.mock'] = '1'`.
   function mockRequested(): boolean {
@@ -69,18 +69,18 @@
   $effect(() => registry.register(...replayCommands(replay)));
 
   // Route → tabs: the deep link `#/replay/session/<id>` wins over the stored active tab.
-  const linked = $derived(
+  const routed = $derived(
     router.location.page === 'replay' && router.location.params[0] === 'session'
-      ? router.location.params[1] === staleHash
-        ? undefined
-        : router.location.params[1]
+      ? router.location.params[1]
       : undefined,
   );
+  const linked = $derived(routed === staleHash ? undefined : routed);
   $effect(() => {
     if (!replay.loaded) return;
     const id = linked;
     untrack(() => {
       if (id) void replay.open(id);
+      staleHash = undefined;
       synced = true;
     });
   });
@@ -88,7 +88,7 @@
   $effect(() => {
     if (!synced || router.location.page !== 'replay') return;
     const id = replay.activeId;
-    if ((id ?? undefined) !== untrack(() => linked)) {
+    if ((id ?? undefined) !== untrack(() => routed)) {
       if (id) router.navigate('replay', 'session', id);
       else router.navigate('replay');
     }

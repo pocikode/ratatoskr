@@ -20,10 +20,17 @@
   let port = $state('');
   let path = $state('/');
   let error = $state<string | null>(null);
+  let pending = $state(false);
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
-    error = await oncreate({ tls, host, port, path });
+    if (pending) return;
+    pending = true;
+    try {
+      error = await oncreate({ tls, host, port, path });
+    } finally {
+      pending = false;
+    }
     if (!error) {
       host = port = '';
       path = '/';
@@ -78,7 +85,10 @@
             type="button"
             class="rounded-token border border-line px-2 py-1 hover:bg-hover">Cancel</Dialog.Close
           >
-          <button type="submit" class="rounded-token border border-line px-2 py-1 hover:bg-hover"
+          <button
+            type="submit"
+            disabled={pending}
+            class="rounded-token border border-line px-2 py-1 hover:bg-hover disabled:opacity-50"
             >Create</button
           >
         </div>
