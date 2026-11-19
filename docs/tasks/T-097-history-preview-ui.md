@@ -3,9 +3,9 @@ id: T-097
 title: History response Preview tab + "Open in browser" (follow-up of T-017, unblocks T-021)
 milestone: M1
 role: frontend
-status: todo
+status: in_progress
 depends_on: [T-017]
-owner: ""
+owner: Codex
 branch: task/T-097-history-preview-ui
 paths:
   - web/src/pages/http-history/**
@@ -41,6 +41,10 @@ The History response pane offers the sandboxed Preview mode and an "Open in brow
 - Remove the T-017 known-limitation wording about `/preview/{id}` that this makes obsolete.
 
 ## Plan (implementer, ≤15 lines)
+- Pass the selected request's relative preview URL to the History response viewer.
+- Reuse the sandboxed Preview pane and add a toolbar link to the same URL.
+- Cover both pane tab lists, link attributes, iframe attributes and selection changes in Vitest.
+- Update the T-017 limitation and run `make check`.
 
 ## Out-of-scope change needed (if any)
 
