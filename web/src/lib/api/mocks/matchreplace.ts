@@ -159,26 +159,40 @@ function applyRule(rule: MockRuleInput, raw: string): string {
   let body = raw.slice(cut + 4);
   const term = toBytes(rule.term);
   const { kind, value } = rule.matcher;
-  // Output cap is checked from the growth before the replaced text is built (32 bytes: Content-Length digits).
-  let budget = MAX_TEST_OUTPUT - raw.length - 32;
-  const replace = (text: string) => {
-    if (kind === 'FULL') return term;
-    if (kind !== 'STRING') return text;
-    const parts = text.split(toBytes(value));
-    budget -= (parts.length - 1) * (term.length - toBytes(value).length);
-    if (budget < 0) throw fail('BAD_INPUT', 'tester output must be at most 16 MiB');
-    return parts.join(term);
+  // Output cap is checked on the exact result size before any replaced text is built.
+  let size = raw.length;
+  const grow = (n: number) => {
+    size += n;
+    if (size > MAX_TEST_OUTPUT) throw fail('BAD_INPUT', 'tester output must be at most 16 MiB');
+  };
+  // Returns the replaced length and a builder, so growth is counted before allocating.
+  const plan = (text: string): [number, () => string] => {
+    if (kind === 'FULL') return [term.length, () => term];
+    if (kind !== 'STRING') return [text.length, () => text];
+    const v = toBytes(value);
+    const parts = text.split(v);
+    return [text.length + (parts.length - 1) * (term.length - v.length), () => parts.join(term)];
   };
   const isHeader = rule.section.endsWith('_HEADER');
-  if (isHeader && rule.operation === 'ADD') headers.push(term);
-  else if (isHeader && rule.operation === 'UPDATE_RAW')
-    headers.splice(0, Infinity, ...headers.map(replace));
-  else if (rule.section.endsWith('_BODY') && rule.operation === 'UPDATE_RAW') {
-    const next = replace(body);
+  if (isHeader && rule.operation === 'ADD') {
+    grow(term.length + 2);
+    headers.push(term);
+  } else if (isHeader && rule.operation === 'UPDATE_RAW') {
+    const plans = headers.map(plan);
+    grow(plans.reduce((n, [len], i) => n + len - headers[i]!.length, 0));
+    headers.splice(0, Infinity, ...plans.map(([, build]) => build()));
+  } else if (rule.section.endsWith('_BODY') && rule.operation === 'UPDATE_RAW') {
+    const [len, build] = plan(body);
+    grow(len - body.length);
+    const next = build();
     if (next === body) return raw;
     body = next;
     const i = headers.findIndex((h) => /^content-length:/i.test(h));
-    if (i >= 0) headers[i] = `Content-Length: ${body.length}`;
+    if (i >= 0) {
+      const cl = `Content-Length: ${body.length}`;
+      grow(cl.length - headers[i]!.length);
+      headers[i] = cl;
+    }
   } else return raw;
   return [start, ...headers].join('\r\n') + '\r\n\r\n' + body;
 }
@@ -426,10 +440,12 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
             `section ${draft.section} cannot be tested on a ${String(kind).toLowerCase()}`,
           );
         let text: string;
-        // atob also accepts unpadded input; the Go Bytes scalar (StdEncoding) does not.
-        if (String(raw).length % 4 !== 0) throw fail('BAD_INPUT', 'raw is not valid base64');
+        // Match the Go Bytes scalar (StdEncoding): CR/LF ignored, other whitespace and missing padding rejected.
+        const b64 = String(raw).replace(/[\r\n]/g, '');
+        if (b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64))
+          throw fail('BAD_INPUT', 'raw is not valid base64');
         try {
-          text = atob(String(raw));
+          text = atob(b64);
         } catch {
           throw fail('BAD_INPUT', 'raw is not valid base64');
         }

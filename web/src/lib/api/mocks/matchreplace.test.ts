@@ -300,5 +300,26 @@ describe('match & replace mock', () => {
     expect(
       code(await m(TEST, { r: { ...body, term: 'x'.repeat(300) }, k: 'RESPONSE', raw: grow })),
     ).toBe('BAD_INPUT');
+    // FULL counts too: 17 headers each replaced by a 1 MiB term.
+    const many = btoa(`HTTP/1.1 200 OK\r\n${'A: 1\r\n'.repeat(17)}\r\n`);
+    const full = {
+      ...body,
+      section: 'RESPONSE_HEADER',
+      matcher: { kind: 'FULL', value: '' },
+      term: 'x'.repeat(1024 * 1024),
+    };
+    expect(code(await m(TEST, { r: full, k: 'RESPONSE', raw: many }))).toBe('BAD_INPUT');
+    // Inclusive boundary: 19-byte head + 16383 x 1 KiB + 1005 bytes = exactly 16 MiB.
+    const exact = (pad: number) =>
+      btoa(`HTTP/1.1 200 OK\r\n\r\n${'b'.repeat(16383)}${'a'.repeat(pad)}`);
+    const kib = { ...body, term: 'x'.repeat(1024) };
+    const res = await m(TEST, { r: kib, k: 'RESPONSE', raw: exact(1005) });
+    expect(res.error).toBeUndefined();
+    const fit = res.data!.testMatchReplace;
+    expect(atob(fit.output).length).toBe(16 * 1024 * 1024);
+    expect(code(await m(TEST, { r: kib, k: 'RESPONSE', raw: exact(1006) }))).toBe('BAD_INPUT');
+    // Base64 as the Go scalar reads it: CR/LF ignored, other whitespace rejected.
+    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: `${resp}\r\n` })).error).toBeUndefined();
+    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: `${resp}    ` }))).toBe('BAD_INPUT');
   });
 });

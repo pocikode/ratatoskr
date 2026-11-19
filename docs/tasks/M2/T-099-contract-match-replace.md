@@ -204,3 +204,27 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   escaped text produced a 23,903,217-byte import request and a 29,754,518-byte tester request. Both fit the
   33,554,432-byte HTTP cap. The output expansion finding was assessed from the data flow without a large allocation.
 - Browser E2E and `make test-int` were skipped because this branch adds a contract, stubs and a mock.
+
+### Follow-up on the lead decision in `5aac666`
+
+- Verdict is `changes_requested`.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:165` — `FULL` skips the output budget.
+  A response with 17 short headers and a 1 MiB replacement header returned 17,825,845 decoded
+  bytes through GraphQL. Count the growth from `FULL` before assembling the response and test
+  that an oversized result returns `BAD_INPUT`.
+  → Fixed: `applyRule` plans each replacement (length + builder) and counts the exact growth for
+  FULL, STRING and header ADD before building; the 17 × 1 MiB FULL header case is tested.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:163` — The fixed 32-byte allowance rejects
+  valid STRING results. A response without `Content-Length` whose body replacement produces
+  exactly 16,777,216 bytes returned `BAD_INPUT`. Account for the actual framing size and test
+  the inclusive 16 MiB boundary.
+  → Fixed: no fixed allowance; the rewritten `Content-Length` header's length difference is counted
+  exactly. Test: a result of exactly 16,777,216 bytes passes, one byte more is `BAD_INPUT`.
+- [x] [minor] `web/src/lib/api/mocks/matchreplace.ts:430` — The mock rejects a padded base64
+  response with a trailing CRLF and accepts the same response with four trailing spaces.
+  The Go `Bytes` scalar accepts the CRLF and rejects the spaces. Strip CR and LF before
+  checking padding and reject other whitespace before calling `atob`.
+  → Fixed: CR/LF stripped, then the padded alphabet is required; trailing CRLF and spaces tested.
+- Verification used the generated schema with graphql-js and assumed one desktop process with
+  up to 1000 rules. `make check` passed (43 Vitest files, 353 tests). `make gen` left the tree
+  unchanged before this review note. Browser E2E and `make test-int` were skipped.
