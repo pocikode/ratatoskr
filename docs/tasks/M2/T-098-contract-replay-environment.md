@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -101,6 +101,9 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
   Review fixes: sends record the connection captured before the wait; `interpolate` works on byte strings and
   inserts values as UTF-8; Replay records use the History `slicer` (offset/limit honoured) and `extOf(path)`;
   `rawOf` reads every 4 MiB chunk. Tests cover each case in `mocks/replay.test.ts`.
+  Second review fixes: records split head/body at the first LF or CRLF blank line; `fromRequestId` copies over
+  16 MiB are `BAD_INPUT` before the body is read (documented on the input and mutation); default names decode
+  UTF-8; `Bytes` inputs must be padded standard base64 like the server scalar. Each has a test.
 - How to verify: `make gen` (no diff), `make check`, `cd web && bun run test -- src/lib/api/mocks`.
 - Known limitations: the replay mock skips Match & Replace, Content-Length update and redirects, and checks only the
   request line (marked `shortcut:`). The generated models keep the lazy fields (e.g. `ReplayEntry.Request`) as plain
@@ -119,8 +122,8 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 ### Second review
 
 - Reviewed `ed052f8`. The four findings above are resolved.
-- [ ] [major] `web/src/lib/api/mocks/replay.ts:127` — Sending an LF-only request with a body puts the body in `head` and returns an empty `body`. The raw HTTP parser accepts bare LF, and the contract puts every byte after the blank line in the body. Find the first blank line with either LF or CRLF, preserve its original bytes, and test the two fields.
-- [ ] [major] `web/src/lib/api/mocks/replay.ts:353` — Copying a History request bypasses the 16 MiB draft limit. A mock send expanded to a 17 MiB body can be copied successfully, then the resulting draft is rejected when saved or sent. Check the combined head and body size before reading body chunks, return `BAD_INPUT`, and document the limit for `fromRequestId`.
-- [ ] [minor] `web/src/lib/api/mocks/replay.ts:118` — A UTF-8 request target of `/café` produces the default name `GET /cafÃ©`. Decode the extracted name as UTF-8 before truncating it. Test the name and confirm that the original draft bytes still round-trip.
-- [ ] [minor] `web/src/lib/api/mocks/replay.ts:108` — The mock accepts unpadded `YQ` and returns it as a draft. The server's `Bytes` scalar requires standard padded base64. Match the scalar's input rules in the mock and emit padded base64 in returned drafts.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:127` — Sending an LF-only request with a body puts the body in `head` and returns an empty `body`. The raw HTTP parser accepts bare LF, and the contract puts every byte after the blank line in the body. Find the first blank line with either LF or CRLF, preserve its original bytes, and test the two fields.
+- [x] [major] `web/src/lib/api/mocks/replay.ts:353` — Copying a History request bypasses the 16 MiB draft limit. A mock send expanded to a 17 MiB body can be copied successfully, then the resulting draft is rejected when saved or sent. Check the combined head and body size before reading body chunks, return `BAD_INPUT`, and document the limit for `fromRequestId`.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:118` — A UTF-8 request target of `/café` produces the default name `GET /cafÃ©`. Decode the extracted name as UTF-8 before truncating it. Test the name and confirm that the original draft bytes still round-trip.
+- [x] [minor] `web/src/lib/api/mocks/replay.ts:108` — The mock accepts unpadded `YQ` and returns it as a draft. The server's `Bytes` scalar requires standard padded base64. Match the scalar's input rules in the mock and emit padded base64 in returned drafts.
 - `make check` passed, including 306 web tests. `make gen` reproduced both generated directories in a temporary checkout. GraphQL spot checks confirmed all four new findings. `git diff --check main...HEAD` flagged trailing whitespace emitted by the web schema generator. Review assumes one frontend developer using the in-memory mock.

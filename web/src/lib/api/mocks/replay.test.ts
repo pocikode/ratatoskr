@@ -187,6 +187,52 @@ describe('replay mock', () => {
     expect(seeded.data!.replaySession.entries.edges[0].node.request.ext).toBe('');
   });
 
+  it('splits an LF-only request at its blank line', async () => {
+    const { m } = run(client());
+    const raw = 'POST /lf HTTP/1.1\nHost: example.test\n\nbody\n';
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { request { head body } } }`,
+      { c: CONN, raw: btoa(raw) },
+    );
+    const r = res.data!.sendReplaySession.request;
+    expect(atob(r.head)).toBe('POST /lf HTTP/1.1\nHost: example.test\n\n');
+    expect(atob(r.body)).toBe('body\n');
+  });
+
+  it('rejects copying a history request larger than 16 MiB', async () => {
+    const { m } = run(client());
+    await m(
+      `mutation ($v: [EnvironmentVariableInput!]!) { setEnvironmentVariables(id: "env1", variables: $v) { id } }`,
+      {
+        v: [{ name: 'big', value: 'a'.repeat(1_000_000), secret: false }],
+      },
+    );
+    const raw = 'POST /big HTTP/1.1\r\nHost: example.test\r\n\r\n' + '{{big}}'.repeat(17);
+    const sent = await m(
+      `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { sendReplaySession(id: "rs9", input: { raw: $raw, connection: $c }) { request { id } } }`,
+      { c: CONN, raw: btoa(raw) },
+    );
+    const copy = await m(
+      `mutation ($id: ID!) { createReplaySession(input: { fromRequestId: $id }) { id } }`,
+      { id: sent.data!.sendReplaySession.request.id },
+    );
+    expect(code(copy)).toBe('BAD_INPUT');
+  }, 30_000); // builds a 17 MB record; slow under a parallel full suite
+
+  it('decodes UTF-8 default names and keeps the draft bytes', async () => {
+    const { m } = run(client());
+    const raw = btoa(
+      String.fromCharCode(
+        ...new TextEncoder().encode('GET /café HTTP/1.1\r\nHost: example.test\r\n\r\n'),
+      ),
+    );
+    const res = await m(
+      `mutation ($c: ReplayConnectionInput, $raw: Bytes) { createReplaySession(input: { connection: $c, raw: $raw }) { name draft } }`,
+      { c: CONN, raw },
+    );
+    expect(res.data!.createReplaySession).toEqual({ name: 'GET /café', draft: raw });
+  });
+
   it('reports BAD_INPUT, CONFLICT and NOT_FOUND', async () => {
     const { m } = run(client());
     const create = (input: string, v = {}) =>
@@ -220,6 +266,9 @@ describe('replay mock', () => {
       ),
     ).toBe('BAD_INPUT');
     expect(code(await create(`{ fromRequestId: "999" }`))).toBe('NOT_FOUND');
+    expect(code(await create(`{ connection: $c, raw: $raw }`, { c: CONN, raw: 'YQ' }))).toBe(
+      'BAD_INPUT',
+    );
     expect(
       code(
         await m(

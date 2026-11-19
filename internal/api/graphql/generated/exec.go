@@ -3225,7 +3225,8 @@ input CreateReplaySessionInput {
   collectionId: ID
   """
   History request to copy: its stored request bytes and connection. ` + "`" + `NOT_FOUND` + "`" + `
-  when unknown; ` + "`" + `BAD_INPUT` + "`" + ` when its stored request was truncated.
+  when unknown; ` + "`" + `BAD_INPUT` + "`" + ` when its stored request was truncated or is larger
+  than 16 MiB (checked before the body is read).
   """
   fromRequestId: ID
   "Connection for a session from scratch."
@@ -3298,7 +3299,7 @@ extend type Mutation {
   Errors:
   - ` + "`" + `BAD_INPUT` + "`" + `: both or neither of ` + "`" + `fromRequestId` + "`" + ` and ` + "`" + `connection` + "`" + `+` + "`" + `raw` + "`" + `;
     only one of ` + "`" + `connection` + "`" + ` and ` + "`" + `raw` + "`" + `; an invalid connection, name or ` + "`" + `raw` + "`" + `;
-    the history request was truncated.
+    the history request was truncated or is larger than 16 MiB.
   - ` + "`" + `NOT_FOUND` + "`" + `: unknown ` + "`" + `collectionId` + "`" + ` or ` + "`" + `fromRequestId` + "`" + `.
   """
   createReplaySession(input: CreateReplaySessionInput!): ReplaySession!

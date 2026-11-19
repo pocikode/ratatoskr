@@ -38,7 +38,8 @@ type CreateReplaySessionInput struct {
 	// Collection to add the session to, placed last; null for the Default collection.
 	CollectionID *string `json:"collectionId,omitempty"`
 	// History request to copy: its stored request bytes and connection. `NOT_FOUND`
-	// when unknown; `BAD_INPUT` when its stored request was truncated.
+	// when unknown; `BAD_INPUT` when its stored request was truncated or is larger
+	// than 16 MiB (checked before the body is read).
 	FromRequestID *string `json:"fromRequestId,omitempty"`
 	// Connection for a session from scratch.
 	Connection *ReplayConnectionInput `json:"connection,omitempty"`

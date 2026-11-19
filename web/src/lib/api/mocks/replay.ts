@@ -103,20 +103,20 @@ function mergeOptions(cur: Options, p: Partial<Options> | null | undefined): Opt
 }
 
 function checkBytes(b64: unknown): string {
-  let text: string;
-  try {
-    text = atob(String(b64));
-  } catch {
+  const s = String(b64);
+  // Same input rules as the server's Bytes scalar: standard base64 with padding.
+  if (s.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s))
     throw fail('BAD_INPUT', 'not valid base64');
-  }
-  if (text.length > MAX_BYTES) throw fail('BAD_INPUT', 'request is larger than 16 MiB');
-  return String(b64);
+  if (atob(s).length > MAX_BYTES) throw fail('BAD_INPUT', 'request is larger than 16 MiB');
+  return s;
 }
 
 /** `METHOD target` from the request line, cut to 60 characters; `Untitled` without one. */
 function defaultName(b64: string): string {
-  const m = /^(\S+) (\S+)/.exec(atob(b64).split(/\r?\n/, 1)[0]!);
-  return m ? `${m[1]} ${m[2]}`.slice(0, 60) : 'Untitled';
+  const line = atob(b64).split(/\r?\n/, 1)[0]!;
+  const text = new TextDecoder().decode(Uint8Array.from(line, (ch) => ch.charCodeAt(0)));
+  const m = /^(\S+) (\S+)/.exec(text);
+  return m ? [...`${m[1]} ${m[2]}`].slice(0, 60).join('') : 'Untitled';
 }
 
 const body = (s: string) => slicer(Uint8Array.from(s, (ch) => ch.charCodeAt(0)));
@@ -124,9 +124,11 @@ const body = (s: string) => slicer(Uint8Array.from(s, (ch) => ch.charCodeAt(0)))
 /** A REPLAY record carrying exactly `raw` (latin1 text), with a canned 200 unless `failed`. */
 function record(id: number, raw: string, c: Connection, failed: boolean): MockRequest {
   const r = makeRequest(id, Date.now() - id * 1500 - 1000);
-  const split = raw.indexOf('\r\n\r\n');
-  const head = split < 0 ? raw : raw.slice(0, split + 4);
-  const rest = split < 0 ? '' : raw.slice(split + 4);
+  // The head ends at the first blank line, LF or CRLF, like the rawhttp parser.
+  const blank = /\r?\n\r?\n/.exec(raw);
+  const end = blank ? blank.index + blank[0].length : raw.length;
+  const head = raw.slice(0, end);
+  const rest = raw.slice(end);
   const line = /^(\S+) (\S+)/.exec(raw);
   const [path = '/', query = ''] = (line?.[2] ?? '/').split('?', 2);
   const respBody = '{"ok":true,"mock":"replay"}';
@@ -349,6 +351,8 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
         const r = deps.request(p.fromRequestId);
         if (!r) throw fail('NOT_FOUND', `request ${p.fromRequestId} not found`);
         if (r.isTruncated) throw fail('BAD_INPUT', 'the stored request was truncated');
+        if (atob(r.head).length + Number(r.bodyLength) > MAX_BYTES)
+          throw fail('BAD_INPUT', 'request is larger than 16 MiB');
         connection = { host: r.host, port: r.port, tls: r.tls, sni: null };
         draft = btoa(rawOf(r));
       } else {
