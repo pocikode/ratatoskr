@@ -200,7 +200,8 @@ Indexes: `requests(host)`, `(created_at)`, `(source)`, `(method)`, `responses(co
 - DNS rebinding: when the UI listener is bound to a loopback address, requests whose `Host` (port stripped) is not
   `localhost`, `ratatoskr.localhost` (F-NET-2), a loopback IP literal or the configured listen host are rejected with 421 before CSRF/auth (T-027).
   `CrossOriginProtection` and the WS origin check cannot catch rebinding, because the attacker's origin equals `Host`.
-- Response preview served from a separate origin-like path with `Content-Security-Policy: sandbox`.
+- Response preview (`GET /api/rest/preview/{requestId}`, contract in F-HIST-2) always carries `Content-Security-Policy: sandbox`
+  (opaque origin, no scripts) and forwards only the stored `Content-Type`, so a captured page can neither run code nor read the API.
 - Secrets (AI keys, secret env vars, CA key) encrypted at rest with XChaCha20-Poly1305 using a key file `secret.key` (0600).
 - Shell node & plugins run with user privileges: show a one-time warning and a global "allow shell nodes" setting (default on, like Caido).
 
