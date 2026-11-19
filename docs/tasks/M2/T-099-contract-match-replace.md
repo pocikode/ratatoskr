@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -249,3 +249,9 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - Verified both cases through graphql-js with the generated schema on Node. All 24 focused
   Vitest tests passed. Review assumes one desktop process and the documented tester byte caps.
   Full `make check`, browser E2E, and Go integration tests were skipped.
+
+### Follow-up on the lead decision in `7aa62dc`
+
+- Verdict is `changes_requested`. The previous two findings are resolved. Return this follow-up to the lead under the review round limit.
+- [ ] [major] `web/src/lib/api/mocks/matchreplace.ts:172` — The mock converts the same STRING matcher to bytes for every header line. With 1000 short headers and a 64 KiB matcher that matches none of them, the mock tester took about 2.5 seconds in Bun and returned unchanged output. The documented limits allow a 1 MiB matcher and far more headers. The same work runs synchronously in the browser. Convert the STRING matcher to bytes once per test before scanning headers.
+- Verification assumed one desktop process and inputs inside the tester byte caps. `make check` passed with 353 web tests. `make gen` left the tree clean. All 14 changed files are in scope. Browser E2E and Go integration tests were skipped.
