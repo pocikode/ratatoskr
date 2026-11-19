@@ -3,9 +3,9 @@ id: T-037
 title: Environment backend - Global and project environments, sealed secrets, interpolation, resolvers
 milestone: M2
 role: backend
-status: todo
+status: blocked
 depends_on: [T-098]
-owner: ""
+owner: "Codex (GPT-6)"
 branch: task/T-037-environment-backend
 paths:
   - internal/environment/**
@@ -53,8 +53,18 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   (create with `O_EXCL`, reread on `EEXIST`).
 
 ## Plan (implementer, ≤15 lines)
+1. Extract the shared secret box while preserving existing CA ciphertext and key-file compatibility.
+2. Add environment storage, validation, atomic variable replacement, selection and byte-preserving interpolation.
+3. Replace GraphQL stubs with thin service adapters; test services, secret storage and GraphQL behavior.
+4. Wire the service into the running app, run `make check`, and complete the handoff.
 
 ## Out-of-scope change needed (if any)
+- Blocked: add `internal/app/app.go` to `paths` so the environment service can be constructed with the instance
+  database, selected-project database accessor and secret box, then passed as `resolvers.Deps.Environment`.
+  Service construction currently lives at `internal/app/app.go:140`; GraphQL dependencies are assembled at
+  `internal/app/app.go:306` without `Environment`. Implementing only the allowed files would leave the running
+  application's environment operations returning `NOT_IMPLEMENTED`. AGENTS.md hard rule 1 requires stopping here.
+- Dependency verified: T-098 is `done` and merged on main (`d1db460`). No implementation changes made.
 
 ## Handoff (implementer)
 - What changed:
