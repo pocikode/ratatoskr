@@ -3,7 +3,7 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-030]
 owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
@@ -127,3 +127,15 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 - [x] [minor] `web/src/lib/api/mocks/replay.ts:118` — A UTF-8 request target of `/café` produces the default name `GET /cafÃ©`. Decode the extracted name as UTF-8 before truncating it. Test the name and confirm that the original draft bytes still round-trip.
 - [x] [minor] `web/src/lib/api/mocks/replay.ts:108` — The mock accepts unpadded `YQ` and returns it as a draft. The server's `Bytes` scalar requires standard padded base64. Match the scalar's input rules in the mock and emit padded base64 in returned drafts.
 - `make check` passed, including 306 web tests. `make gen` reproduced both generated directories in a temporary checkout. GraphQL spot checks confirmed all four new findings. `git diff --check main...HEAD` flagged trailing whitespace emitted by the web schema generator. Review assumes one frontend developer using the in-memory mock.
+
+### Third review
+
+- Reviewed `4b8c6dd`. The four second-round cases are covered by regression tests. The `Bytes` finding below covers additional inputs accepted by the server.
+- [ ] [major] `web/src/lib/api/mocks/replay.ts:427` — The request-line check rejects valid method tokens containing a hyphen. `M-SEARCH / HTTP/1.1` returns `BAD_INPUT`. The raw HTTP parser accepts `M-SEARCH` as the method. Accept the full method token syntax in the existing lightweight check and test that Replay records the method unchanged.
+- [ ] [major] `web/src/lib/api/mocks/replay.ts:431` — A mock response delay of 1250 ms with `timeoutMs: 1000` returns a successful response after the deadline. Time the wait against the smaller of the response delay and the session timeout, and return a timeout entry with no response when the deadline wins. Test this alongside cancellation.
+- [ ] [minor] `web/src/lib/api/mocks/replay.ts:133` — Sending `/search?q=a?b` records `query: "q=a"`. The History contract returns the full query and the server splits at the first `?`. Keep the whole suffix so History filters and Replay metadata see `q=a?b`.
+- [ ] [minor] `web/src/lib/api/mocks/replay.ts:256` — `ReplayEntry.createdAt` records completion. With a 1250 ms mock wait, it is about 1250 ms later than the start time promised by the schema. Capture the timestamp before the wait and pass it to the entry builder so the editor can display the start time.
+- [ ] [minor] `web/src/lib/api/mocks/replay.ts:108` — The mock rejects padded `Bytes` containing CR/LF, which the Go decoder ignores. It also echoes `YR==` unchanged. The server re-encodes those bytes as `YQ==`. Strip CR/LF, validate and decode, then return the canonical padded representation. Keep the unpadded-input rejection test and cover the accepted forms.
+- Default `make check` failed twice in `src/pages/sitemap/sitemap.svelte.test.ts:132`, “drops a stale expansion result when filters change and supports loading beyond the first page.” Vitest reported `Error: Test timed out in 5000ms.` Both runs passed the other 308 web tests and all Go checks. `VITEST_MAX_WORKERS=2 make check` passed all 309 web tests and all Go checks.
+- Review assumes one frontend developer using the in-memory mock exchange. `make gen` reproduced both generated directories. The proxy, store and raw HTTP packages were outside the diff, so `make test-int` was skipped.
+- This is the third review round. Escalated to the lead under `docs/07-agent-workflow.md` §7.
