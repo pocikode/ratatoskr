@@ -3,7 +3,7 @@ id: T-101
 title: Replay sender - raw send over a fresh connection, Content-Length rule, timeout, cancel, redirects
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: []
 owner: claude-backend
 branch: task/T-101-replay-sender
@@ -103,12 +103,35 @@ Automate/workflows later.
 - Follow-ups (proposed tasks): none.
 
 ## Review (reviewer)
-- Verdict: changes_requested (2026-11-19, re-reviewed 6191f59)
-- Checks: `make check` green. `make test-int` not run: no proxy/store/rawhttp change, and the sender it must cover does not exist yet.
-- Since last review (3b699b5): one commit, a `malformed header` table row. It hits `rawhttp` read.go:227 (line without a colon → `WarnMalformedHeader`), so the early return at content_length.go:19 is now covered. Previous minor resolved. Nothing else changed.
+- Verdict: changes_requested (2026-11-19, re-reviewed f47d2d8)
+- Checks: `make check` green; `make test-int` green; `go test -race -count=5 ./internal/replay/sender` green. No `net/http`
+  import in `internal/replay/sender` (tests included). Changed files are inside `paths`; the two docs files ride with
+  this branch per the lead's third note.
+- Previous findings: blocker (no sender), major (owner/plan), minor (docs outside paths, accepted by lead), nit (package doc): all resolved.
 - Findings:
-  - [ ] [blocker] internal/replay/sender/ — still unchanged: the sender is not implemented. No `Send`, dial, TLS/SNI/ALPN, timeout, cancel, 64 MiB cap, redirects or error kinds. Six of the seven AC are uncovered (F-REP-2 verbatim send, TLS SNI/ALPN, timeout/cancel/no goroutine leak, cap truncation, redirects, `make test-int`). → Implement the "Remaining work" list from the second lead note, each with its AC test, before `in_review`.
-  - [ ] [major] docs/tasks/M2/T-101-replay-sender.md:9 — still `owner: ""` and the Plan is one line about the helper. Lifecycle (docs/07) wants an owner and a ≤15-line plan covering the scope. → Claim the task and write the sender plan (dial/TLS, deadline + ctx close, capped read, redirect loop, error classification, tests).
-  - [ ] [minor] docs/00-overview.md:23, docs/01-feature-spec.md:167 — still on this branch, outside `paths` (rule 1). Lead clarifications (c4cc6d3, 948432b); content fine. → Lead: confirm they ride with this branch or land them on `main` separately.
-  - [ ] [nit] internal/replay/sender/content_length.go:1 — package doc still "prepares HTTP requests for Replay". → "Package sender sends raw HTTP/1.x requests over a fresh connection and reads the response with rawhttp."
-- Notes: `UpdateContentLength` remains correct against F-INT-1 and is ready; the task is blocked only by the missing sender. Please do not set `in_review` again until the sender and its tests are in.
+  - [ ] [major] internal/replay/sender/sender.go:146 — one `ReadResponse` call returns the first response, including an
+    interim 1xx. A server that sends `103 Early Hints` (common on CDNs) or `100 Continue` (request has
+    `Expect: 100-continue`) before its `200` makes Send return the 1xx as the final response and close the connection,
+    so the real response is lost. F-REP-2 says Send returns "when the response is complete", and the proxy already
+    skips interims (internal/proxy/forward.go:133-139). Listing it as a known limitation does not make it spec behaviour.
+    → Read in a loop on the same `bufio.Reader` while `resp.Status()/100 == 1 && resp.Status() != 101` (about 4 lines).
+    Add a test where the server writes `HTTP/1.1 100 Continue\r\n\r\n` and `HTTP/1.1 103 Early Hints\r\nLink: </a>\r\n\r\n`,
+    then `RawReply`, and expect the 200. Remove the limitation from the Handoff.
+  - [ ] [minor] internal/replay/sender/sender.go:142-145 — the method used to frame the response comes from a full
+    `rawhttp.ReadRequest`, so any request that does not parse gets method `""`. Example:
+    `HEAD / HTTP/1.1\r\nContent-Length: x\r\n\r\n` (malformed requests are the point of the tool). The server answers
+    the HEAD with `Content-Length: 1234` and no body, and Send waits for 1234 body bytes until the timeout (or forever
+    when the timeout is 0). → Take the method from the first token of the request line:
+    `method, _, _ := bytes.Cut(raw, []byte(" "))` (only HEAD matters to `ReadResponse`). Add a table row with an
+    unparseable HEAD.
+  - [ ] [minor] internal/replay/sender/sender_test.go:413 — no test for a redirect chain whose second hop fails. The
+    Handoff promises that the failed hop comes last with `Response == nil` and the error is returned, and T-106 stores hops
+    based on that. → Add a test: origin 302 to `http://127.0.0.1:<closed port>/`, then expect 2 hops,
+    `Hops[1].Response == nil`, `Hops[0].Response.Status() == 302` and kind `dial`.
+  - [ ] [nit] internal/replay/sender/sender.go:222-225 — draining `req.Body()` so that `Builder.WriteTo` writes no body
+    depends on the builder sharing the drained reader. That works with today's `rawhttp`, but the reason is not obvious.
+    → Extend the comment: "Builder streams m.Body(); once it is drained, nothing is written and no Content-Length is added (SetBody would add one)."
+- Notes: the design is small and matches the plan. It uses a fresh dial per hop, `context.AfterFunc` closes the
+  connection to unblock I/O, and the capped read goes through `rawhttp` capture. Error kinds come from `ctx.Err()`. The
+  synctest timeout and cancel tests are good leak checks. `pipeDial` swaps the package-level `dial`. That is safe today
+  because the tests that use it are sequential and top-level parallel tests start only after them. Keep it that way.
