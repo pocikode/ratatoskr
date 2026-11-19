@@ -3,7 +3,7 @@ id: T-101
 title: Replay sender - raw send over a fresh connection, Content-Length rule, timeout, cancel, redirects
 milestone: M2
 role: backend
-status: todo
+status: blocked
 depends_on: []
 owner: ""
 branch: task/T-101-replay-sender
@@ -54,14 +54,16 @@ Automate/workflows later.
   run only against local `testutil` servers on 127.0.0.1 (AGENTS.md rule 7: no real targets).
 
 ## Plan (implementer, ≤15 lines)
+- Implement and test the offline Content-Length correction with `rawhttp.Builder`.
+- Blocked on the sender acceptance criterion for transmitting deliberately malformed HTTP framing in request-smuggling tests.
 
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: Added offline `sender.UpdateContentLength` with byte-counting and header-preservation tests.
+- How to verify: `go test -race ./internal/replay/sender ./internal/rawhttp`.
+- Known limitations: The helper preserves input when `rawhttp` rejects the head, including conflicting Content-Length values. The sender is unimplemented.
+- Follow-ups (proposed tasks): Define a sender contract for validated HTTP framing if that meets the Replay use case.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
