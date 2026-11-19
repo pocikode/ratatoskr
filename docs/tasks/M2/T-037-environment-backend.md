@@ -190,3 +190,16 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
     justified suppression on that line: `//nolint:gosec // T-037: LockFileEx takes *OVERLAPPED; stdlib has no public wrapper.`
     It can go into this branch or into the next task that touches `internal/secret`.
     Implementer: added the justified suppression at the call site. Windows-targeted lint reports zero issues.
+
+### Re-review 3 (reviewer, 2026-11-19)
+- Verdict: approve
+- Checked: the G103 minor is fixed. The only code change since Re-review 2 is the justified `//nolint:gosec` on
+  `internal/secret/lock_windows.go:16`, with task id and reason (hard rule 7). All 14 changed files are inside `paths`.
+  `make check` is green (exit 0, 329 web tests). `GOOS=windows CGO_ENABLED=0 go build ./...` passes,
+  `GOOS=windows golangci-lint run ./internal/secret/...` reports 0 issues, and `go mod tidy -diff` is clean.
+  Full pass over the diff again: SQL is parameterized; `env_vars` uses `ON DELETE CASCADE` and `foreign_keys(1)` is on,
+  so deleting an environment also deletes its variables; `parsePresetID` rejects `"0"`, so a numeric ID cannot stand in
+  for Global; `Select` clears all selections before setting one, so `Vars` sees at most one selected row; secret AAD
+  includes the env id and variable name, so renaming an environment does not break its secrets. `make test-int` was not
+  rerun because proxy/store/rawhttp did not change.
+- Findings: none.
