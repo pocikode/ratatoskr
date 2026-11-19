@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
+  import type { Snippet } from 'svelte';
   import { Tabs } from 'bits-ui';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import SearchIcon from '@lucide/svelte/icons/search';
@@ -19,9 +20,11 @@
     modes?: ViewerMode[];
     /** Sandboxed preview source served by the proxy (`/api/rest/preview/{id}`). */
     previewUrl?: string;
+    /** Page-owned controls, rendered after the view-mode tabs (F-HIST-4 switch). */
+    toolbar?: Snippet;
   }
 
-  let { raw, title = 'Message', modes, previewUrl }: Props = $props();
+  let { raw, title = 'Message', modes, previewUrl, toolbar }: Props = $props();
 
   const CHUNK = 128 * 1024;
   const HEX_CHUNK = 8 * 1024;
@@ -128,6 +131,10 @@
           </Tabs.Trigger>
         {/each}
       </Tabs.List>
+
+      {#if toolbar}
+        {@render toolbar()}
+      {/if}
 
       <span class="flex-1"></span>
 

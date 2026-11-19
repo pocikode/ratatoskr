@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { createRawSnippet } from 'svelte';
 import { describe, expect, it } from 'vitest';
 import MessageViewer from './MessageViewer.svelte';
 
@@ -143,5 +144,16 @@ describe('MessageViewer', () => {
 
     render(MessageViewer, { props: { raw: response } });
     expect(screen.queryByRole('tab', { name: 'Preview' })).toBeNull();
+  });
+
+  it('renders a page-owned toolbar snippet beside the view modes', () => {
+    const toolbar = createRawSnippet(() => ({
+      render: () => '<button type="button">Original</button>',
+    }));
+    render(MessageViewer, { props: { raw: request, toolbar } });
+
+    const button = screen.getByRole('button', { name: 'Original' });
+    // Same toolbar row as the view-mode tabs.
+    expect(screen.getByRole('tablist').parentElement).toBe(button.parentElement);
   });
 });
