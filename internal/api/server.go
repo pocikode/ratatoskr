@@ -26,6 +26,8 @@ type Options struct {
 	Logger    *slog.Logger
 	// CA serves GET /api/rest/ca.crt and /ca.der. Nil leaves them 404.
 	CA rest.Certificates
+	// Preview serves stored response previews. Nil leaves the route 404.
+	Preview rest.ResponseHistory
 }
 
 // NewHandler returns the handler for everything under /api/. Mount it at "/api/".
@@ -47,7 +49,7 @@ func NewHandler(opts Options) http.Handler {
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, "use POST", http.StatusMethodNotAllowed)
 	})
-	strict.Handle("/api/rest/", rest.NewRouter(rest.Deps{CA: opts.CA}))
+	strict.Handle("/api/rest/", rest.NewRouter(rest.Deps{CA: opts.CA, Preview: opts.Preview}))
 	strict.Handle("/api/", http.NotFoundHandler())
 
 	// The WebSocket endpoint alone may be opened without credentials: the token
@@ -56,7 +58,7 @@ func NewHandler(opts Options) http.Handler {
 	mux.Handle("GET /api/graphql/ws", opts.Auth.WebSocket(gql))
 	mux.Handle("/api/", opts.Auth.Handler(strict))
 
-	return middleware.CrossOrigin(mux)
+	return rest.WithPreviewHeaders(middleware.CrossOrigin(mux))
 }
 
 // limitBody answers 413 to a request whose declared length exceeds limit and

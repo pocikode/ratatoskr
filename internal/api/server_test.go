@@ -2,11 +2,17 @@ package api_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +22,8 @@ import (
 	"github.com/pocikode/ratatoskr/internal/api"
 	"github.com/pocikode/ratatoskr/internal/api/graphql/resolvers"
 	"github.com/pocikode/ratatoskr/internal/api/middleware"
+	"github.com/pocikode/ratatoskr/internal/history"
+	"github.com/pocikode/ratatoskr/internal/store"
 )
 
 const token = "s3cret"
@@ -178,6 +186,165 @@ func TestAuthHTTP(t *testing.T) {
 	})
 	if status != http.StatusOK || string(out.Data["serverInfo"]) != `{"authRequired":true}` {
 		t.Errorf("bearer: status %d, data %s", status, out.Data["serverInfo"])
+	}
+}
+
+func TestResponsePreview(t *testing.T) {
+	t.Parallel()
+
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	db, err := store.OpenProject(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	const previewLimit = 4 << 20
+	html := "<p>" + strings.Repeat("a", previewLimit-3)
+	var compressed bytes.Buffer
+	zw := gzip.NewWriter(&compressed)
+	if _, err := io.WriteString(zw, html+"</p>"); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gzipID := seedPreview(t, db, "HTTP/1.1 302 Found\r\nContent-Type: text/html; charset=utf-8\r\n"+
+		"Content-Encoding: gzip\r\nSet-Cookie: stored=value\r\nLocation: /elsewhere\r\n"+
+		"Content-Security-Policy: default-src 'none'\r\n\r\n", compressed.String())
+	chunkedID := seedPreview(t, db, "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n", "5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n")
+	noResponseID := seedPreview(t, db, "", "")
+	malformedID := seedPreview(t, db, "invalid status line\r\n\r\n", "")
+
+	svc := history.NewService(history.ServiceDeps{DB: func() *store.DB { return db }})
+	srv := httptest.NewServer(api.NewHandler(api.Options{Auth: middleware.Auth{Token: token}, Preview: svc}))
+	t.Cleanup(srv.Close)
+
+	tests := []struct {
+		name, method, id, cookie, fetchSite string
+		status                              int
+		contentType, body                   string
+	}{
+		{"gzip and limit", http.MethodGet, gzipID, token, "", http.StatusOK, "text/html; charset=utf-8", html},
+		{"chunked", http.MethodGet, chunkedID, token, "", http.StatusOK, "application/octet-stream", "hello world"},
+		{"head", http.MethodHead, chunkedID, token, "", http.StatusOK, "application/octet-stream", ""},
+		{"invalid id", http.MethodGet, "abc", token, "", http.StatusNotFound, "", ""},
+		{"unknown id", http.MethodGet, "9223372036854775807", token, "", http.StatusNotFound, "", ""},
+		{"no response", http.MethodGet, noResponseID, token, "", http.StatusNotFound, "", ""},
+		{"malformed head", http.MethodGet, malformedID, token, "", http.StatusInternalServerError, "text/plain; charset=utf-8", "response preview unavailable\n"},
+		{"no token", http.MethodGet, gzipID, "", "", http.StatusUnauthorized, "", ""},
+		{"post", http.MethodPost, gzipID, token, "", http.StatusMethodNotAllowed, "", ""},
+		{"cross-site post", http.MethodPost, gzipID, token, "cross-site", http.StatusForbidden, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequestWithContext(t.Context(), tt.method, srv.URL+"/api/rest/preview/"+tt.id, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Accept-Encoding", "identity")
+			if tt.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: middleware.TokenCookie, Value: tt.cookie})
+			}
+			if tt.fetchSite != "" {
+				req.Header.Set("Sec-Fetch-Site", tt.fetchSite)
+			}
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tt.status {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tt.status)
+			}
+			checkPreviewHeaders(t, resp.Header)
+			if tt.contentType != "" && resp.Header.Get("Content-Type") != tt.contentType {
+				t.Errorf("Content-Type = %q, want %q", resp.Header.Get("Content-Type"), tt.contentType)
+			}
+			if tt.status == http.StatusOK || tt.body != "" {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(body) != tt.body {
+					t.Errorf("unexpected body of %d bytes, want %d bytes", len(body), len(tt.body))
+				}
+			}
+			if tt.method == http.MethodHead && resp.ContentLength != int64(len("hello world")) {
+				t.Errorf("HEAD Content-Length = %d, want 11", resp.ContentLength)
+			}
+			if tt.status == http.StatusMethodNotAllowed && resp.Header.Get("Allow") != "GET, HEAD" {
+				t.Errorf("Allow = %q, want GET, HEAD", resp.Header.Get("Allow"))
+			}
+		})
+	}
+}
+
+func TestResponsePreviewUnavailable(t *testing.T) {
+	t.Parallel()
+
+	for name, opts := range map[string]api.Options{
+		"disabled":   {},
+		"no project": {Preview: history.NewService(history.ServiceDeps{DB: func() *store.DB { return nil }})},
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/rest/preview/1", nil)
+			w := httptest.NewRecorder()
+			api.NewHandler(opts).ServeHTTP(w, req)
+			if w.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404", w.Code)
+			}
+			checkPreviewHeaders(t, w.Header())
+		})
+	}
+}
+
+func seedPreview(t *testing.T, db *store.DB, head, body string) string {
+	t.Helper()
+
+	ctx := t.Context()
+	var id int64
+	if err := db.Write(ctx, func(tx *sql.Tx) error {
+		raw := "GET / HTTP/1.1\r\nHost: example.test\r\n\r\n"
+		var err error
+		id, err = store.InsertRequestTx(ctx, tx, store.Request{
+			Source: "proxy", Host: "example.test", Port: 80, Method: http.MethodGet, Path: "/",
+			Raw: []byte(raw), BodyOffset: len(raw), CreatedAt: 1,
+		})
+		if err != nil || head == "" {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO responses (request_id, code, raw, body_offset, len, roundtrip_ms, created_at)
+			VALUES (?, 200, ?, ?, ?, 1, 2)`, id, []byte(head+body), len(head), len(head)+len(body))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return strconv.FormatInt(id, 10)
+}
+
+func checkPreviewHeaders(t *testing.T, headers http.Header) {
+	t.Helper()
+
+	for key, value := range map[string]string{
+		"Content-Security-Policy": "sandbox",
+		"X-Content-Type-Options":  "nosniff",
+		"Cache-Control":           "no-store",
+		"Referrer-Policy":         "no-referrer",
+	} {
+		if got := headers.Values(key); !slices.Equal(got, []string{value}) {
+			t.Errorf("%s = %q, want %q", key, got, value)
+		}
+	}
+	for _, key := range []string{"Set-Cookie", "Location", "Content-Encoding", "Transfer-Encoding"} {
+		if got := headers.Values(key); len(got) != 0 {
+			t.Errorf("unexpected %s: %q", key, got)
+		}
 	}
 }
 
