@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -76,6 +76,9 @@ without changing the streaming path for traffic that neither feature touches.
    `BenchmarkProxyGET` run on main vs branch for the 5% budget.
 
 ## Out-of-scope change needed (if any)
+- Lead: add to F-INT-1 the operator's decision (2026-11-19, T-105 review): a 1xx `dropStatusCode` is sent as that
+  interim head followed by our own 502 drop page, then the connection closes. A 101 drop status will look like a
+  protocol switch to an upgrading client; the lead may want to narrow the range to exclude 101.
 
 ## Handoff (implementer)
 - What changed:
@@ -98,13 +101,17 @@ without changing the streaming path for traffic that neither feature touches.
 - Benchmark (`BenchmarkProxyGET`, new, nil deps, 8 interleaved runs × 3000 ops, Ryzen 7 8845HS): main median ≈ 1.112 ms/op,
   73.8 KB, 107 allocs; branch ≈ 1.113 ms/op, 73.8 KB, 107 allocs → < 0.5 %, same allocs. Latency is dominated by the
   existing 100 µs pool liveness probe, so the bench is coarse; allocs are the sharper signal.
+- Review round 1 (changes_requested → in_review): all 7 findings fixed, see Review. Mutation-checked: reverting the
+  watch loop, the head-only rebuild or the HEAD close each fails its new test. `make check` green; `make test-int`
+  green except the known `TestLoadNoLeakAndLatency` p99 flake under `-p=2` (5.56 ms); `./internal/proxy` integration
+  passed 3/3 alone. Bench after the fixes: 1.12 ms/op, 73.8 KB, 107 allocs (unchanged).
 - Known limitations:
-  - Edited record's request bytes are stored before the proxy's own absolute→origin-form rewrite (so a response-only
-    edit keeps identical request bytes, as F-HIST-4 requires).
+  - The edited record of a request edit stores the bytes the origin received (origin-form target); a response-only
+    edit keeps the client's request bytes in both records (F-HIST-4).
+  - A client that pipelines more than the 4 KiB read buffer during a hold ends the disconnect watch; its disconnect
+    is then noticed when the response is written.
   - "Dropping discards edits" is read literally: a request edited in Intercept and then dropped on the response side
     leaves no edited record, although the server got the edited request. Lead may want to clarify.
-  - Pipelined bytes arriving during a hold end the disconnect watch early; a later disconnect is then noticed only when
-    the response is written.
   - Rewritten responses that no longer parse are delivered as-is, not held, and the client connection is closed.
   - First `make check` run (before `bun install` in this worktree) showed one Go `FAIL` I could not reproduce in later
     full runs or in 5×/3× proxy reruns; likely the known sitemap timing flake under load (see T-031 handoff).
@@ -112,12 +119,19 @@ without changing the streaming path for traffic that neither feature touches.
 
 ## Review (reviewer)
 - Verdict: changes_requested
-- [ ] [major] internal/proxy/hooks.go:160 — Rebuilding the absolute-form request drains the body through the parsed framing reader. If a Forward preserves a declared length shorter than the supplied body, the proxy silently discards the bytes beyond that length. Rewrite only the head and append the original byte suffix.
-- [ ] [major] internal/proxy/forward.go:105 — Editing a GET to HEAD means the origin can return a length header with no body. The proxy relays it to a GET client and can leave the connection open while that client waits for the advertised body. Use the sent method for origin reads and independently handle client-facing framing for method edits. Cover the streaming and hooked response paths.
-- [ ] [major] internal/proxy/hooks.go:434 — Response rules receive the pre-forwarding request bytes. On explicit proxy requests the origin sees an origin-form target and no Proxy-Connection header, but the rule can still match the absolute target or removed header. The edited history request at line 540 also records the pre-forwarding bytes after request edits, and the integration test expects them. Use the upstream byte representation for rule input and for request-edited history rows. Preserve identical stored request bytes for response-only edits.
-- [ ] [major] internal/proxy/hooks.go:185 — A buffered pipelined request makes Peek return immediately. When that client closes during the first hold, the queue entry survives until operator action and keeps its queue slot and bytes. Keep watching for disconnect while preserving pipelined input within a bound, and exercise it in the disconnect test.
-- [ ] [major] internal/proxy/forward.go:115 — A genuine 101 upgrade response bypasses both response hooks. With response queuing on and a matching exchange, the upgraded stream starts before the operator can review or drop the handshake. Run the response hooks on the handshake and enter the tunnel relay only when the decision still upgrades the connection.
-- [ ] [major] internal/proxy/hooks.go:267 — F-INT-1 allows a 100 drop status, which is interim. Closing after that status leaves the client without a final response even though history marks the exchange dropped. The default drop page also writes body bytes to HEAD clients. Ask the lead to resolve the allowed status range and body-less cases, and make synthetic replies respect the original client method.
-- [ ] [minor] internal/proxy/hooks.go:91 — The early return for a declared Content-Length over the cap skips the info log required by F-INT-1. Log the bypass on both over-cap paths.
+- [x] [major] internal/proxy/hooks.go:160 — Rebuilding the absolute-form request drains the body through the parsed framing reader. If a Forward preserves a declared length shorter than the supplied body, the proxy silently discards the bytes beyond that length. Rewrite only the head and append the original byte suffix.
+  - Fixed: `upstreamBytes` rebuilds only the head (parsed alone) and appends the exact bytes after it. Test `TestInterceptEditedLengthSendsBytesAsGiven`.
+- [x] [major] internal/proxy/forward.go:105 — Editing a GET to HEAD means the origin can return a length header with no body. The proxy relays it to a GET client and can leave the connection open while that client waits for the advertised body. Use the sent method for origin reads and independently handle client-facing framing for method edits. Cover the streaming and hooked response paths.
+  - Fixed: the origin is already read with the sent method (`exchange` uses `x.sent`); when a hook adds or removes HEAD, the response is relayed as is and the client connection closes after it (`edits.headChanged`), on the streaming, over-cap and hooked paths. Test `TestMethodEditToHeadClosesClient` (streaming + hooked).
+- [x] [major] internal/proxy/hooks.go:434 — Response rules receive the pre-forwarding request bytes. On explicit proxy requests the origin sees an origin-form target and no Proxy-Connection header, but the rule can still match the absolute target or removed header. The edited history request at line 540 also records the pre-forwarding bytes after request edits, and the integration test expects them. Use the upstream byte representation for rule input and for request-edited history rows. Preserve identical stored request bytes for response-only edits.
+  - Fixed: response rules get the upstream bytes (origin-form, no `Proxy-Connection`; computed from the client's request when no request hook ran). A request-edited history row stores the upstream bytes and target. Response-only edits keep the client's bytes in both rows. Tests `TestResponseRulesSeeUpstreamRequest`, `TestInterceptRequestForwardWithEdits` (updated).
+- [x] [major] internal/proxy/hooks.go:185 — A buffered pipelined request makes Peek return immediately. When that client closes during the first hold, the queue entry survives until operator action and keeps its queue slot and bytes. Keep watching for disconnect while preserving pipelined input within a bound, and exercise it in the disconnect test.
+  - Fixed: the watch keeps peeking `Buffered()+1` so pipelined bytes stay in the reader and a later EOF still cancels; bound = the reader buffer (4 KiB), beyond it the watch ends (`shortcut:` comment). Tests `TestInterceptClientGoneLeavesQueue/pipelined`, `TestInterceptPipelinedRequestsKeepOrder`.
+- [x] [major] internal/proxy/forward.go:115 — A genuine 101 upgrade response bypasses both response hooks. With response queuing on and a matching exchange, the upgraded stream starts before the operator can review or drop the handshake. Run the response hooks on the handshake and enter the tunnel relay only when the decision still upgrades the connection.
+  - Fixed: with response hooks active, a 101 goes through M&R and the hold; the tunnel starts only when the delivered response is still a parsed 101; otherwise the upstream is closed and the client gets the edited response or drop page and is closed. Test `TestInterceptUpgradeResponse` (forward / edited / drop).
+- [x] [major] internal/proxy/hooks.go:267 — F-INT-1 allows a 100 drop status, which is interim. Closing after that status leaves the client without a final response even though history marks the exchange dropped. The default drop page also writes body bytes to HEAD clients. Ask the lead to resolve the allowed status range and body-less cases, and make synthetic replies respect the original client method.
+  - Fixed after asking the operator (answer: send 1xx, then 502): a 1xx drop status is written as that interim head followed by our 502 page; a HEAD client gets the head without the body (`Content-Length` as for GET). Spec note requested under Out-of-scope. Test `TestInterceptDropPages`.
+- [x] [minor] internal/proxy/hooks.go:91 — The early return for a declared Content-Length over the cap skips the info log required by F-INT-1. Log the bypass on both over-cap paths.
+  - Fixed: both over-cap paths log at info.
 
 Verification: `make check` and the cached `make test-int` passed. Fresh proxy and repository integration runs both missed the existing latency target once (`p99 added latency 6.301418ms (direct 745.43µs, proxy 7.046848ms), want < 5ms` and `p99 added latency 5.052387ms (direct 2.598851ms, proxy 7.651238ms), want < 5ms`). The uncached suite passed with `GOFLAGS='-count=1 -p=2' make test-int`. The load test passed twice in isolation on each branch at the existing 200-client workload. Three 1,000-operation nil-hook GET samples per branch showed no slowdown, with medians of 1.452 ms/op on `main` and 1.137 ms/op on T-105, and 107–108 allocations per operation on both. The baseline samples varied from 1.162 to 1.723 ms/op.
