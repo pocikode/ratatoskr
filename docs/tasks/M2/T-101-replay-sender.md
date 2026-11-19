@@ -3,7 +3,7 @@ id: T-101
 title: Replay sender - raw send over a fresh connection, Content-Length rule, timeout, cancel, redirects
 milestone: M2
 role: backend
-status: todo
+status: changes_requested
 depends_on: []
 owner: ""
 branch: task/T-101-replay-sender
@@ -71,5 +71,12 @@ Automate/workflows later.
 - Follow-ups (proposed tasks):
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested (2026-11-19, reviewed 3b699b5)
+- Checks: `make check` green. `make test-int` not run: no proxy/store/rawhttp change on this branch, and the sender it must cover does not exist yet.
 - Findings:
+  - [ ] [blocker] internal/replay/sender/ — the sender is not implemented. No `Send`, dial, TLS/SNI/ALPN, timeout, cancel, 64 MiB cap, redirects or error kinds. Six of the seven AC are uncovered: F-REP-2 verbatim send, TLS SNI/ALPN, timeout/cancel/no goroutine leak, cap truncation, redirects, `make test-int`. The Handoff says so itself ("The sender is unimplemented"). → Implement the "Remaining work" list from the second lead note, each with the AC test, before `in_review`.
+  - [ ] [major] docs/tasks/M2/T-101-replay-sender.md:6 — status was `todo` with `owner: ""`, and the Plan has one line about the helper only. Lifecycle (docs/07) wants `in_progress` + owner + a ≤15-line plan covering the scope. → Claim the task and write a plan for the sender (dial/TLS, deadline + ctx close, read with cap, redirect loop, error classification, tests).
+  - [ ] [minor] docs/00-overview.md:23, docs/01-feature-spec.md:167 — spec files are outside this task's `paths` (rule 1). These are lead clarifications (commits c4cc6d3, 948432b), so the content is fine. → Lead: confirm they belong on this branch, or land them on `main` separately so the task diff holds only `internal/replay/sender/**`.
+  - [ ] [minor] internal/replay/sender/content_length.go:19 — the `WarnMalformedHeader` early return has no test. If it is removed, a head with a malformed field gets rebuilt and the bytes change. → Add a table row, e.g. `"Bad header line\r\n\r\nabc"` (or whatever rawhttp flags as malformed-header) expecting unchanged output.
+  - [ ] [nit] internal/replay/sender/content_length.go:1 — the package doc says "prepares HTTP requests for Replay". The Goal says it sends raw bytes and is reused by Automate/workflows. → "Package sender sends raw HTTP/1.x requests over a fresh connection and reads the response with rawhttp."
+- Notes: `UpdateContentLength` is correct against F-INT-1 as clarified. TE untouched, missing CL added, wrong CL fixed, identical duplicate CLs merged at the first position, conflicting CLs untouched, leading blank line kept, no `net/http`. It reuses `rawhttp.Builder` as the lead asked. Bodies are counted from the bytes after the head, so editor bodies with a wrong CL are handled.
