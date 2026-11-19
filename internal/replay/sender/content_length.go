@@ -1,4 +1,4 @@
-// Package sender prepares HTTP requests for Replay.
+// Package sender sends raw HTTP/1.x requests over a fresh connection and reads the response with rawhttp.
 package sender
 
 import (
