@@ -114,6 +114,69 @@ describe('ReplayPage', () => {
   });
 });
 
+describe('ReplayPage actions', () => {
+  it('renames a closed session through its sidebar menu', async () => {
+    page();
+    const t = await tree();
+    await userEvent.pointer({
+      keys: '[MouseRight]',
+      target: await within(t).findByText('POST /login'),
+    });
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Rename session' }));
+    await userEvent.keyboard('{Control>}a{/Control}renamed{Enter}');
+    expect(await within(t).findByText('renamed')).toBeInTheDocument();
+    expect(screen.queryByRole('tab')).toBeNull();
+  });
+
+  it('creates, renames and deletes a collection', async () => {
+    page();
+    const t = await tree();
+    await userEvent.click(screen.getByRole('button', { name: '+ Collection' }));
+    await userEvent.type(await screen.findByLabelText('Name'), 'Scratch');
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await within(t).findByText('Scratch')).toBeInTheDocument();
+
+    await userEvent.pointer({ keys: '[MouseRight]', target: within(t).getByText('Scratch') });
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Rename collection' }));
+    await userEvent.keyboard('{Control>}a{/Control}Scratch2{Enter}');
+    expect(await within(t).findByText('Scratch2')).toBeInTheDocument();
+
+    await userEvent.pointer({ keys: '[MouseRight]', target: within(t).getByText('Scratch2') });
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete collection' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(within(t).queryByText('Scratch2')).toBeNull());
+  });
+
+  it('tags a session with a colour from the tab menu', async () => {
+    page();
+    await userEvent.click(await screen.findByText('POST /login'));
+    const tab = await screen.findByRole('tab', { name: 'POST /login' });
+    await userEvent.pointer({ keys: '[MouseRight]', target: tab });
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Colour: Red/ }));
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'POST /login' })).toBeInTheDocument(),
+    );
+  });
+
+  it('moves a session between collections from the keyboard', async () => {
+    page();
+    const t = await tree();
+    const row = (await within(t).findByText('POST /login')).closest<HTMLElement>(
+      '[role=treeitem]',
+    )!;
+    const group = (name: string) =>
+      within(t).getByText(name).closest('[role=none]')!.querySelector('[role=group]')!;
+    const before = within(group('Auth flows') as HTMLElement).queryByText('POST /login') !== null;
+    row.focus();
+    await userEvent.keyboard(before ? '{Alt>}{PageUp}{/Alt}' : '{Alt>}{PageDown}{/Alt}');
+    await waitFor(() =>
+      expect(
+        within(group(before ? 'Default' : 'Auth flows') as HTMLElement).queryByText('POST /login'),
+      ).not.toBeNull(),
+    );
+  });
+});
+
 describe('moveSession', () => {
   const s = (id: string) => ({ id }) as Collection['sessions'][number];
   const cols = [

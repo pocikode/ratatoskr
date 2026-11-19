@@ -73,9 +73,13 @@
     );
   }
 
+  // Deferred: a context menu closing right after the command returns focus to its trigger.
   function focusOnMount(node: HTMLInputElement) {
-    node.focus();
-    node.select();
+    const timer = setTimeout(() => {
+      node.focus();
+      node.select();
+    });
+    return { destroy: () => clearTimeout(timer) };
   }
 </script>
 

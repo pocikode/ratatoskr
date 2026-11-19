@@ -16,6 +16,7 @@ import {
   type ReplaySessionRowFragment,
   type RequestColor,
 } from '$lib/api/generated/graphql';
+import { decodeLossy, encodeText } from '$lib/editor/bytes';
 import { buildSession, type NewSessionForm } from './url';
 
 export type Collection = ReplayCollectionRowFragment;
@@ -176,7 +177,7 @@ export class ReplayState {
     if (typeof built === 'string') return built;
     const r = await this.client
       .mutation(CreateReplaySessionDocument, {
-        input: { collectionId, connection: built.connection, raw: btoa(built.raw) },
+        input: { collectionId, connection: built.connection, raw: toBase64(encodeText(built.raw)) },
       })
       .toPromise();
     if (r.error || !r.data) return r.error?.graphQLErrors[0]?.message ?? 'Request failed';
@@ -216,17 +217,38 @@ export class ReplayState {
     );
   }
 
-  /** Optimistic; a failure puts the old tree back (`load` after the error). */
-  async move(id: string, collectionId: string, index: number): Promise<void> {
-    this.collections = moveSession(this.collections, id, collectionId, index);
-    await this.#run(() =>
-      this.client.mutation(MoveReplaySessionDocument, { id, collectionId, index }).toPromise(),
+  /**
+   * Optimistic; a failed mutation restores the previous tree without needing a refetch.
+   * `index` counts the *visible* (search-filtered) sessions of the target without the moved one; it is
+   * translated to a position among all of them so hidden sessions keep their order.
+   */
+  async move(id: string, collectionId: string, visibleIndex: number): Promise<void> {
+    const visible = this.filtered.find((c) => c.id === collectionId)?.sessions ?? [];
+    const before = visible.filter((s) => s.id !== id)[visibleIndex];
+    const all = (this.collections.find((c) => c.id === collectionId)?.sessions ?? []).filter(
+      (s) => s.id !== id,
     );
+    const index = before ? all.findIndex((s) => s.id === before.id) : all.length;
+    const prev = this.collections;
+    this.collections = moveSession(prev, id, collectionId, index);
+    const r = await this.client
+      .mutation(MoveReplaySessionDocument, { id, collectionId, index })
+      .toPromise();
+    if (r.error) {
+      this.collections = prev;
+      this.error = r.error.graphQLErrors[0]?.message ?? r.error.message;
+      return;
+    }
+    this.error = null;
+    await this.load();
   }
 }
 
 function matches(s: Session, q: string): boolean {
-  const first = atob(s.draft).split(/\r?\n/, 1)[0] ?? '';
+  const first =
+    decodeLossy(Uint8Array.from(atob(s.draft), (c) => c.charCodeAt(0))).split(/\r?\n/, 1)[0] ?? '';
   const path = first.split(' ')[1] ?? '';
   return [s.name, s.connection.host, path].some((v) => v.toLowerCase().includes(q));
 }
+
+const toBase64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes));

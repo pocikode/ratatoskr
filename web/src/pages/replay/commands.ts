@@ -65,12 +65,12 @@ export function replayCommands(state: ReplayState): Command[] {
       when: hasSession,
       run: (ctx) => {
         const t = target(ctx, 'session');
-        if (t)
-          state.renaming = {
-            kind: 'session',
-            id: t.id,
-            from: (ctx as ReplayContext).replay?.from ?? 'tab',
-          };
+        if (!t) return;
+        // A menu target says where it was opened (no `from` = sidebar); palette/shortcut edit the tab.
+        const explicit = (ctx as ReplayContext).replay;
+        state.renaming = explicit
+          ? { kind: 'session', id: t.id, ...(explicit.from && { from: explicit.from }) }
+          : { kind: 'session', id: t.id, from: 'tab' };
       },
     },
     {

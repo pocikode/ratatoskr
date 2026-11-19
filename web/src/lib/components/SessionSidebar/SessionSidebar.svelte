@@ -25,7 +25,7 @@
 </script>
 
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import ContextMenu from '$lib/components/ContextMenu/ContextMenu.svelte';
 
@@ -78,9 +78,36 @@
     rows[rows.indexOf(from) + delta]?.focus();
   }
 
-  function onkeydown(e: KeyboardEvent, t: RowTarget, g: SidebarGroup) {
+  // Alt+↑/↓ reorders within the group, Alt+PageUp/PageDown appends to the previous/next group.
+  function keyMove(e: KeyboardEvent, id: string, g: SidebarGroup, gi: number): boolean {
+    const i = g.items.findIndex((x) => x.id === id);
+    const to =
+      e.key === 'ArrowUp'
+        ? [g, i - 1]
+        : e.key === 'ArrowDown'
+          ? [g, i + 1]
+          : e.key === 'PageUp'
+            ? [groups[gi - 1], Infinity]
+            : e.key === 'PageDown'
+              ? [groups[gi + 1], Infinity]
+              : null;
+    if (!to) return false;
+    const [dest, index] = to as [SidebarGroup | undefined, number];
+    if (dest && index >= 0 && (dest !== g || index < g.items.length)) {
+      onmove(id, dest.id, Math.min(index, dest.items.filter((x) => x.id !== id).length));
+      // The row may be re-mounted in another group: put focus back once the tree has updated.
+      void tick().then(() =>
+        tree?.querySelector<HTMLElement>(`[data-row="${key({ kind: 'item', id })}"]`)?.focus(),
+      );
+    }
+    return true;
+  }
+
+  function onkeydown(e: KeyboardEvent, t: RowTarget, g: SidebarGroup, gi: number) {
     const el = e.currentTarget as HTMLElement;
-    if (e.key === 'ArrowDown') focusRow(1, el);
+    if (e.altKey && t.kind === 'item') {
+      if (!keyMove(e, t.id, g, gi)) return;
+    } else if (e.key === 'ArrowDown') focusRow(1, el);
     else if (e.key === 'ArrowUp') focusRow(-1, el);
     else if (e.key === 'ArrowRight' && t.kind === 'group') collapsed[g.id] = false;
     else if (e.key === 'ArrowLeft' && t.kind === 'group') collapsed[g.id] = true;
@@ -101,9 +128,13 @@
     onmove(id, g.id, before ? rest.findIndex((i) => i.id === before) : rest.length);
   }
 
+  // Deferred: a context menu closing right after the command returns focus to its trigger.
   function focusOnMount(node: HTMLInputElement) {
-    node.focus();
-    node.select();
+    const timer = setTimeout(() => {
+      node.focus();
+      node.select();
+    });
+    return { destroy: () => clearTimeout(timer) };
   }
 </script>
 
@@ -157,7 +188,7 @@
             ondragover={(e) => dragId && e.preventDefault()}
             ondrop={(e) => drop(e, g)}
             onclick={() => (collapsed[g.id] = !collapsed[g.id])}
-            onkeydown={(e) => onkeydown(e, gt, g)}
+            onkeydown={(e) => onkeydown(e, gt, g, gi)}
           >
             <ChevronDownIcon size={14} aria-hidden="true" class={open(g) ? '' : '-rotate-90'} />
             {#if renaming && key(renaming) === key(gt)}
@@ -192,7 +223,7 @@
                   ondragover={(e) => dragId && e.preventDefault()}
                   ondrop={(e) => drop(e, g, item.id)}
                   onclick={() => onselect(item.id)}
-                  onkeydown={(e) => onkeydown(e, it, g)}
+                  onkeydown={(e) => onkeydown(e, it, g, gi)}
                 >
                   {#if item.color}
                     <span
