@@ -131,3 +131,21 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
 - Implementer follow-up (2026-11-19): all three findings addressed per lead decisions above. Request-only
   truncation is written in InsertRequestTx; capture.go needs no change. Legacy combined flags remain
   conservatively rejected. The SNI override stays null, and reorder ID parsing now uses the shared helper.
+
+### Re-review (reviewer, 2026-11-19, commit 33e41b1)
+- Verdict: approve
+- Checks: every code file is inside `paths`. The `docs/01`/`docs/03` edits are the lead's decision commit (fc326ae).
+  `make check` passed (exit 0; Go race tests, lint, web check, 42 files / 329 tests). `make test-int` passed (exit 0),
+  run because `internal/store/requests.go` changed.
+- Previous findings verified:
+  - major (truncation): migration 0003 adds `request_truncated` and copies the old `truncated` value into it.
+    `InsertRequestTx` writes it from `r.Truncated`. At insert time that value is request-only: `capture.go:563`
+    takes `e.Truncated`, which is `req.Truncated()` (`proxy/forward.go:34`). The later
+    `UPDATE … truncated = truncated OR ?` (`capture.go:483`) does not touch `request_truncated`.
+    `sourceRequest` reads the new column. Tests cover the insert (`store/requests_test.go`), the backfill of a
+    populated v2 DB (`replay/migration_test.go`), and copy allowed after response-only truncation vs rejected
+    for request truncation (`replay/service_test.go`).
+  - minor (SNI): the override was removed. The service and GraphQL tests now check that `sni` is null, and that it
+    stays null after a host edit.
+  - nit (reorder): `ReorderReplayCollections` now uses `parseOrderIDs`, which has neutral wording.
+- Findings: none.
