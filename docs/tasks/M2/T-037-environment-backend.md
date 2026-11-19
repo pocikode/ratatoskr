@@ -3,7 +3,7 @@ id: T-037
 title: Environment backend - Global and project environments, sealed secrets, interpolation, resolvers
 milestone: M2
 role: backend
-status: in_progress
+status: in_review
 depends_on: [T-098]
 owner: "Codex (GPT-6)"
 branch: task/T-037-environment-backend
@@ -37,15 +37,15 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
 - Out: UI (T-103), setting variables from workflows/plugins (M5/M6), keeping secrets out of exports/AI (M3/M6).
 
 ## Acceptance criteria
-- [ ] Existing CA tests pass unchanged after the sealer move; an instance created before the change still opens its CA.
-- [ ] Global always listed first; rename/delete Global → `CONFLICT`; env names 1–200, unique per project, "Global" reserved.
-- [ ] Variable validation (name pattern, ≤ 100 chars, unique, value ≤ 1 MiB) → `BAD_INPUT` naming the variable;
+- [x] Existing CA tests pass unchanged after the sealer move; an instance created before the change still opens its CA.
+- [x] Global always listed first; rename/delete Global → `CONFLICT`; env names 1–200, unique per project, "Global" reserved.
+- [x] Variable validation (name pattern, ≤ 100 chars, unique, value ≤ 1 MiB) → `BAD_INPUT` naming the variable;
       `SetVariables` is all or nothing.
-- [ ] A secret value is not stored in plaintext (test reads the raw row) and reads back decrypted.
-- [ ] `selectEnvironment` per project; null deselects; deleting the selected env leaves none selected.
-- [ ] `Interpolate` table test: `{{a}}`, `{{ a }}`, unknown verbatim, adjacent `{{a}}{{b}}`, `{{{a}}}`, value containing
+- [x] A secret value is not stored in plaintext (test reads the raw row) and reads back decrypted.
+- [x] `selectEnvironment` per project; null deselects; deleting the selected env leaves none selected.
+- [x] `Interpolate` table test: `{{a}}`, `{{ a }}`, unknown verbatim, adjacent `{{a}}{{b}}`, `{{{a}}}`, value containing
       `{{b}}` not expanded again, non-UTF-8 bytes around a match preserved.
-- [ ] `make check` green.
+- [x] `make check` green.
 
 ## Notes from lead
 - `internal/secret` is new in docs/03 §2 (lead, 2026-11-19). Keep its API to `Open(root *os.Root) (*Box, loose bool, err)`,
@@ -75,13 +75,31 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   Service construction currently lives at `internal/app/app.go:140`; GraphQL dependencies are assembled at
   `internal/app/app.go:306` without `Environment`. Implementing only the allowed files would leave the running
   application's environment operations returning `NOT_IMPLEMENTED`. AGENTS.md hard rule 1 requires stopping here.
-- Dependency verified: T-098 is `done` and merged on main (`d1db460`). No implementation changes made.
+- Dependency verified: T-098 is `done` and merged on main (`d1db460`). Implementation proceeded after the lead assigned app wiring to T-109.
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: extracted `internal/secret.Box` and switched CA production code to it without changing `ca.Deps`
+  or `ca.Open`. Key creation uses `O_EXCL`, reopens on `EEXIST`, and locks initialization/read with `flock` so
+  concurrent openers share one key, including when the file starts empty. Existing CA tests are unchanged;
+  a test-only adapter retains their old package-local API, and an independent legacy ciphertext test verifies compatibility.
+  Added Global/project CRUD, validation, atomic variable replacement, sealed secret storage, per-project selection,
+  selected-over-Global lookup, byte-preserving one-pass interpolation, and thin GraphQL resolvers replacing the stubs.
+  Existing TEXT columns hold base64 ciphertext; `ORDER BY rowid` preserves variable insertion order, so no migration was needed.
+- How to verify: `make check` passed (Go vet/lint/race tests, Svelte/ESLint/Prettier, all 329 web tests);
+  `make test-int` passed. New tests cover storage rollback after an actual SQL failure, raw secret rows in both databases,
+  input limits and ordering, concurrent creation/selection, project isolation, interpolation edge cases, GraphQL CRUD/error
+  codes, concurrent key initialization, empty/loose key files, authentication failures, and opening a legacy sealed CA.
+  The first `make check` stopped because web dependencies were absent; `bun install --frozen-lockfile` resolved it without
+  changing the lockfile. `git diff --check` passed.
+- Known limitations: app wiring remains T-109, so the running binary still answers `NOT_IMPLEMENTED` until that task lands.
+  No UI E2E run; API behavior is covered through GraphQL handler tests with real SQLite storage.
+  Key locking uses the standard-library `syscall.Flock` on the repository's supported Linux/macOS platforms.
+- Follow-ups (T-109): call `secret.Open(root)` (report the returned loose-permission warning), then
+  `environment.New(environment.Deps{Instance: inst, Project: projectService.DB, Secrets: box})` and supply the result as
+  `resolvers.Deps.Environment`. The service uses `int64` IDs (`environment.GlobalID == 0`); GraphQL exposes Global as
+  `"global"` and project IDs as decimal strings. `Vars(ctx) (map[string]string, error)` propagates storage/decryption errors;
+  pass its successful result to `environment.Interpolate(raw, vars) []byte` in the Replay send pipeline (T-106).
+  No new follow-up tasks proposed.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
