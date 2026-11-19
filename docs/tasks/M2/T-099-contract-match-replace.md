@@ -228,3 +228,24 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - Verification used the generated schema with graphql-js and assumed one desktop process with
   up to 1000 rules. `make check` passed (43 Vitest files, 353 tests). `make gen` left the tree
   unchanged before this review note. Browser E2E and `make test-int` were skipped.
+
+### Review of `8490278`
+
+- Verdict is `changes_requested`.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:186` — The body size check runs before it
+  accounts for the rewritten `Content-Length`. A response with a 17,362-byte body and a
+  zero-padded 40-digit length returns `BAD_INPUT` for a replacement whose final output is
+  exactly 16,777,216 bytes. The same response with an unpadded length returns that exact size.
+  Check the combined body and framing change before building the replacement. Add the padded
+  length case to the boundary test.
+  → Fixed: body growth and the rewritten `Content-Length` difference are counted in one check
+  before building; the 40-digit zero-padded case passes at exactly 16 MiB and fails one byte over.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:183` — Spreading all the rebuilt headers into
+  `splice` exceeds V8's function argument limit. A paste with 200,000 short header lines, about
+  1.2 MB in and out, returns a GraphQL error without a code. Keep the mapped array or assign
+  entries by index. Verify the large header list on V8, since the Bun runtime accepted it.
+  → Fixed: rebuilt headers are assigned by index; a 200,000-header test passes under both
+  `bunx --bun vitest` and Node v26 (`bunx vitest`).
+- Verified both cases through graphql-js with the generated schema on Node. All 24 focused
+  Vitest tests passed. Review assumes one desktop process and the documented tester byte caps.
+  Full `make check`, browser E2E, and Go integration tests were skipped.

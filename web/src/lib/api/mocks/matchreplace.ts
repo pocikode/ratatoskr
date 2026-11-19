@@ -180,19 +180,18 @@ function applyRule(rule: MockRuleInput, raw: string): string {
   } else if (isHeader && rule.operation === 'UPDATE_RAW') {
     const plans = headers.map(plan);
     grow(plans.reduce((n, [len], i) => n + len - headers[i]!.length, 0));
-    headers.splice(0, Infinity, ...plans.map(([, build]) => build()));
+    // Index assignment, not a spread: V8 caps function arguments well below large header lists.
+    plans.forEach(([, build], i) => (headers[i] = build()));
   } else if (rule.section.endsWith('_BODY') && rule.operation === 'UPDATE_RAW') {
     const [len, build] = plan(body);
-    grow(len - body.length);
+    const i = headers.findIndex((h) => /^content-length:/i.test(h));
+    const cl = `Content-Length: ${len}`;
+    // Body and rewritten framing are counted together: a shorter length header offsets body growth.
+    grow(len - body.length + (i >= 0 ? cl.length - headers[i]!.length : 0));
     const next = build();
     if (next === body) return raw;
     body = next;
-    const i = headers.findIndex((h) => /^content-length:/i.test(h));
-    if (i >= 0) {
-      const cl = `Content-Length: ${body.length}`;
-      grow(cl.length - headers[i]!.length);
-      headers[i] = cl;
-    }
+    if (i >= 0) headers[i] = cl;
   } else return raw;
   return [start, ...headers].join('\r\n') + '\r\n\r\n' + body;
 }

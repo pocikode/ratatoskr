@@ -318,6 +318,29 @@ describe('match & replace mock', () => {
     const fit = res.data!.testMatchReplace;
     expect(atob(fit.output).length).toBe(16 * 1024 * 1024);
     expect(code(await m(TEST, { r: kib, k: 'RESPONSE', raw: exact(1006) }))).toBe('BAD_INPUT');
+    // Same boundary when a zero-padded Content-Length shrinks on rewrite (45-byte head + 16383 KiB + 979).
+    const padded = (pad: number) =>
+      btoa(
+        `HTTP/1.1 200 OK\r\nContent-Length: ${String(16383 + pad).padStart(40, '0')}\r\n\r\n` +
+          `${'b'.repeat(16383)}${'a'.repeat(pad)}`,
+      );
+    const shrink = await m(TEST, { r: kib, k: 'RESPONSE', raw: padded(979) });
+    expect(shrink.error).toBeUndefined();
+    expect(atob(shrink.data!.testMatchReplace.output).length).toBe(16 * 1024 * 1024);
+    expect(code(await m(TEST, { r: kib, k: 'RESPONSE', raw: padded(980) }))).toBe('BAD_INPUT');
+    // 200,000 header lines: more than V8 accepts as spread function arguments.
+    const lines = btoa(`HTTP/1.1 200 OK\r\n${'A: 1\r\n'.repeat(200_000)}\r\n`);
+    const hdr = {
+      ...body,
+      section: 'RESPONSE_HEADER',
+      matcher: { kind: 'STRING', value: '1' },
+      term: '2',
+    };
+    const wide = await m(TEST, { r: hdr, k: 'RESPONSE', raw: lines });
+    expect(wide.error).toBeUndefined();
+    expect(atob(wide.data!.testMatchReplace.output)).toBe(
+      `HTTP/1.1 200 OK\r\n${'A: 2\r\n'.repeat(200_000)}\r\n`,
+    );
     // Base64 as the Go scalar reads it: CR/LF ignored, other whitespace rejected.
     expect((await m(TEST, { r: body, k: 'RESPONSE', raw: `${resp}\r\n` })).error).toBeUndefined();
     expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: `${resp}    ` }))).toBe('BAD_INPUT');
