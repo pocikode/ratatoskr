@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: in_progress
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -79,9 +79,36 @@ without changing the streaming path for traffic that neither feature touches.
 
 ## Handoff (implementer)
 - What changed:
-- How to verify:
+  - `internal/proxy/hooks.go`: `Interceptor` (shape of `intercept.Service`), `Rewriter` (task shape), `HoldCapture`
+    (`Written`, `PendingDB`, `CompleteDropped`, `Add`; `*history.Capture` implements it, type-asserted from `Deps.Capture`
+    so existing fakes keep working). `Deps.Interceptor` / `Deps.Rewriter`, nil = off. An Interceptor without a
+    `HoldCapture` is ignored with a warn log.
+  - `forward`: per side, full buffering only when M&R `proxy` is active or `WouldHold` says so; nil deps → old path.
+    Over the cap (incl. chunked, detected by reading cap+1 bytes) the consumed bytes are sent first, then the rest streams
+    unchanged, unheld, record truncated. Order: M&R `proxy` → `Written` → hold → (Forward with changed bytes) M&R
+    `intercept`. Edited/rewritten bytes are re-read with `rawhttp` and sent as bytes; destination stays the connection's.
+  - Drops: own short HTML page with the decision's status, `Connection: close`; request drop → nothing upstream,
+    `CompleteDropped(nil)`; response drop → `CompleteDropped(server response)`. No edited record on any drop.
+  - Edited pair via `Capture.Add` (`EditedFrom`, `ProjectDB` = `PendingDB` taken before completion, source `intercept`
+    when a Forward changed bytes, else the original's). The upstream connection is returned before a response hold.
+  - Client disconnect during a hold cancels the hold ctx (Peek watcher, idle deadline off during the hold) → item leaves
+    the queue, record stays without a response. M&R errors are logged and leave the message unchanged.
+- How to verify: `go test -race -tags integration -run 'Intercept|OverCap|Rewriter' ./internal/proxy` (8 tests, one per AC
+  plus client-gone); `make check`, `make test-int` green. Mutation: removing the `Written` wait fails the fake's `Get` check.
+- Benchmark (`BenchmarkProxyGET`, new, nil deps, 8 interleaved runs × 3000 ops, Ryzen 7 8845HS): main median ≈ 1.112 ms/op,
+  73.8 KB, 107 allocs; branch ≈ 1.113 ms/op, 73.8 KB, 107 allocs → < 0.5 %, same allocs. Latency is dominated by the
+  existing 100 µs pool liveness probe, so the bench is coarse; allocs are the sharper signal.
 - Known limitations:
-- Follow-ups (proposed tasks):
+  - Edited record's request bytes are stored before the proxy's own absolute→origin-form rewrite (so a response-only
+    edit keeps identical request bytes, as F-HIST-4 requires).
+  - "Dropping discards edits" is read literally: a request edited in Intercept and then dropped on the response side
+    leaves no edited record, although the server got the edited request. Lead may want to clarify.
+  - Pipelined bytes arriving during a hold end the disconnect watch early; a later disconnect is then noticed only when
+    the response is written.
+  - Rewritten responses that no longer parse are delivered as-is, not held, and the client connection is closed.
+  - First `make check` run (before `bun install` in this worktree) showed one Go `FAIL` I could not reproduce in later
+    full runs or in 5×/3× proxy reruns; likely the known sitemap timing flake under load (see T-031 handoff).
+- Follow-ups (proposed tasks): T-109 wiring (`Deps.Interceptor = intercept.Service`, `Deps.Rewriter = matchreplace`).
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
