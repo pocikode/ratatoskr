@@ -3,7 +3,7 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: changes_requested
+status: blocked
 depends_on: [T-030]
 owner: "Codex"
 branch: task/T-031-intercept-service
@@ -69,6 +69,10 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
 
 ## Out-of-scope change needed (if any)
 
+- Sharing the Content-Length helper requires changing the Replay caller and, if the helper lives there, the raw HTTP
+  package. The lead needs to expand T-031's allowed paths or assign the extraction to a follow-up task.
+- The sitemap test timeout belongs to T-020. The review records the failing test and its passing reruns for the owner.
+
 - Lead decision needed for the history record on queue events during a project switch. F-INT-1 releases the old
   queue on switch, and the GraphQL contract requires the `REMOVED` item as it was when it left, with a non-null
   `request`. T-109 wires the switch through `project.Service.Subscribe`, but `internal/project/project.go:510`
@@ -129,3 +133,13 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
 - Lean: -12 lines possible (finding 2), -2 (finding 5).
 - Not checked: `make test-int` (paths not touched). Real HEAD and 304 behaviour (finding 3, reasoned from code). Load test of the queue (finding 1, reasoned from code).
 - To reach approve: decide and fix finding 1. Findings 2 to 5 can be fixed here or taken as follow-ups with the lead's agreement.
+
+### Questions for the lead
+
+- What aggregate queue limit should Intercept enforce, and what should happen when a message would exceed it?
+  F-INT-1 specifies a per-message capture cap. The review requires a separate queue limit and a regression test.
+- Should Forward preserve Content-Length on responses to HEAD and on 1xx, 204, and 304 responses when
+  `updateContentLength` is enabled? The current F-INT-1 rule rewrites an existing length to the body size, which
+  would replace the representation length on a bodyless 304 with zero.
+- When the selected scope preset is deleted, should Intercept pass traffic through with a warning, as proposed
+  in review?
