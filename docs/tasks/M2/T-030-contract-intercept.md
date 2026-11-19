@@ -3,7 +3,7 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: []
 owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
@@ -123,6 +123,13 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
   - Mock queue events carry a copy of the item and request, so a `REMOVED` payload shows the item as it left.
   - `INTERCEPT` removed from random fixture sources; only the edited half of a pair has it. Tests: payload snapshot,
     source invariant over 100 rows (4 pairs), oversized raw. The payload and invariant tests fail without their fix.
+- Round 5 (lead escalation recheck):
+  - Mock `raw` returns the whole held message (body read in 4 MiB slices, not one slice).
+  - A replacement `raw` for a held message over 16 MiB → `BAD_INPUT`, item stays held; forwarding it unchanged works.
+    Documented on `forwardInterceptItem`; T-031 got the matching criterion. New test fails without the fix.
+  - Docs: the 413 applies to a declared `Content-Length` over the cap, a chunked overrun is a GraphQL error
+    (matches `internal/api/server.go` `limitBody`); the 64 MiB capture cap bounds the body, the 16 MiB edit limit the
+    whole message. `make gen` twice clean; `make check` green (247 web tests).
 - Follow-ups (proposed tasks): none. T-031 replaces `stubs_intercept.go`; T-100 replaces `stubs_history_edited.go`.
 
 ## Review (reviewer)
@@ -194,16 +201,16 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
 
 ### Lead escalation recheck (`b72a497`)
 
-- [ ] [major] web/src/lib/api/mocks/intercept.ts:273 — A held message over 16 MiB can still be replaced
+- [x] [major] web/src/lib/api/mocks/intercept.ts:273 — A held message over 16 MiB can still be replaced
   with a smaller message. The mock checks the replacement size only. A local fixture held 16,777,364 bytes,
   exposed 4,194,451 bytes through `item.raw` because `rawOf` reads one body slice, and accepted a short replacement.
   → Return the complete held bytes, reject replacements for an oversized held message with `BAD_INPUT`, and test
   that the item stays held and can still be forwarded unchanged. Add this case to the T-031 acceptance criteria,
   which currently cover only an oversized replacement.
-- [ ] [minor] internal/api/graphql/schema/intercept.graphqls:155 — An oversized POST without a declared
+- [x] [minor] internal/api/graphql/schema/intercept.graphqls:155 — An oversized POST without a declared
   `Content-Length`, such as a chunked request, produces a GraphQL read error. HTTP 413 applies when the declared
   length exceeds the cap. → Qualify the 413 description to match `internal/api/server.go:64`.
-- [ ] [minor] internal/api/graphql/schema/intercept.graphqls:90 — The 64 MiB capture cap applies to the body.
+- [x] [minor] internal/api/graphql/schema/intercept.graphqls:90 — The 64 MiB capture cap applies to the body.
   A fully held message with a 64 MiB body also includes its request or status line and headers, so the `raw` field
   can exceed 64 MiB. → Say that the body is subject to the capture cap and the edit limit applies to the whole message.
 - Verification covered a single-user local proxy and its development mock. `make check` passed with 246 web tests.

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { pipe, subscribe } from 'wonka';
 import { createMockClient } from './exchange';
-import { MAX_EDIT_BYTES } from './intercept';
+import type { MockRequest } from './history';
+import { createInterceptMock, MAX_EDIT_BYTES } from './intercept';
 
 type Client = ReturnType<typeof createMockClient>;
 
@@ -174,6 +175,36 @@ describe('intercept mock', () => {
     expect((await queue(c)).length).toBe(3);
     expect((await fwd(btoa('GET / HTTP/1.1\r\nHost: example.com\r\n\r\n'))).error).toBeUndefined();
     expect((await queue(c)).length).toBe(2);
+  });
+
+  it('exposes an oversized held message whole and only forwards it unchanged', () => {
+    const body = 'a'.repeat(MAX_EDIT_BYTES); // with its head, each held request is over 16 MiB
+    const { root } = createInterceptMock(
+      {
+        addRecord: (build) => {
+          const r = build(1);
+          if (r.response) return r; // the held response stays small
+          return Object.assign(r, {
+            head: btoa('POST /up HTTP/1.1\r\nHost: example.com\r\n\r\n'),
+            bodyLength: String(body.length),
+            body: ({ offset, limit }: { offset: string | number; limit: number }) =>
+              btoa(body.slice(Number(offset), Number(offset) + limit)),
+          } satisfies Partial<MockRequest>);
+        },
+        updateRecord: () => {},
+        matcher: () => () => true,
+      },
+      () => null,
+    );
+    const r = root as unknown as Record<string, (a: Record<string, unknown>) => unknown>;
+    const held = () => r.interceptQueue!({}) as { id: string; raw: string }[];
+    const big = held()[0]!;
+    expect(atob(big.raw).endsWith('\r\n\r\n' + body)).toBe(true);
+    const edit = () => r.forwardInterceptItem!({ id: big.id, raw: btoa('GET / HTTP/1.1\r\n\r\n') });
+    expect(edit).toThrow(expect.objectContaining({ extensions: { code: 'BAD_INPUT' } }));
+    expect(held().length).toBe(3);
+    expect(r.forwardInterceptItem!({ id: big.id })).toBe(big.id);
+    expect(held().length).toBe(2);
   });
 
   it('forward all / drop all count by kind', async () => {

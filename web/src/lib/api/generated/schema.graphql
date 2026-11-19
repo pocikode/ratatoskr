@@ -297,9 +297,9 @@ type InterceptItem implements Node {
 
   """
   The held message exactly as it would be sent now (after Match & Replace): the
-  request for `REQUEST` items, the response for `RESPONSE` items. Up to the
-  64 MiB capture cap; only messages up to 16 MiB can be edited (see
-  `forwardInterceptItem`).
+  request for `REQUEST` items, the response for `RESPONSE` items: start line,
+  headers and the body, whose size is bounded by the 64 MiB capture cap. Only
+  messages up to 16 MiB in total can be edited (see `forwardInterceptItem`).
   """
   raw: Bytes!
 
@@ -530,9 +530,11 @@ type Mutation {
   
   Errors:
   - `NOT_FOUND`: unknown ID or item already released.
-  - `BAD_INPUT`: `raw` does not parse (the message quotes the parse error) or
-    is over 16 MiB. A request body over the API cap gets HTTP 413 before this
-    mutation runs.
+  - `BAD_INPUT`: `raw` does not parse (the message quotes the parse error), is
+    over 16 MiB, or is given for a held message over 16 MiB; the item stays
+    held. An API request whose declared `Content-Length` exceeds the cap gets
+    HTTP 413 before this mutation runs; a longer body without one (chunked)
+    fails as a GraphQL error.
   """
   forwardInterceptItem(id: ID!, raw: Bytes, updateContentLength: Boolean! = true): ID!
 

@@ -63,7 +63,12 @@ const FULL = { offset: 0, limit: 4194304, decode: false };
 export const MAX_EDIT_BYTES = 16 * 1024 * 1024;
 
 /** Whole message as base64: head and body are both base64 of latin1-safe bytes. */
-const rawOf = (m: MockRequest | MockResponse) => btoa(atob(m.head) + atob(m.body(FULL)));
+function rawOf(m: MockRequest | MockResponse): string {
+  let s = atob(m.head);
+  for (let offset = 0; offset < Number(m.bodyLength); offset += FULL.limit)
+    s += atob(m.body({ ...FULL, offset }));
+  return btoa(s);
+}
 
 // shortcut: checks the start line and the end of the headers only; the real backend runs the
 // rawhttp parser. Good enough to exercise the BAD_INPUT path in the UI.
@@ -272,7 +277,14 @@ export function createInterceptMock(
     },
     forwardInterceptItem({ id, raw }: Args) {
       const held = queue.find((i) => i.id === String(id));
-      if (held && typeof raw === 'string') checkRaw(held.kind, raw);
+      if (held && typeof raw === 'string') {
+        if (atob(held.raw).length > MAX_EDIT_BYTES)
+          throw fail(
+            'BAD_INPUT',
+            'held message is larger than 16 MiB; forward it unchanged or drop it',
+          );
+        checkRaw(held.kind, raw);
+      }
       const item = take(id);
       forward(item);
       return item.id;

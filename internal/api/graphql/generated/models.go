@@ -173,9 +173,9 @@ type InterceptItem struct {
 	// (pending, no response yet), so it shows in HTTP History.
 	Request *HTTPRequest `json:"request"`
 	// The held message exactly as it would be sent now (after Match & Replace): the
-	// request for `REQUEST` items, the response for `RESPONSE` items. Up to the
-	// 64 MiB capture cap; only messages up to 16 MiB can be edited (see
-	// `forwardInterceptItem`).
+	// request for `REQUEST` items, the response for `RESPONSE` items: start line,
+	// headers and the body, whose size is bounded by the 64 MiB capture cap. Only
+	// messages up to 16 MiB in total can be edited (see `forwardInterceptItem`).
 	Raw []byte `json:"raw"`
 	// When the item entered the queue.
 	HeldAt time.Time `json:"heldAt"`
