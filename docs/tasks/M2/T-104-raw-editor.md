@@ -3,7 +3,7 @@ id: T-104
 title: RawEditor - byte-preserving editable HTTP editor with {{var}} highlighting
 milestone: M2
 role: frontend
-status: in_review
+status: done
 depends_on: []
 owner: "claude-sonnet-5.5"
 branch: task/T-104-raw-editor
