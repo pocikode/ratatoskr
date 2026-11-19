@@ -220,10 +220,13 @@
               style:border-left-color={stripe ? `var(--row-${stripe})` : undefined}
             >
               {#each columns as column (column.id)}
+                {@const hint = column.hint?.(row)}
                 <div
                   role="gridcell"
                   class="truncate px-1.5"
                   class:text-right={column.align === 'end'}
+                  title={hint ?? undefined}
+                  aria-label={hint ?? undefined}
                 >
                   {column.value(row) ?? ''}
                 </div>

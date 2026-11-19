@@ -19,6 +19,8 @@ export interface TrafficColumn<Row> {
   width: number;
   align?: 'start' | 'end';
   value: (row: Row) => string | number | null;
+  /** Native tooltip for the cell, also its accessible name; null renders none. */
+  hint?: (row: Row) => string | null;
   /** Set `false` for columns that make no sense to sort by (colour, note). */
   sortable?: boolean;
 }
