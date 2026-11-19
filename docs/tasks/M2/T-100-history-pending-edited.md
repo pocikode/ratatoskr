@@ -3,9 +3,9 @@ id: T-100
 title: History pending records, edited pairs and editedBy
 milestone: M2
 role: backend
-status: todo
+status: blocked
 depends_on: [T-030]
-owner: ""
+owner: Codex
 branch: task/T-100-history-pending-edited
 paths:
   - internal/history/**
@@ -48,8 +48,21 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 - Plan mode required (`internal/proxy`, `internal/store`).
 
 ## Plan (implementer, ≤15 lines)
+- Confirm how history should record upstream failures and authorize the project subscription wiring.
+- Allocate IDs per open project and batch pending inserts and completions on the capture writer.
+- Publish pending proxy records while preserving streaming and final request and response bytes.
+- Persist dropped and edited metadata and resolve `editedBy`.
+- Cover capture, proxy, and resolver behavior, then benchmark and run both check targets.
 
 ## Out-of-scope change needed (if any)
+- Add `internal/app/app.go` to `paths` so the app can wire `project.Service.Subscribe` into capture.
+  The current wiring passes only `a.project.DB`.
+
+## Blocked questions
+- Should a failed upstream exchange keep `response: null` in history, as the acceptance criterion
+  says, or store the proxy-generated 502, as `TestUpstreamErrorIs502AndRecorded` currently requires?
+  The client receives a 502 in either case.
+- Can T-100 include `internal/app/app.go` for the project subscription wiring?
 
 ## Handoff (implementer)
 - What changed:
