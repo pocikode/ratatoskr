@@ -3,7 +3,7 @@ id: T-037
 title: Environment backend - Global and project environments, sealed secrets, interpolation, resolvers
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "Codex (GPT-6)"
 branch: task/T-037-environment-backend
@@ -140,3 +140,20 @@ Environments with sealed secret values serve the T-098 contract, and `environmen
   - [x] [nit] internal/ca/ca.go:114 — the hard-coded `"secret.key"` log value duplicates `secret.secretFile`. → Export
     `secret.File` and use it here and in `secret_compat_test.go`.
     Implementer: exported `secret.File` and switched both callers.
+
+### Re-review (reviewer, 2026-11-19)
+- Verdict: changes_requested
+- Checked: all 4 earlier findings are fixed. All 14 changed files are inside `paths`. `make check` is green (exit 0,
+  329 web tests). `GOOS=windows CGO_ENABLED=0 go build ./...` and `GOOS=windows go vet ./internal/secret` pass. The
+  locking logic is right: `O_EXCL` create, then lock, then re-stat, so a reader that arrives before the first write still
+  waits. The empty-file test covers this. `make test-int` was not rerun because proxy/store/rawhttp did not change.
+- Findings:
+  - [ ] [major] internal/secret/lock_windows.go:6 — imports `golang.org/x/sys/windows`. That module is not on the
+    approved list (docs/05 §2: "anything else needs an ADR"), so this breaks hard rule 8. Also, `go.mod` still marks
+    it `// indirect`: `go mod tidy -diff` now fails on this branch but passes on `main`, and `go.mod` is outside
+    `paths`. → Pick one: (a) use only the stdlib, with no lock. Write the new key to a temp file in `root` with
+    `O_EXCL`, call `Sync`, then `root.Link(tmp, File)`. On `os.ErrExist`, read the existing key. Call `root.Remove(tmp)`
+    in both cases. For a legacy empty `secret.key`, first `root.Remove(File)` (ignore `ErrNotExist`) and then take the
+    same path. Readers never see a half-written key, and the code is the same on every OS. Or (b) write an
+    "Out-of-scope change needed" request asking the lead to add `golang.org/x/sys` to docs/05 §2 and `go.mod` to
+    `paths`, then run `go mod tidy`.
