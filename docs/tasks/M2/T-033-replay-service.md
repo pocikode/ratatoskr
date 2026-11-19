@@ -3,9 +3,9 @@ id: T-033
 title: Replay service - collections, sessions, entries (no sending)
 milestone: M2
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-098]
-owner: ""
+owner: "codex (GPT-6)"
 branch: task/T-033-replay-service
 paths:
   - internal/replay/*.go
@@ -49,6 +49,12 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
 - `sending` on `ReplaySession` comes from T-106; until then the resolver returns false.
 
 ## Plan (implementer, ≤15 lines)
+1. Add migration 0003: unique Default marker, draft BLOB, entry error and stable entry IDs.
+2. Persist connection/options/colour in existing state_json; preserve draft bytes separately.
+3. Implement project-scoped transactional collection/session CRUD and stable entry paging.
+4. Replace CRUD stubs with thin service adapters; retain sending=false until T-106.
+5. Test concurrency, validation, history copies, ordering, cascades, paging and GraphQL paths.
+6. Run make check, complete Handoff and submit in_review.
 
 ## Out-of-scope change needed (if any)
 
