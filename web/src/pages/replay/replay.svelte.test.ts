@@ -63,6 +63,34 @@ describe('ReplayState.move', () => {
   });
 });
 
+describe('ReplayState.move stale rollback', () => {
+  it('does not overwrite a newer tree when the move fails', async () => {
+    const tree = [col('a', '1', '2'), col('b')];
+    const { client } = fake(tree, { fail: true, failQuery: true });
+    const st = new ReplayState(client, 'p');
+    st.collections = tree;
+    const p = st.move('1', 'b', 0);
+    const newer = [col('a', '1'), col('b')]; // e.g. session 2 was deleted meanwhile
+    st.collections = newer;
+    await p;
+    expect(st.collections).toBe(newer);
+  });
+});
+
+describe('ReplayState.filtered', () => {
+  it('matches a term at the end of a long request target', async () => {
+    const long = {
+      ...s('1', 'renamed'),
+      draft: btoa(`GET /${'x'.repeat(2000)}needle HTTP/1.1\r\n\r\n`),
+    };
+    const { client } = fake([{ ...col('a'), sessions: [long, s('2')] }]);
+    const st = new ReplayState(client, 'p');
+    await st.load();
+    st.search = 'needle';
+    expect(st.filtered[0]!.sessions.map((x) => x.id)).toEqual(['1']);
+  });
+});
+
 describe('ReplayState.move overlap', () => {
   it('ignores a second move while one is in flight, so a rollback never restores a failed move', async () => {
     const tree = [col('a', '1', '2'), col('b')];
@@ -85,6 +113,20 @@ describe('ReplayState.createFromUrl', () => {
       c.charCodeAt(0),
     );
     expect(new TextDecoder().decode(raw)).toContain('GET /東京 HTTP/1.1');
+  });
+});
+
+describe('ReplayState.createFromUrl long path', () => {
+  it('encodes a 250k-character path without overflowing the call stack', async () => {
+    const { client, calls } = fake([col('a')]);
+    const st = new ReplayState(client, 'p');
+    await st.createFromUrl({
+      tls: false,
+      host: 'x.test',
+      port: '',
+      path: '/' + 'a'.repeat(250_000),
+    });
+    expect(calls).toHaveLength(1);
   });
 });
 

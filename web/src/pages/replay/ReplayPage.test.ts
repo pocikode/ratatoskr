@@ -154,7 +154,11 @@ describe('ReplayPage actions', () => {
     await userEvent.pointer({ keys: '[MouseRight]', target: tab });
     await userEvent.click(await screen.findByRole('menuitem', { name: /Colour: Red/ }));
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: 'POST /login' })).toBeInTheDocument(),
+      expect(
+        screen
+          .getByRole('tab', { name: 'POST /login' })
+          .parentElement!.querySelector('[style*="--row-red"]'),
+      ).not.toBeNull(),
     );
   });
 

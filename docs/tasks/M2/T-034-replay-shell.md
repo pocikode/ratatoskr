@@ -3,7 +3,7 @@ id: T-034
 title: Replay page shell - session sidebar, collections, tab strip
 milestone: M2
 role: frontend
-status: in_review
+status: blocked
 depends_on: [T-098]
 owner: "claude-sonnet-5.5"
 branch: task/T-034-replay-shell
@@ -157,3 +157,25 @@ Browser interaction and the real Replay backend remain unverified. The Go Replay
 - #5 fixed: search decodes only a 1 KiB base64 prefix (request line). No compact target field requested from lead; revisit if budget still exceeded.
 - #6 fixed: destination group is expanded before the keyboard move. No dedicated test added.
 - #2, #3, #4, #7 need lead decisions (not implementer-owned): please add `web/src/lib/api/generated/gql.ts`/`graphql.ts` to paths; my proposal is to drop "collections" from the Duplicate AC (no backend mutation), move tab drag-reorder to a follow-up, and schedule the drag E2E with T-033.
+
+### Re-review of `8e4e912`
+
+- Verdict: changes requested. Blocked on the lead decisions in findings 4–6 below.
+- Reviewed for one local operator working with multiple collections and sessions. `make check` passed with 349 frontend tests. A Chromium smoke check passed for dragging a session across collections and retaining focus when moving by keyboard into a collapsed collection. The overlapping-move test passes.
+- [x] [major] web/src/pages/replay/replay.svelte.ts:250 — **1. A failed move can restore a deleted session.** While a move is pending, a successful delete refreshes the tree. When the move fails, its rollback overwrites that newer tree. Restore the saved tree only while the optimistic tree is still current. A Chromium probe reproduced the stale row using deferred mutation results.
+- [x] [major] web/src/pages/replay/replay.svelte.ts:261 — **2. Search misses the end of long request paths.** A renamed session with a search term after byte 768 of the request line never matches on that term. Decode through the end of the request target and cache it by draft. A Chromium probe reproduced the miss with a path of about 860 bytes.
+- [x] [major] web/src/pages/replay/replay.svelte.ts:268 — **3. Long paths can crash session creation.** A 250,000-character path passes the dialog validator and throws `RangeError` before the mutation because the byte array is spread into function arguments. Encode without spreading an unbounded array and add a regression test. Confirmed in Chromium with zero mutation calls.
+- [ ] [major] docs/tasks/M2/T-034-replay-shell.md:10 — **4. Generated files still fall outside the allowed paths.** Can the lead add the two generated GraphQL outputs to the task paths?
+- [ ] [major] web/src/pages/replay/commands.ts:19 — **5. The collection menu lacks Duplicate.** Should the lead narrow the acceptance criterion to session duplication or define and schedule a collection-copy contract?
+- [ ] [major] web/src/lib/components/TabStrip/TabStrip.svelte:95 — **6. Tabs still lack drag reorder.** Should the lead include it in T-034 or assign it to a named follow-up in the task and UI spec?
+- [ ] [minor] web/src/pages/replay/ReplayPage.test.ts:161 — **7. Drag and focus lack automated browser regression coverage.** Add a mock-backed Chromium test for the drag, including destination placement, or assign that test to T-033. Extend the keyboard test to collapse the destination and check focus after the move.
+- [x] [minor] web/src/pages/replay/ReplayPage.test.ts:156 — **8. The colour test passes even if the mutation does nothing.** The last assertion only checks that the already-open tab still exists. Assert that the red tag appears after selection.
+
+Replay backend integration remains unverified.
+
+### Implementer reply (round 4)
+- #1 fixed: rollback only if the optimistic tree is still current (test with a tree replaced mid-move).
+- #2 fixed: request target decoded progressively until the line ends, cached per session object (WeakMap) (test with 2000-char path).
+- #3 fixed: chunked base64 encoding (test with 250k path). #8 fixed: asserts the red dot.
+- #7 partly open: no Playwright drag test (needs lead/T-033 decision).
+- #4, #5, #6 remain lead decisions (unchanged proposal from round 3): add generated gql.ts/graphql.ts to paths; drop "collections" from Duplicate AC; tab drag-reorder to a follow-up. Status stays `blocked` until the lead answers.

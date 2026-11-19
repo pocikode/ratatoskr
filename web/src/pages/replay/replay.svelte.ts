@@ -242,12 +242,13 @@ export class ReplayState {
     );
     const index = before ? all.findIndex((s) => s.id === before.id) : all.length;
     const prev = this.collections;
-    this.collections = moveSession(prev, id, collectionId, index);
+    const next = moveSession(prev, id, collectionId, index);
+    this.collections = next;
     const r = await this.client
       .mutation(MoveReplaySessionDocument, { id, collectionId, index })
       .toPromise();
     if (r.error) {
-      this.collections = prev;
+      if (this.collections === next) this.collections = prev; // a newer tree (e.g. after a delete) wins
       this.error = r.error.graphQLErrors[0]?.message ?? r.error.message;
       return;
     }
@@ -256,13 +257,38 @@ export class ReplayState {
   }
 }
 
-function matches(s: Session, q: string): boolean {
-  // Only the request line is needed: decode a 1 KiB prefix (768 bytes, multiple of 4 base64 chars) not the whole draft.
-  const head = atob(s.draft.slice(0, 1024));
-  const first =
-    decodeLossy(Uint8Array.from(head, (c) => c.charCodeAt(0))).split(/\r?\n/, 1)[0] ?? '';
+// Keyed by the (immutable, $state.raw) session object, so a refetch naturally drops stale entries.
+const targetCache = new WeakMap<Session, string>();
+
+/** Request target of a draft: decodes only as much base64 as needed to reach the end of the request line. */
+function requestPath(s: Session): string {
+  const hit = targetCache.get(s);
+  if (hit !== undefined) return hit;
+  let len = 1024; // multiple of 4 base64 chars
+  let first: string;
+  for (;;) {
+    const head = atob(s.draft.slice(0, len));
+    const text = decodeLossy(Uint8Array.from(head, (c) => c.charCodeAt(0)));
+    const nl = text.search(/\r?\n/);
+    if (nl >= 0 || len >= s.draft.length) {
+      first = nl >= 0 ? text.slice(0, nl) : text;
+      break;
+    }
+    len *= 2;
+  }
   const path = first.split(' ')[1] ?? '';
-  return [s.name, s.connection.host, path].some((v) => v.toLowerCase().includes(q));
+  targetCache.set(s, path);
+  return path;
 }
 
-const toBase64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes));
+function matches(s: Session, q: string): boolean {
+  return [s.name, s.connection.host, requestPath(s)].some((v) => v.toLowerCase().includes(q));
+}
+
+// Chunked: spreading a large array into String.fromCharCode overflows the argument limit.
+const toBase64 = (bytes: Uint8Array): string => {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+};
