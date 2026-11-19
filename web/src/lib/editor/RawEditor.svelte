@@ -8,7 +8,7 @@
   } from '@codemirror/commands';
   import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
   import { search, searchKeymap } from '@codemirror/search';
-  import { Annotation, Compartment, EditorState } from '@codemirror/state';
+  import { Annotation, Compartment, EditorSelection, EditorState } from '@codemirror/state';
   import { EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
   import { tags } from '@lezer/highlight';
   import { untrack } from 'svelte';
@@ -27,6 +27,8 @@
     onchange?: (bytes: Uint8Array) => void;
     readonly?: boolean;
     variables?: Record<string, EditorVariable>;
+    /** Message identity: changing it resets the editor (and its undo history) even if the bytes are equal. */
+    identity?: unknown;
     label?: string;
   }
 
@@ -35,6 +37,7 @@
     onchange,
     readonly = false,
     variables = {},
+    identity,
     label = 'Raw HTTP message',
   }: Props = $props();
 
@@ -92,51 +95,82 @@
     };
   }
 
+  let loadedIdentity: unknown;
+
+  // Keep the cursor out of the middle of CRLF: End lands before the CR, arrows step over the pair.
+  const crlfCursor = EditorState.transactionFilter.of((tr) => {
+    const doc = tr.newDoc;
+    const prev = tr.startState.selection.main.head;
+    const fix = (pos: number) =>
+      pos > 0 && doc.sliceString(pos - 1, pos + 1) === '\r\n'
+        ? prev === pos - 1
+          ? pos + 1
+          : pos - 1
+        : pos;
+    const sel = tr.newSelection;
+    if (sel.ranges.every((r) => fix(r.anchor) === r.anchor && fix(r.head) === r.head)) return tr;
+    return [
+      tr,
+      {
+        sequential: true,
+        selection: EditorSelection.create(
+          sel.ranges.map((r) => EditorSelection.range(fix(r.anchor), fix(r.head))),
+          sel.mainIndex,
+        ),
+      },
+    ];
+  });
+
   $effect(() => {
     const element = host;
     if (!element) return;
-    const editor = new EditorView({
-      parent: element,
-      state: untrack(() =>
-        EditorState.create({
-          doc: text ?? decodeLossy(value),
-          extensions: [
-            // CR stays a document character, so no line break is ever normalised.
-            EditorState.lineSeparator.of('\n'),
-            httpLanguage,
-            syntaxHighlighting(highlight),
-            highlightSpecialChars({
-              specialChars: SPECIAL,
-            }),
-            historyCompartment.of(history()),
-            search({ top: true }),
-            variableDecorations(() => variables),
-            lockCompartment.of(lockExtensions(locked)),
-            wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
-            keymap.of([
-              { key: 'Enter', run: enter },
-              { key: 'Shift-Enter', run: enter },
-              { key: 'Backspace', run: eraser(false) },
-              { key: 'Delete', run: eraser(true) },
-              ...searchKeymap,
-              ...historyKeymap,
-              ...defaultKeymap,
-            ]),
-            EditorView.updateListener.of((update) => {
-              if (!update.docChanged || update.state.readOnly) return;
-              if (update.transactions.some((t) => t.annotation(external))) return;
-              onchange?.(encodeText(update.state.doc.toString()));
-            }),
-            EditorView.contentAttributes.of({
-              'aria-label': label,
-              'aria-multiline': 'true',
-              autocapitalize: 'off',
-              spellcheck: 'false',
-            }),
-          ],
+    loadedIdentity = untrack(() => identity);
+    // untrack: plugin constructors read `variables`, which must not rebuild the editor.
+    const editor = untrack(
+      () =>
+        new EditorView({
+          parent: element,
+          state: EditorState.create({
+            doc: text ?? decodeLossy(value),
+            extensions: [
+              // CR stays a document character, so no line break is ever normalised.
+              EditorState.lineSeparator.of('\n'),
+              crlfCursor,
+              httpLanguage,
+              syntaxHighlighting(highlight),
+              highlightSpecialChars({
+                specialChars: SPECIAL,
+              }),
+              historyCompartment.of(history()),
+              search({ top: true }),
+              variableDecorations(() => variables),
+              lockCompartment.of(lockExtensions(locked)),
+              wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
+              keymap.of([
+                { key: 'Enter', run: enter },
+                { key: 'Shift-Enter', run: enter },
+                { key: 'Backspace', run: eraser(false) },
+                { key: 'Delete', run: eraser(true) },
+                ...searchKeymap,
+                ...historyKeymap,
+                // Mod-Enter is the app's Send/Forward shortcut; the editor must not consume it.
+                ...defaultKeymap.filter((b) => b.key !== 'Mod-Enter'),
+              ]),
+              EditorView.updateListener.of((update) => {
+                if (!update.docChanged || update.state.readOnly) return;
+                if (update.transactions.some((t) => t.annotation(external))) return;
+                onchange?.(encodeText(update.state.doc.toString()));
+              }),
+              EditorView.contentAttributes.of({
+                'aria-label': label,
+                'aria-multiline': 'true',
+                autocapitalize: 'off',
+                spellcheck: 'false',
+              }),
+            ],
+          }),
         }),
-      ),
-    });
+    );
     view = editor;
     return () => {
       editor.destroy();
@@ -149,8 +183,12 @@
     const editor = view;
     const next = text ?? decodeLossy(value);
     if (!editor) return;
-    if (text !== null && bytesEqual(encodeText(editor.state.doc.toString()), value)) return;
-    if (text === null && editor.state.doc.toString() === next) return;
+    const swapped = identity !== loadedIdentity;
+    loadedIdentity = identity;
+    if (swapped) {
+      // fall through: a different message always replaces the document
+    } else if (text !== null && bytesEqual(encodeText(editor.state.doc.toString()), value)) return;
+    else if (text === null && editor.state.doc.toString() === next) return;
     editor.dispatch({
       changes: { from: 0, to: editor.state.doc.length, insert: next },
       annotations: external.of(true),

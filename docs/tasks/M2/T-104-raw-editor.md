@@ -3,7 +3,7 @@ id: T-104
 title: RawEditor - byte-preserving editable HTTP editor with {{var}} highlighting
 milestone: M2
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: []
 owner: "claude-sonnet-5.5"
 branch: task/T-104-raw-editor
@@ -55,6 +55,7 @@ changes bytes the user did not edit.
 - How to verify: `make check`; `bunx vitest run src/lib/editor`.
 - Known limitations: hover uses native `title` (not a styled tooltip); wrap toggle is a button, not a registry command (no consumer page yet); cursor can sit between CR and LF; no Playwright spec (component not mounted in a page until T-032/T-107).
 - Review round 2: all 5 findings fixed (history reset on prop replace, CRLF-aware Backspace/Delete + Shift-Enter, getClientRects shim, blankLine body phase, mixed-ending component test). `make check` green.
+- Review round 3: CRLF-aware cursor (transaction filter keeps caret out of CR|LF); new optional `identity` prop resets doc+history on message change (consumers T-032/T-107 should pass the message id); Mod-Enter removed from editor keymap; lexer test uses `\n` separator. Also fixed editor being rebuilt on prop updates (`new EditorView` now untracked), which had made earlier undo tests vacuous.
 - Follow-ups (proposed tasks):
 
 ## Review (reviewer)
@@ -74,9 +75,9 @@ changes bytes the user did not edit.
 - Reviewed the current branch against `main`, including the follow-up that landed during review. Assumed one operator editing messages up to 5 MB.
 - Verdict: changes_requested
 - The follow-up fixes blocked undo after loading different bytes and cleared the jsdom geometry error. The mixed-ending component test passed. Chromium confirmed that both LF and CRLF blank lines end header highlighting.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:78 — Chromium's End key lands between CR and LF. From the first line of `a\r\nb`, End then Delete emits `a\rb`, and End then typing `x` emits `a\rx\nb`. Keep the cursor out of the middle of CRLF, make deletion consume it as one boundary, and test editing from the visual end of the line.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:152 — A byte-identical replacement keeps the previous message's undo stack. In Chromium, editing `a` to `ax`, loading a different message with bytes `ax`, then undoing emits `a` for the newly selected message. Tie the editor's lifetime or history reset to message identity and test both same-byte selection changes and ordinary parent echoes.
-- [ ] [major] web/src/lib/editor/RawEditor.svelte:123 — CodeMirror's default Mod+Enter binding inserts a blank line and consumes the app's Send and Forward shortcut. Chromium on macOS emitted changed bytes and the window received a prevented event, which `ShortcutManager` ignores. Filter the Mod+Enter binding out of the editor keymap.
-- [ ] [minor] web/src/lib/editor/http.test.ts:7 — The lexer test uses CodeMirror's default newline handling, so both cases reach the parser as LF. Set `EditorState.lineSeparator.of('\n')`, as RawEditor does, to exercise the CRLF path with its retained CR.
+- [x] [major] web/src/lib/editor/RawEditor.svelte:78 — Chromium's End key lands between CR and LF. From the first line of `a\r\nb`, End then Delete emits `a\rb`, and End then typing `x` emits `a\rx\nb`. Keep the cursor out of the middle of CRLF, make deletion consume it as one boundary, and test editing from the visual end of the line.
+- [x] [major] web/src/lib/editor/RawEditor.svelte:152 — A byte-identical replacement keeps the previous message's undo stack. In Chromium, editing `a` to `ax`, loading a different message with bytes `ax`, then undoing emits `a` for the newly selected message. Tie the editor's lifetime or history reset to message identity and test both same-byte selection changes and ordinary parent echoes.
+- [x] [major] web/src/lib/editor/RawEditor.svelte:123 — CodeMirror's default Mod+Enter binding inserts a blank line and consumes the app's Send and Forward shortcut. Chromium on macOS emitted changed bytes and the window received a prevented event, which `ShortcutManager` ignores. Filter the Mod+Enter binding out of the editor keymap.
+- [x] [minor] web/src/lib/editor/http.test.ts:7 — The lexer test uses CodeMirror's default newline handling, so both cases reach the parser as LF. Set `EditorState.lineSeparator.of('\n')`, as RawEditor does, to exercise the CRLF path with its retained CR.
 - Verification: The final `make check` passed, including all 248 web tests. The earlier run stopped at Prettier's `[warn] src/lib/editor/RawEditor.svelte`, and a separate web test run reported `Error: Test timed out in 5000ms.` at `src/pages/sitemap/sitemap.svelte.test.ts:132`. The format fix and the final gate cleared both failures.
 - Browser checks mounted the component in Chromium. The app's Playwright suite and 5 MB interaction timing were outside this review.

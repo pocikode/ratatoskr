@@ -93,4 +93,51 @@ describe('RawEditor', () => {
     await userEvent.keyboard('{Control>}z{/Control}');
     expect(onchange).not.toHaveBeenCalled();
   });
+
+  it('undo after loading byte-identical bytes under a new identity emits nothing', async () => {
+    const onchange = vi.fn();
+    const { rerender } = render(RawEditor, { value: enc('a'), onchange, identity: 1 });
+    await userEvent.click(box());
+    await userEvent.keyboard('{Control>}{End}{/Control}x');
+    await rerender({ value: enc('ax'), onchange, identity: 2 });
+    await tick();
+    onchange.mockClear();
+    await userEvent.keyboard('{Control>}z{/Control}');
+    expect(onchange).not.toHaveBeenCalled();
+  });
+
+  it('a parent echo with the same identity keeps undo', async () => {
+    const onchange = vi.fn();
+    const { rerender } = render(RawEditor, { value: enc('a'), onchange, identity: 1 });
+    await userEvent.click(box());
+    await userEvent.keyboard('{Control>}{End}{/Control}x');
+    await rerender({ value: enc('ax'), onchange, identity: 1 });
+    await tick();
+    await userEvent.keyboard('{Control>}z{/Control}');
+    expect(dec(onchange.mock.lastCall![0])).toBe('a');
+  });
+
+  it('End then Delete / typing never splits CRLF', async () => {
+    const onchange = vi.fn();
+    render(RawEditor, { value: enc('a\r\nb'), onchange });
+    await userEvent.click(box());
+    await userEvent.keyboard('{Control>}{Home}{/Control}{End}{Delete}');
+    expect(dec(onchange.mock.lastCall![0])).toBe('ab');
+  });
+
+  it('End then typing inserts before the CR', async () => {
+    const onchange = vi.fn();
+    render(RawEditor, { value: enc('a\r\nb'), onchange });
+    await userEvent.click(box());
+    await userEvent.keyboard('{Control>}{Home}{/Control}{End}x');
+    expect(dec(onchange.mock.lastCall![0])).toBe('ax\r\nb');
+  });
+
+  it('Mod+Enter is not consumed by the editor', async () => {
+    const onchange = vi.fn();
+    render(RawEditor, { value: enc('a'), onchange });
+    await userEvent.click(box());
+    await userEvent.keyboard('{Control>}{Enter}{/Control}');
+    expect(onchange).not.toHaveBeenCalled();
+  });
 });
