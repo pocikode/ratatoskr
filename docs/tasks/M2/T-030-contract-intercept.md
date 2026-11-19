@@ -133,7 +133,7 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
 - Follow-ups (proposed tasks): none. T-031 replaces `stubs_intercept.go`; T-100 replaces `stubs_history_edited.go`.
 
 ## Review (reviewer)
-- Verdict: changes_requested
+- Verdict: approve (lead escalation recheck of `11bd6dd`)
 - Findings:
   - [x] [major] web/src/lib/api/mocks/intercept.ts:218 — Turning both traffic sides off in one update releases requests
     before responses. With `ii1`, `ii2`, `ii3` (response), and `ii4` (request) queued in that order, `REMOVED` arrives
@@ -219,3 +219,18 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
   `git diff --check main...HEAD` flags three whitespace-only lines in the generated web schema at lines 518, 530,
   and 614. No proxy, store, or raw HTTP changes required `make test-int`.
 - Verdict: `changes_requested`. Return the oversized-held-message case to the lead.
+
+### Lead escalation recheck (`11bd6dd`)
+
+- [ ] [nit] internal/api/graphql/schema/intercept.graphqls:2 — The ownership comment sends readers to T-100 for the
+  Intercept proxy hooks. T-100 supplies history capture and `editedBy`. → Point the proxy hooks reference to T-105.
+- Verification covered the contract and the development mock for a single local operator. The oversized-request test
+  confirms that `raw` contains the whole held message and that rejecting an edit leaves it available to forward
+  unchanged. A separate mock probe verified response bytes across four body slices, rejection of a small replacement
+  for an oversized response, successful drop, and acceptance of a replacement at exactly 16 MiB. The capture and API
+  cap descriptions match the linked spec and `limitBody`.
+- `make check` passed with 247 web tests. Two `make gen` runs in an isolated snapshot reproduced both generated
+  directories byte for byte. All changed files are in scope. `git diff --check main...HEAD` flags three whitespace-only
+  lines from the web schema generator at lines 518, 530, and 616. Proxy, store, and raw HTTP code are outside this diff,
+  so `make test-int` was skipped.
+- Verdict: `approve`. The task stays `in_review` until the operator merges it.
