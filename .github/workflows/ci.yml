@@ -49,3 +49,30 @@ jobs:
         run: bun install --frozen-lockfile
 
       - run: make check
+
+  e2e:
+    name: Playwright (Chromium)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      BUN_VERSION: 1.4.4
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - run: bun install --frozen-lockfile
+
+      - run: bunx --bun playwright install --with-deps chromium
+
+      - run: bun run test:e2e
+        timeout-minutes: 5
