@@ -3,7 +3,7 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-030]
 owner: "Codex"
 branch: task/T-031-intercept-service
@@ -51,13 +51,13 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
       100–599 → `BAD_INPUT`; bad `query` → `BAD_QUERY` with span; unknown `scopeId` → `NOT_FOUND`.
 - [x] Resolver tests: unknown/released item → `NOT_FOUND`; forwardAll/dropAll counts; `interceptQueueChanged` and
       `interceptSettingsChanged` deliver events; `InterceptItem.request` loads the record through `Deps.History`.
-- [ ] Queue limit: a hold that would exceed 1 000 items or 256 MiB of held bytes returns forward-unchanged at once,
+- [x] Queue limit: a hold that would exceed 1 000 items or 256 MiB of held bytes returns forward-unchanged at once,
       logs at info and emits no event; held items stay. Test fails without the cap (both limits).
-- [ ] Response replacement is parsed with the exchange's request method; table cases: response to `HEAD` with
+- [x] Response replacement is parsed with the exchange's request method; table cases: response to `HEAD` with
       `Content-Length: 1234` and no body, 204, 304 keep their `Content-Length`; a 200 still gets the rule.
-- [ ] A deleted active scope preset or an eval error holds nothing and logs at warn (test asserts not held).
-- [ ] One Content-Length helper in `internal/replay/sender` used by both Replay and Intercept; Replay tests still pass.
-- [ ] `make check` green.
+- [x] A deleted active scope preset or an eval error holds nothing and logs at warn (test asserts not held).
+- [x] One Content-Length helper in `internal/replay/sender` used by both Replay and Intercept; Replay tests still pass.
+- [x] `make check` green.
 
 ## Notes from lead
 - Item ID = opaque string derived from the history request ID and kind (e.g. `req:12`); never parse it in the UI.
@@ -76,9 +76,8 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
 
 ## Out-of-scope change needed (if any)
 
-- Sharing the Content-Length helper requires changing the Replay caller and, if the helper lives there, the raw HTTP
-  package. The lead needs to expand T-031's allowed paths or assign the extraction to a follow-up task.
-- The sitemap test timeout belongs to T-020. The review records the failing test and its passing reruns for the owner.
+- T-020 owns the load-sensitive timeout in `web/src/pages/sitemap/sitemap.svelte.test.ts:132`. The review records the
+  failing test and passing reruns for the T-020 owner.
 
 - Lead decision needed for the history record on queue events during a project switch. F-INT-1 releases the old
   queue on switch, and the GraphQL contract requires the `REMOVED` item as it was when it left, with a non-null
@@ -124,6 +123,15 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
   - `persisted` nit: implementer's call.
 
 ## Handoff (implementer)
+- Review fixes in `c2ea79b` cap the shared request/response queue at 1 000 items and 256 MiB of held raw bytes.
+  Overflow forwards unchanged without a queue event. Release and client cancellation return capacity. Scope lookup and
+  evaluation failures log warnings and pass through. Response edits parse with the request method and preserve
+  Content-Length for HEAD, 1xx, 204, and 304. Replay and Intercept share the editor length rule.
+- Verification after review fixes: `make check` (295 web tests), `make test-int`, and focused Intercept, Replay sender,
+  and resolver race tests passed. Each queue regression test failed when its corresponding limit was removed via a
+  temporary Go overlay. A separate proxy package run intermittently missed a capture in
+  `TestUIDownloadDoesNotCaptureConnection`; the full integration suite and three focused reruns passed. A diagnostic
+  25-second history run timed out in `TestSitemapCountsAndQueries`; the full integration history package took 32 seconds.
 - Implemented per-project settings, HTTPQL and scope matching, FIFO release decisions, replacement validation, and queue
   and settings events. Queue IDs include a sequence so an old ID cannot address a new project's item with the same
   history ID. The resolvers load records through `Deps.History` and discard lookups that overlap a project switch.
@@ -142,12 +150,18 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
   - Scope: all code changes are inside `paths`. Other changed files (`docs/01`, `docs/03`, `docs/tasks/M2/T-105`, `T-109`, `schema/intercept.graphqls`, generated `exec.go`/`models.go`/web `schema.graphql`) come from the lead's resolution commits `f68c801` and `086230b`. The generated files match the schema. Lead to confirm the schema text is theirs (rule 5).
   - AC: each checked item has a test. I checked the hold matrix, release order and cancel (synctest), project switch, settings reopen and validation, the exact and over 16 MiB limits, conflicting `Content-Length` → `BAD_INPUT`, and resolver `NOT_FOUND`.
 - Findings:
-  - [ ] [major] `internal/intercept/service.go:245` — the held queue has no limit on count or total bytes. Each held item keeps its whole message (up to 64 MiB) until the user acts. Case: queuing and responses on, a script sends 1000 responses of 1 MB each → about 1 GB held, with no end. → Lead decides a cap (count or total bytes) and what happens past it (for example pass through and log at info, like the 64 MiB rule). Then add a test that fails if the cap is missing. Not an implementer decision.
-  - [ ] [minor] `internal/intercept/replacement.go:62-78` duplicates `internal/replay/sender/content_length.go:15-38` (Transfer-Encoding check, `bodyAt` math, length compare, builder write). Both must change together (F-INT-1 and F-REP-2). → Move one helper into `sender` (or `rawhttp`) that takes `(raw, msg *rawhttp.Message, bodyAt int)`. Both call sites use it. About 12 lines saved.
-  - [ ] [minor] `internal/intercept/replacement.go:35,46-48` — the response is parsed with method `""` (treated as GET). Case, from reading the code, not run: a 304 with `Content-Length: 1234` and no body. The body is empty, so an edit of one header with `updateContentLength` (default true) turns the length into `Content-Length: 0`. The spec text says this literally, so it is a spec question. → Lead decides whether HEAD, 1xx, 204 and 304 skip the rule. If yes, pass the request method (from `msg.Request()`) into `replacement` and add a table case.
-  - [ ] [minor] `internal/intercept/service.go:221-231` — `matches` swallows errors. An eval error or a failed scope read returns false, so the message goes out unheld with no log. Case: the scope preset is deleted while active → nothing is ever held, silently. → Log the error with `slog.Warn` before returning false. Lead to confirm "deleted preset holds nothing" (the query side already does this in `compile`).
-  - [ ] [nit] `internal/intercept/settings.go:189-191` — `persisted` exists only to skip a write on a queuing-only change. → Remove it and always call `save`. It is one transaction of five upserts. Same result, fewer lines.
-  - [ ] [minor] `web/src/pages/sitemap/sitemap.svelte.test.ts:132` — times out at 5 s under full-suite load (outside T-031; passed on rerun). → Report to the T-020 owner. The fix belongs there, not in a timeout bump here.
+  - [x] [major] `internal/intercept/service.go:245` — the held queue has no limit on count or total bytes. Each held item keeps its whole message (up to 64 MiB) until the user acts. Case: queuing and responses on, a script sends 1000 responses of 1 MB each → about 1 GB held, with no end. → Lead decides a cap (count or total bytes) and what happens past it (for example pass through and log at info, like the 64 MiB rule). Then add a test that fails if the cap is missing. Not an implementer decision.
+    - Enforced both limits under the queue lock. Boundary tests cover mixed kinds, overflow without events, released capacity, and cancellation.
+  - [x] [minor] `internal/intercept/replacement.go:62-78` duplicates `internal/replay/sender/content_length.go:15-38` (Transfer-Encoding check, `bodyAt` math, length compare, builder write). Both must change together (F-INT-1 and F-REP-2). → Move one helper into `sender` (or `rawhttp`) that takes `(raw, msg *rawhttp.Message, bodyAt int)`. Both call sites use it. About 12 lines saved.
+    - Replay and Intercept now share `sender.UpdateParsedContentLength`. Intercept passes the head it already validated.
+  - [x] [minor] `internal/intercept/replacement.go:35,46-48` — the response is parsed with method `""` (treated as GET). Case, from reading the code, not run: a 304 with `Content-Length: 1234` and no body. The body is empty, so an edit of one header with `updateContentLength` (default true) turns the length into `Content-Length: 0`. The spec text says this literally, so it is a spec question. → Lead decides whether HEAD, 1xx, 204 and 304 skip the rule. If yes, pass the request method (from `msg.Request()`) into `replacement` and add a table case.
+    - Response edits use the held exchange's request method and preserve the bytes for `rawhttp.FramingNone`. Added service-level table tests.
+  - [x] [minor] `internal/intercept/service.go:221-231` — `matches` swallows errors. An eval error or a failed scope read returns false, so the message goes out unheld with no log. Case: the scope preset is deleted while active → nothing is ever held, silently. → Log the error with `slog.Warn` before returning false. Lead to confirm "deleted preset holds nothing" (the query side already does this in `compile`).
+    - Logged evaluation and scope lookup failures at warn before passing traffic through. Added regression tests for both cases.
+  - [x] [nit] `internal/intercept/settings.go:189-191` — `persisted` exists only to skip a write on a queuing-only change. → Remove it and always call `save`. It is one transaction of five upserts. Same result, fewer lines.
+    - Kept the guard per the lead’s discretion. A queuing-only change can still release the queue without needing a successful SQLite write.
+  - [x] [minor] `web/src/pages/sitemap/sitemap.svelte.test.ts:132` — times out at 5 s under full-suite load (outside T-031; passed on rerun). → Report to the T-020 owner. The fix belongs there, not in a timeout bump here.
+    - Recorded the test, failure, and passing rerun for T-020 above. The lead confirmed T-020 owns the investigation.
 - Lean: -12 lines possible (finding 2), -2 (finding 5).
 - Not checked: `make test-int` (paths not touched). Real HEAD and 304 behaviour (finding 3, reasoned from code). Load test of the queue (finding 1, reasoned from code).
 - To reach approve: decide and fix finding 1. Findings 2 to 5 can be fixed here or taken as follow-ups with the lead's agreement.
