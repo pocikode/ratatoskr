@@ -157,7 +157,7 @@ unlimited projects/plugins) are **free and unlimited** here.
   body with chunked framing and content coding removed, first 4 MiB only. Status 200; `Content-Type` copied from the
   stored response (none → `application/octet-stream`); no other stored header is forwarded. Every answer carries
   `Content-Security-Policy: sandbox`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and
-  `Referrer-Policy: no-referrer`. Unknown/non-numeric id or no stored response → 404. Same auth as other `/api/rest/` routes.
+  `Referrer-Policy: no-referrer`. Unknown/non-numeric id, no stored response or no open project → 404. Same auth as other `/api/rest/` routes.
   Preview mode and "Open in browser" exist on the **response** pane only.
 - Read-only in history; selection → context menu (send selection to Decoder-like convert workflow, copy, search).
 - Auto-decoding of `Content-Encoding` (gzip, deflate, br, zstd) and chunked for display only.
