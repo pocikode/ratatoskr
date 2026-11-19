@@ -3,9 +3,9 @@ id: T-098
 title: Contract - Replay collections, sessions, entries, send; Environments
 milestone: M2
 role: lead
-status: todo
+status: in_progress
 depends_on: [T-030]
-owner: ""
+owner: "claude-code (opus-5.5)"
 branch: task/T-098-contract-replay-environment
 paths:
   - internal/api/graphql/schema/replay.graphqls
@@ -67,6 +67,14 @@ and T-034/T-107/T-103 (frontend) can start in parallel.
 - Keep `draft`/`raw` as `Bytes` (byte fidelity); the UI decodes for the editor (T-104).
 
 ## Plan (implementer, ≤15 lines)
+1. `replay.graphqls`: kinds, collection/session/entry types, connection/options + inputs, entry connection (reuses
+   `PageInfo`), queries, mutations; every field documents defaults, limits and error codes from F-REP-1/F-REP-2.
+2. `environment.graphqls`: variable + input, environment, queries, mutations with F-ENV-1 rules/codes.
+3. `gqlgen.yml`: lazy field resolvers for `ReplayCollection.sessions`, `ReplaySession.collection/entries`,
+   `ReplayEntry.request` so list queries stay cheap; `omittable` fields where null ≠ omitted.
+4. Stubs: `stubs_replay.go` (CRUD + field resolvers), `stubs_replay_send.go` (send/cancel), `stubs_environment.go`;
+   `Deps.Replay`, `Deps.ReplaySend`, `Deps.Environment` placeholder interfaces. `make gen`.
+5. Mocks: `replay.ts`, `environment.ts` (+ vitest), merged in `exchange.ts`. `make check`.
 
 ## Out-of-scope change needed (if any)
 
