@@ -3,7 +3,7 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: in_progress
+status: in_review
 depends_on: []
 owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
@@ -45,13 +45,13 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
 - Out: WebSocket items (T-053), "add to scope" / workflow actions, any backend logic.
 
 ## Acceptance criteria
-- [ ] Every type, field and argument documented with the F-INT-1 contract rules, incl. error codes: `NOT_FOUND` (unknown or
+- [x] Every type, field and argument documented with the F-INT-1 contract rules, incl. error codes: `NOT_FOUND` (unknown or
       already released item, unknown `scopeId`), `BAD_INPUT` (unparsable `raw` with the parse error; `dropStatusCode`
       outside 100–599), `BAD_QUERY` with span (bad `query`). States that `queuing` is not persisted.
-- [ ] `make gen` clean (`git diff --exit-code` after a second run); stubs compile; `make check` green.
-- [ ] Mock: settings round-trip; forward/drop remove items and emit `REMOVED`; queuing → false releases all; a mock
+- [x] `make gen` clean (`git diff --exit-code` after a second run); stubs compile; `make check` green.
+- [x] Mock: settings round-trip; forward/drop remove items and emit `REMOVED`; queuing → false releases all; a mock
       timer adds an item so the badge can be seen live (opt-in flag, off in tests). Vitest covers these.
-- [ ] Mock history: `editedBy`/`editedFrom` resolve both ways for the seeded pair.
+- [x] Mock history: `editedBy`/`editedFrom` resolve both ways for the seeded pair.
 
 ## Notes from lead
 - Same layout as `scope.graphqls`: extend `Query`/`Mutation`/`Subscription`, no new root files.
@@ -72,9 +72,30 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
 
 ## Handoff (implementer)
 - What changed:
-- How to verify:
+  - `intercept.graphqls` (new): `InterceptItemKind`, `InterceptSettings`, `InterceptSettingsInput`, `InterceptItem`,
+    `InterceptQueueChangeKind`/`InterceptQueueChange`; queries `interceptSettings`, `interceptQueue`; mutations
+    `updateInterceptSettings`, `forward/dropInterceptItem`, `forward/dropAllInterceptItems`; subscriptions
+    `interceptQueueChanged`, `interceptSettingsChanged`. Every type, field and argument documented, with error codes.
+  - `history.graphqls`: `HttpRequest.editedBy`; F-HIST-4 pair model on `HttpRequest`; `editedFrom`, `INTERCEPT`,
+    `isDropped` (a dropped response keeps the server's response) and `response` (null while held) docs aligned.
+  - `gqlgen.yml`: `editedBy` resolver; `InterceptSettingsInput.scopeId` is `graphql.Omittable[*string]` so the
+    backend can tell `scopeId: null` (clear) from omitted (keep). The other input fields treat null as omitted (documented).
+  - Resolvers: `stubs_intercept.go` (`type InterceptService any` placeholder, lint wants `any` over `interface{}`;
+    all intercept fields return `ErrNotImplemented`), `stubs_history_edited.go`, `Deps.Intercept`.
+  - Mocks: `mocks/intercept.ts` merged into the exchange; new `MockExchangeOptions.interceptLiveIntervalMs` (default 0)
+    holds a request on a timer. The history mock gets `editedBy` (both sides of every seeded pair, cleared on delete)
+    and `addRecord`/`updateRecord`, so held items are real history records and forward/drop emit `requestUpdated`.
+- How to verify: `make gen` twice → `git diff --exit-code` clean; `make check`; `cd web && bunx --bun vitest run src/lib/api/mocks`.
 - Known limitations:
-- Follow-ups (proposed tasks):
+  - Intercept mock starts **queuing with requests and responses on** (unlike the real defaults) so the seeded items
+    make sense. It seeds lazily on the first intercept operation, so history-only clients and tests keep their row counts.
+  - Mock shortcuts (commented): `raw` validation checks only the start line and the header terminator; `query`
+    validation flags only an unterminated string; a forward with edits stores no edited record.
+  - Calling `editedBy` against the real server returns `NOT_IMPLEMENTED` until T-100. Frontend queries that select it
+    fail there until then.
+  - `make check` passed; on the first run `src/pages/sitemap/*` failed once under heavy parallel load (158 s run),
+    and it passed on both reruns. That test is not touched here.
+- Follow-ups (proposed tasks): none. T-031 replaces `stubs_intercept.go`; T-100 replaces `stubs_history_edited.go`.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
