@@ -3,7 +3,7 @@ id: T-033
 title: Replay service - collections, sessions, entries (no sending)
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "codex (GPT-6)"
 branch: task/T-033-replay-service
@@ -71,31 +71,23 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
 6. Run make check, complete Handoff and submit in_review.
 
 ## Out-of-scope change needed (if any)
-- Confirmed during review follow-up: `sourceRequest` reads `requests.truncated`, but
-  `internal/history/capture.go` also sets that flag when only the response was truncated.
-  `requests.len` is the stored byte count, so it cannot recover request-only truncation.
-  F-REP-1 requires accepting a complete request even when its response was truncated.
-- Lead: expand this task's paths or provide a prerequisite task for request-only truncation
-  persistence in `internal/history/capture.go`, the store request model/insertion in
-  `internal/store/requests.go`, and their tests. Migration 0003 and Replay readers/tests
-  are already in scope. Define how existing records with the combined flag are handled;
-  their request-only truncation cannot be determined from the current flag alone.
-- Lead question (minor finding): does an unset SNI override satisfy the AC's "SNI = host",
-  using F-REP-2's host fallback? If yes, remove the explicit history-copy override and
-  update its test so later host edits use the new host as SNI.
-- The reorder-helper nit also needs `internal/api/graphql/resolvers/scope.go` added to
-  paths to generalize `parseOrderIDs`' preset-specific error wording before reuse.
-- (Resolved by lead 2026-11-19, see Notes from lead.) Follow-up stopped under AGENTS.md hard rules 1–2. Review findings remain unchecked;
-  no implementation files changed and no checks rerun in this follow-up.
+- None remaining. Lead expanded paths and resolved request-truncation backfill and SNI semantics on 2026-11-19.
 
 ## Handoff (implementer)
-- Current status: blocked on the scope expansion and lead decisions above. Verification
-  results below describe the previous implementation, before the unresolved review findings.
+- Current status: in_review; all three review findings addressed. Follow-up verification: make check and
+  make test-int both passed (including Go race tests and 42 frontend test files / 329 tests).
+- Review fixes: migration 0003 adds and backfills request_truncated from the old combined flag;
+  InsertRequestTx persists request-only truncation before response capture updates the combined flag.
+  Replay uses request_truncated, so truncated responses no longer prevent copying complete requests.
+  History copies leave SNI unset so it follows host edits. Replay reorder reuses parseOrderIDs with neutral errors.
+- Regression coverage: store insertion with both truncation states, populated v2 backfill, Replay copy with
+  response-only truncation versus request truncation, null SNI after copy/host edit, and GraphQL null SNI.
 - What changed: transactional, project-scoped Replay collection/session CRUD, lazy unique Default,
   history-copy validation, byte-exact drafts, atomic options updates, colour, duplication and position moves;
   stable newest-first entry paging and AddEntry failure text. Replaced CRUD stubs with thin GraphQL resolvers
   and moved ReplayService into replay.go; sending remains false as assigned.
 - Storage: migration 0003 adds a unique is_default marker, a draft BLOB, and nullable entry error.
+  Migration 0003 also tracks request-only truncation and conservatively backfills old combined flags.
   Connection/options/colour use existing state_json. Entry IDs are AUTOINCREMENT so deleted cursor IDs
   cannot be reused. Collection deletion explicitly deletes sessions because the original FK uses SET NULL;
   entry cascades retain History records. AddEntry takes createdAt from the linked request's creation time.
@@ -118,7 +110,7 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
 - Checks: all changed files are inside `paths`. `make check` green (exit 0). `make test-int` not re-run (store/proxy/rawhttp
   code untouched; the migration is covered by `internal/replay/migration_test.go`). AC 1–7 are covered by service and resolver tests.
 - Findings:
-  - [ ] [major] internal/replay/session.go:79 — `requests.truncated` is not "the request was truncated". Capture also sets it
+  - [x] [major] internal/replay/session.go:79 — `requests.truncated` is not "the request was truncated". Capture also sets it
         when only the **response** was cut (`internal/history/capture.go:480-484`: `truncated = truncated OR resp.Truncated`), and
         `requests.len` is the stored length (`internal/store/requests.go:48`), so this code cannot tell the two apart. Example: a
         complete `GET /big.iso` whose response went over the 64 MiB capture cap → Ctrl+R / `createReplaySession(fromRequestId)`
@@ -127,11 +119,15 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
         a write in `internal/history/capture.go`), and that file is outside this task's paths → write it under "Out-of-scope
         change needed" (or set `blocked` for the lead), then add a service test where a request with a truncated response
         can be copied and a truncated request is rejected.
-  - [ ] [minor] internal/replay/session.go:82 — copying from History stores `SNI = host` as an explicit override. The schema says
+  - [x] [minor] internal/replay/session.go:82 — copying from History stores `SNI = host` as an explicit override. The schema says
         `sni: null` already means "host as SNI when it is a name", so this gives the same result on the wire, but the override
         stays when the user later changes the host. Example: copy from `a.test`, change the connection host to `b.test` → TLS to
         `b.test` with SNI `a.test`. The AC says "SNI = host", so this is not a defect of this task: ask the lead whether a
         `null` SNI satisfies it. If yes, drop the line and update the history test.
-  - [ ] [nit] internal/api/graphql/resolvers/replay.go:141-146 — duplicates `parseOrderIDs` (`resolvers/scope.go:44`), which
+  - [x] [nit] internal/api/graphql/resolvers/replay.go:141-146 — duplicates `parseOrderIDs` (`resolvers/scope.go:44`), which
         already maps an unparsable ID to `BAD_INPUT`. Reuse it. Its message says "preset", so pass a kind or make the
         wording generic.
+
+- Implementer follow-up (2026-11-19): all three findings addressed per lead decisions above. Request-only
+  truncation is written in InsertRequestTx; capture.go needs no change. Legacy combined flags remain
+  conservatively rejected. The SNI override stays null, and reorder ID parsing now uses the shared helper.

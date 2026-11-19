@@ -138,12 +138,9 @@ func (r *mutationResolver) ReorderReplayCollections(ctx context.Context, ids []s
 	if err != nil {
 		return nil, err
 	}
-	ns := make([]int64, len(ids))
-	for i, id := range ids {
-		ns[i], err = parsePresetID("replay collection", id)
-		if err != nil {
-			return nil, apperr.New(apperr.BadInput, "ids must list every collection exactly once")
-		}
+	ns, err := parseOrderIDs(ids)
+	if err != nil {
+		return nil, err
 	}
 	cs, err := svc.ReorderCollections(ctx, ns)
 	return toReplayCollections(cs), err

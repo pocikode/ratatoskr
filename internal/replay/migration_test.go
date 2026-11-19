@@ -36,6 +36,7 @@ func TestMigrationPreservesEntries(t *testing.T) {
  INSERT INTO replay_collections(id,name) VALUES(5,'Existing');
  INSERT INTO replay_sessions(id,collection_id,kind,name,created_at) VALUES(6,5,'http','Existing',1234);
  INSERT INTO requests(id,source,host,port,tls,method,path,raw,len,created_at) VALUES(8,'replay','example.test',80,0,'GET','/',X'00ff',2,1234);
+ INSERT INTO requests(id,source,host,port,tls,method,path,raw,len,created_at,truncated) VALUES(9,'proxy','example.test',80,0,'GET','/',X'00ff',2,1234,1);
  INSERT INTO replay_entries(id,session_id,request_id,created_at) VALUES(7,6,8,1234);`)
 	if err != nil {
 		t.Fatal(err)
@@ -48,6 +49,15 @@ func TestMigrationPreservesEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	for _, id := range []int64{8, 9} {
+		var truncated bool
+		if err := db.Reader().QueryRowContext(t.Context(), `SELECT request_truncated FROM requests WHERE id = ?`, id).Scan(&truncated); err != nil {
+			t.Fatal(err)
+		}
+		if truncated != (id == 9) {
+			t.Fatalf("request %d: backfilled truncation=%v", id, truncated)
+		}
+	}
 	svc := replay.New(func() *store.DB { return db })
 	page, err := svc.Entries(t.Context(), 6, 100, nil)
 	if err != nil || page.Total != 1 || page.Items[0].ID != 7 || page.Items[0].RequestID != 8 || page.Items[0].Error != nil || page.Items[0].CreatedAt.UnixMilli() != 1234 {
@@ -64,7 +74,7 @@ func TestMigrationPreservesEntries(t *testing.T) {
 	if err := db.Reader().QueryRowContext(t.Context(), `SELECT count(*) FROM replay_entries`).Scan(&count); err != nil || count != 0 {
 		t.Fatal(count, err)
 	}
-	if err := db.Reader().QueryRowContext(t.Context(), `SELECT count(*) FROM requests`).Scan(&count); err != nil || count != 1 {
+	if err := db.Reader().QueryRowContext(t.Context(), `SELECT count(*) FROM requests`).Scan(&count); err != nil || count != 2 {
 		t.Fatal(count, err)
 	}
 }

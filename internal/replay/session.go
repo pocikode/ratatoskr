@@ -69,7 +69,7 @@ func sourceRequest(ctx context.Context, tx *sql.Tx, id int64) ([]byte, Connectio
 	var c Connection
 	var truncated bool
 	var size int64
-	err := tx.QueryRowContext(ctx, `SELECT host, port, tls, truncated, length(raw) FROM requests WHERE id = ?`, id).Scan(&c.Host, &c.Port, &c.TLS, &truncated, &size)
+	err := tx.QueryRowContext(ctx, `SELECT host, port, tls, request_truncated, length(raw) FROM requests WHERE id = ?`, id).Scan(&c.Host, &c.Port, &c.TLS, &truncated, &size)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = apperr.New(apperr.NotFound, "request %d not found", id)
 	}
@@ -79,7 +79,6 @@ func sourceRequest(ctx context.Context, tx *sql.Tx, id int64) ([]byte, Connectio
 	if truncated || size > MaxDraftBytes {
 		return nil, c, apperr.New(apperr.BadInput, "source request is truncated or larger than 16 MiB")
 	}
-	c.SNI = new(c.Host)
 	var raw []byte
 	err = tx.QueryRowContext(ctx, `SELECT raw FROM requests WHERE id = ?`, id).Scan(&raw)
 	return raw, c, err

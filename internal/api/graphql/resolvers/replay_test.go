@@ -186,7 +186,7 @@ func TestReplayGraphQLHistoryEntriesAndErrors(t *testing.T) {
 	var created struct{ CreateReplaySession replaySessionResult }
 	c.MustPost(`mutation($rid:ID!){createReplaySession(input:{fromRequestId:$rid}){`+replaySessionFields+`}}`, &created, client.Var("rid", strconv.FormatInt(reqID, 10)))
 	a := created.CreateReplaySession
-	if a.Draft != base64.StdEncoding.EncodeToString(raw) || a.Connection.Host != "source.test" || a.Connection.Port != 8443 || a.Connection.SNI == nil || *a.Connection.SNI != "source.test" {
+	if a.Draft != base64.StdEncoding.EncodeToString(raw) || a.Connection.Host != "source.test" || a.Connection.Port != 8443 || a.Connection.SNI != nil {
 		t.Fatal(a)
 	}
 	sessionID, err := strconv.ParseInt(a.ID, 10, 64)

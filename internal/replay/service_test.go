@@ -54,11 +54,8 @@ func seedRequest(t *testing.T, db *store.DB, raw []byte, truncated bool) int64 {
 	t.Helper()
 	var id int64
 	err := db.Write(t.Context(), func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(t.Context(), `INSERT INTO requests(source, host, port, tls, method, path, raw, len, created_at, truncated) VALUES ('replay', 'source.test', 8443, 1, 'POST', '/raw', ?, ?, 1234, ?)`, raw, len(raw), truncated)
-		if err != nil {
-			return err
-		}
-		id, err = res.LastInsertId()
+		var err error
+		id, err = store.InsertRequestTx(t.Context(), tx, store.Request{Source: "replay", Host: "source.test", Port: 8443, TLS: true, Method: "POST", Path: "/raw", Raw: raw, CreatedAt: 1234, Truncated: truncated})
 		return err
 	})
 	if err != nil {
@@ -144,13 +141,26 @@ func TestHistoryAndDraftFidelity(t *testing.T) {
 	s, db := newService(t)
 	raw := []byte("M-SEARCH /à?q=東京 HTTP/1.1\nHoST: unchanged\nContent-Length: 99\n\n\xff\x00\r\n")
 	id := seedRequest(t, db, raw, false)
+	// Capture marks response truncation after inserting the complete request.
+	if err := db.Write(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `UPDATE requests SET truncated = 1 WHERE id = ?`, id)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	out := create(t, s, replay.CreateInput{FromRequestID: &id})
-	if !bytes.Equal(out.Draft, raw) || out.Name != "M-SEARCH /à?q=東京" || out.Connection.Host != "source.test" || out.Connection.Port != 8443 || !out.Connection.TLS || out.Connection.SNI == nil || *out.Connection.SNI != "source.test" {
+	if !bytes.Equal(out.Draft, raw) || out.Name != "M-SEARCH /à?q=東京" || out.Connection.Host != "source.test" || out.Connection.Port != 8443 || !out.Connection.TLS || out.Connection.SNI != nil {
 		t.Fatalf("history copy = %+v", out)
 	}
 	stored, err := s.Session(t.Context(), out.ID)
 	if err != nil || !reflect.DeepEqual(stored, out) {
 		t.Fatalf("stored = %+v, %v", stored, err)
+	}
+	conn := out.Connection
+	conn.Host = "edited.test"
+	updated, err := s.UpdateSession(t.Context(), out.ID, replay.UpdateInput{Connection: &conn})
+	if err != nil || updated.Connection.Host != "edited.test" || updated.Connection.SNI != nil {
+		t.Fatalf("host edit must keep SNI following host: %+v, %v", updated, err)
 	}
 	for _, source := range []int64{seedRequest(t, db, raw, true), seedRequest(t, db, make([]byte, replay.MaxDraftBytes+1), false)} {
 		if _, err := s.CreateSession(t.Context(), replay.CreateInput{FromRequestID: &source}); apperr.CodeOf(err) != apperr.BadInput {

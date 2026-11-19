@@ -1,3 +1,7 @@
+-- Older combined flags cannot distinguish request from response truncation.
+ALTER TABLE requests ADD COLUMN request_truncated INTEGER NOT NULL DEFAULT 0;
+UPDATE requests SET request_truncated = truncated;
+
 ALTER TABLE replay_collections ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1));
 CREATE UNIQUE INDEX replay_collections_default_idx ON replay_collections(is_default) WHERE is_default = 1;
 
