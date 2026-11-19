@@ -3,7 +3,7 @@ id: T-093
 title: Fix CI flakes — UI hand-off shutdown race, slow-subscriber test timing
 milestone: M1
 role: backend
-status: in_review
+status: done
 depends_on: []
 owner: "claude-code/opus"
 branch: task/T-093-ci-flaky-shutdown-stream
@@ -51,5 +51,6 @@ CI failures: run 44310294605 (PR #24), 44297810008 and 44294859396 (`main`).
 - Follow-ups (proposed tasks): none.
 
 ## Review (reviewer)
-- Verdict:
-- Findings:
+- Verdict: approve (lead, retroactive). Merged in PR #25 before a review was recorded; CI on `main` has
+  stayed green since (runs 44467782046, 44468680155, 44470829179).
+- Findings: none.
