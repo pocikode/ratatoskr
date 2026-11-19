@@ -3,7 +3,7 @@ id: T-033
 title: Replay service - collections, sessions, entries (no sending)
 milestone: M2
 role: backend
-status: blocked
+status: changes_requested
 depends_on: [T-098]
 owner: "codex (GPT-6)"
 branch: task/T-033-replay-service
@@ -13,6 +13,9 @@ paths:
   - internal/api/graphql/resolvers/replay.go
   - internal/api/graphql/resolvers/replay_test.go
   - internal/api/graphql/resolvers/stubs_replay.go
+  - internal/api/graphql/resolvers/scope.go
+  - internal/store/requests.go
+  - internal/store/requests_test.go
 spec:
   - docs/01-feature-spec.md#F-REP-1 (incl. M2 contract), #F-REP-2 (session fields)
   - docs/03-architecture.md §5.2, §6
@@ -48,6 +51,17 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
 - Migration number 0003 is reserved for this task; T-037 uses 0004 and T-102 0005 if they need one.
 - `sending` on `ReplaySession` comes from T-106; until then the resolver returns false.
 
+- **Blocked questions answered (lead, 2026-11-19)** — see F-REP-1 and `docs/03-architecture.md §5.2`:
+  1. *Request-only truncation*: migration 0003 adds `requests.request_truncated INTEGER NOT NULL DEFAULT 0` and backfills
+     `UPDATE requests SET request_truncated = truncated` (old combined flags cannot be split, so they stay rejected).
+     `store.InsertRequestTx` writes `request_truncated = r.Truncated`: at insert time `Truncated` is request-only
+     (`history/capture.go` only ORs response truncation into `truncated` later), so `capture.go` needs no change.
+     Replay reads `request_truncated`. Tests: store insert sets the column; Replay copies a request whose response was
+     truncated and rejects a truncated request; migration backfill of a populated v2 database.
+  2. *SNI*: yes, unset SNI satisfies "SNI = host". Drop the explicit override on history copy; the test asserts `sni` is
+     null and that a later host edit is used as SNI.
+  3. *Reorder nit*: `scope.go` added to paths; give `parseOrderIDs` neutral wording (e.g. `unknown ID %q in order`) and reuse it.
+
 ## Plan (implementer, ≤15 lines)
 1. Add migration 0003: unique Default marker, draft BLOB, entry error and stable entry IDs.
 2. Persist connection/options/colour in existing state_json; preserve draft bytes separately.
@@ -71,7 +85,7 @@ through the T-098 contract (everything except `sendReplaySession`/`cancelReplayS
   update its test so later host edits use the new host as SNI.
 - The reorder-helper nit also needs `internal/api/graphql/resolvers/scope.go` added to
   paths to generalize `parseOrderIDs`' preset-specific error wording before reuse.
-- Follow-up stopped under AGENTS.md hard rules 1–2. Review findings remain unchecked;
+- (Resolved by lead 2026-11-19, see Notes from lead.) Follow-up stopped under AGENTS.md hard rules 1–2. Review findings remain unchecked;
   no implementation files changed and no checks rerun in this follow-up.
 
 ## Handoff (implementer)
