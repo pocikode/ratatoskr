@@ -3,7 +3,7 @@ id: T-029
 title: Reject auth tokens a cookie cannot carry
 milestone: M0
 role: backend
-status: in_review
+status: done
 depends_on: [T-024]
 owner: "claude-code/opus (lead, operator-approved)"
 branch: task/T-029-config-cookie-safe-token
