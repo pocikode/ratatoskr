@@ -1,0 +1,49 @@
+# Environment page and status-bar switcher (T-103, F-ENV-1, docs/02 §3.12), against
+# internal/api/graphql/schema/environment.graphqls (T-098). There is no subscription:
+# the store refetches after its own mutations and on project switches.
+
+fragment EnvironmentFields on Environment {
+  id
+  name
+  isGlobal
+  selected
+  variables {
+    name
+    value
+    secret
+  }
+}
+
+query Environments {
+  environments {
+    ...EnvironmentFields
+  }
+}
+
+mutation CreateEnvironment($name: String!) {
+  createEnvironment(name: $name) {
+    ...EnvironmentFields
+  }
+}
+
+mutation RenameEnvironment($id: ID!, $name: String!) {
+  renameEnvironment(id: $id, name: $name) {
+    ...EnvironmentFields
+  }
+}
+
+mutation DeleteEnvironment($id: ID!) {
+  deleteEnvironment(id: $id)
+}
+
+mutation SetEnvironmentVariables($id: ID!, $variables: [EnvironmentVariableInput!]!) {
+  setEnvironmentVariables(id: $id, variables: $variables) {
+    ...EnvironmentFields
+  }
+}
+
+mutation SelectEnvironment($id: ID) {
+  selectEnvironment(id: $id) {
+    ...EnvironmentFields
+  }
+}
