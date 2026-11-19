@@ -86,9 +86,11 @@ Both records of an edited pair are marked in history, and the viewer switches bo
   detail query if the switch latency is noticeable on large bodies.
 
 ## Review (reviewer)
-- Verdict: changes_requested
-- Checks: diff is inside `paths` (generated files come from `make gen`). `make check` green (Go cached; web check, 303 unit tests pass).
+- Verdict: approve
+- Checks: diff is inside `paths` (generated files come from `make gen`). `make check` green (Go cached; web check clean, 304 unit tests pass).
+- Round 1 findings (stale `chosen`, uncancelled `showRecord`) are fixed in 9096b4f: an `$effect` on `selection.anchor` clears `chosen`/`sibling` and bumps `siblingToken`; regression test added. Verified the token check also drops the stale error message.
 - Findings:
-- [x] [major] web/src/pages/http-history/HttpHistoryPage.svelte:63-78 — `chosen` is never cleared. Click 24, press Modified (`chosen={from:24,id:25}`), click row 3, click 24 again: `chosen.from === detail.id` and `sibling.id === 25`, so the panes show Modified for a row the user just clicked as Original. This breaks "starting on the clicked row" (spec F-HIST-4/Scope). → reset `chosen = null; sibling = null` (and bump `siblingToken`) when the selected id changes, e.g. in an `$effect` on `history.detail?.id`, or key `chosen` on a per-selection counter. Add a test: switch, select another row, reselect the first, expect Original pressed.
-- [x] [minor] web/src/pages/http-history/HttpHistoryPage.svelte:83-93 — `showRecord` is not cancelled when the selection changes. A slow response for row A that lands after the user picked row B still writes `history.message` on error and replaces `sibling`. The same reset as above (bump `siblingToken` on selection change) fixes it.
-- [x] [nit] web/src/pages/http-history/HttpHistoryPage.svelte — the switch uses `aria-pressed` buttons, so the state is announced. This is accepted (see Handoff), no change needed.
+- [x] [major] HttpHistoryPage.svelte — `chosen` never cleared on reselect → fixed in 9096b4f.
+- [x] [minor] HttpHistoryPage.svelte — stale `showRecord` result after selection change → fixed in 9096b4f.
+- [x] [nit] switch uses `aria-pressed` buttons; accepted (Handoff).
+- [ ] [nit] HttpHistoryPage.svelte (switch) — if the sibling fetch is in flight there is no pending indicator; acceptable, noted as a follow-up in Handoff.
