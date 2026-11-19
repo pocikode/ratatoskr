@@ -44,6 +44,11 @@ func TestUpdateContentLength(t *testing.T) {
 			in:   "content-length: 8\r\nX-Keep:\tvalue\r\nContent-Length: 8\r\n\r\nabc",
 			want: "content-length: 3\r\nX-Keep:\tvalue\r\n\r\nabc",
 		},
+		{
+			name: "conflicting duplicate lengths",
+			in:   "content-length: 8\r\nX-Keep:\tvalue\r\nContent-Length: 3\r\n\r\nabc",
+			want: "content-length: 8\r\nX-Keep:\tvalue\r\nContent-Length: 3\r\n\r\nabc",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
