@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,6 +50,7 @@ type Response struct {
 
 // Entry is a captured request and its optional response.
 type Entry struct {
+	ProjectDB  *store.DB // optional owner for records derived from an exchange
 	Source     string
 	Host       string
 	Port       int
@@ -158,7 +160,7 @@ func (c *Capture) add(ctx context.Context, e Entry, pending bool) int64 {
 
 	c.mu.Lock()
 	db, err := c.refreshProject(ctx)
-	if err != nil || db == nil {
+	if err != nil || db == nil || e.ProjectDB != nil && e.ProjectDB != db {
 		c.mu.Unlock()
 		c.dropped.Add(1)
 		if err != nil {
@@ -224,15 +226,21 @@ func (c *Capture) takePending(id int64) *store.DB {
 	return db
 }
 
+// PendingDB returns the database that owns id until the exchange is completed.
+func (c *Capture) PendingDB(id int64) *store.DB {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.pending[id]
+}
+
 // Written waits until the pending request row is readable in its project.
 func (c *Capture) Written(ctx context.Context, id int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	c.mu.Lock()
-	owner := c.pending[id]
-	c.mu.Unlock()
+	owner := c.PendingDB(id)
 
 	var db *store.DB
 	if c.deps.DB != nil {
@@ -251,7 +259,7 @@ func (c *Capture) Written(ctx context.Context, id int64) error {
 	// a transaction. Only callers that need to wait allocate one.
 	ready := make(chan struct{})
 	select {
-	case c.in <- captureOp{db: db, written: ready}:
+	case c.in <- captureOp{db: db, id: id, written: ready}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -284,6 +292,9 @@ func (c *Capture) requestWritten(ctx context.Context, db *store.DB, id int64) (b
 	if err != nil {
 		return false, fmt.Errorf("history: check pending request %d: %w", id, err)
 	}
+	if c.deps.DB() != db {
+		return false, errCaptureProjectChanged
+	}
 
 	return found, nil
 }
@@ -292,6 +303,16 @@ func (c *Capture) requestWritten(ctx context.Context, db *store.DB, id int64) (b
 // invalidates outstanding completions from the previous database. A nil
 // response releases the pending ID without storing a response.
 func (c *Capture) Complete(ctx context.Context, id int64, resp *Response) {
+	c.complete(ctx, id, resp, false)
+}
+
+// CompleteDropped marks a pending exchange as dropped. A response is kept
+// when the response side was dropped.
+func (c *Capture) CompleteDropped(ctx context.Context, id int64, resp *Response) {
+	c.complete(ctx, id, resp, true)
+}
+
+func (c *Capture) complete(ctx context.Context, id int64, resp *Response, dropped bool) {
 	db := c.takePending(id)
 	if db == nil || db != c.deps.DB() {
 		c.dropped.Add(1)
@@ -299,8 +320,8 @@ func (c *Capture) Complete(ctx context.Context, id int64, resp *Response) {
 		return
 	}
 
-	if resp != nil {
-		c.enqueue(ctx, captureOp{db: db, id: id, entry: Entry{Resp: resp}, complete: true})
+	if resp != nil || dropped {
+		c.enqueue(ctx, captureOp{db: db, id: id, entry: Entry{Resp: resp, Dropped: dropped}, complete: true})
 	}
 }
 
@@ -336,6 +357,21 @@ func (c *Capture) Run(ctx context.Context) {
 		}
 	}
 
+	appendOp := func(ctx context.Context, op captureOp) {
+		if op.written != nil && !slices.ContainsFunc(batch, func(queued captureOp) bool {
+			return queued.id == op.id && queued.db == op.db && queued.written == nil && !queued.complete
+		}) {
+			// The insert was already processed in an earlier batch. The caller
+			// checks whether it committed.
+			close(op.written)
+
+			return
+		}
+		if batch = append(batch, op); len(batch) >= BatchSize {
+			flush(ctx)
+		}
+	}
+
 	for {
 		select {
 		case change, ok := <-changes:
@@ -344,10 +380,8 @@ func (c *Capture) Run(ctx context.Context) {
 			} else if change.Kind == project.Selected {
 				c.selectProject(ctx)
 			}
-		case e := <-c.in:
-			if batch = append(batch, e); len(batch) >= BatchSize {
-				flush(ctx)
-			}
+		case op := <-c.in:
+			appendOp(ctx, op)
 		case <-tick.C:
 			flush(ctx)
 		case <-ctx.Done():
@@ -356,10 +390,8 @@ func (c *Capture) Run(ctx context.Context) {
 
 			for {
 				select {
-				case e := <-c.in:
-					if batch = append(batch, e); len(batch) >= BatchSize {
-						flush(fctx)
-					}
+				case op := <-c.in:
+					appendOp(fctx, op)
 				default:
 					flush(fctx)
 
@@ -405,7 +437,7 @@ func (c *Capture) flush(ctx context.Context, batch []captureOp) {
 			if !op.complete {
 				c.deps.Bus.Publish(Event{Kind: Added, RequestID: op.id})
 			}
-			if op.entry.Resp != nil {
+			if op.entry.Resp != nil || op.complete && op.entry.Dropped {
 				c.deps.Bus.Publish(Event{Kind: Updated, RequestID: op.id})
 			}
 		}
@@ -443,6 +475,17 @@ func (c *Capture) write(ctx context.Context, db *store.DB, batch []captureOp) er
 					return err
 				}
 			}
+
+			dropped := op.complete && op.entry.Dropped
+			truncated := op.entry.Resp != nil && op.entry.Resp.Truncated
+			if op.id != 0 && (dropped || truncated) {
+				result, err := tx.ExecContext(ctx,
+					"UPDATE requests SET is_dropped = is_dropped OR ?, truncated = truncated OR ? WHERE id = ?",
+					dropped, truncated, op.id)
+				if err := op.checkWrite("update request flags", result, err); err != nil {
+					return err
+				}
+			}
 		}
 
 		return nil
@@ -453,25 +496,26 @@ func (op *captureOp) writeResponse(ctx context.Context, tx *sql.Tx, insertRespon
 	res, err := insertResponse.ExecContext(ctx,
 		resp.Code, resp.Raw, resp.BodyOffset, len(resp.Raw),
 		resp.RoundTrip.Milliseconds(), resp.CreatedAt.UnixMilli(), op.id)
-	if err != nil {
-		return fmt.Errorf("history: insert response: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("history: count inserted responses: %w", err)
-	}
-	if n == 0 {
-		op.id = 0 // The pending request was deleted or its insert failed.
-
-		return nil
-	}
-	if resp.Truncated {
-		if _, err := tx.ExecContext(ctx, "UPDATE requests SET truncated = 1 WHERE id = ?", op.id); err != nil {
-			return fmt.Errorf("history: mark truncated response: %w", err)
-		}
+	if err := op.checkWrite("insert response", res, err); err != nil || op.id == 0 {
+		return err
 	}
 
 	return insertHeaders(ctx, tx, insertResponseHeaderSQL, op.id, resp.Headers)
+}
+
+func (op *captureOp) checkWrite(action string, result sql.Result, err error) error {
+	if err != nil {
+		return fmt.Errorf("history: %s: %w", action, err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("history: %s row count: %w", action, err)
+	}
+	if n == 0 {
+		op.id = 0 // The pending request was deleted or its insert failed.
+	}
+
+	return nil
 }
 
 const (

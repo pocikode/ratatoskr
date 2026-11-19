@@ -27,9 +27,11 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 ## Scope
 - In: `history.Capture.NewPending(ctx, Entry) int64` (ID returned at once; IDs from `MAX(id)+1` at project open),
   `Complete(ctx, id, *Response)`, `Written(ctx, id) error` (returns once the pending row of `id` is committed, at
-  once if it already is; ctx error if ctx ends; error if the project closed first; F-INT-1, docs/03 §4), a dropped flag, `EditedFrom` + `Source` on entries; the proxy switched from "insert when
-  complete" to `NewPending` at request read and `Complete` after the response (or failure); `editedBy` lookup in
-  `history.Service` + resolver (delete `stubs_history_edited.go`).
+  once if it already is, with an error on cancellation or project closure first). Capture records dropped state and
+  `EditedFrom` + `Source` on entries. For T-105, `PendingDB` identifies the row's project, `Entry.ProjectDB` binds the
+  edited row to that project, and `CompleteDropped` marks a pending row after a hold. The proxy calls `NewPending` at
+  request read and `Complete` after the response or failure. `history.Service` and the GraphQL resolver implement
+  `editedBy`.
 - Out: creating edited pairs from the proxy (T-105 calls the API added here), intercept, M&R.
 
 ## Acceptance criteria
@@ -44,6 +46,8 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 - [x] `Complete` for an ID whose project was closed meanwhile is dropped and counted in `Dropped()`, no error, no panic.
 - [x] Dropped flag stored as `is_dropped = 1`; an entry with `EditedFrom` stores `edited_from`; `editedBy` returns the edited
       record, null otherwise (service + resolver tests).
+- [x] A pending row can be marked dropped after commit. Finishing a dropped request keeps its response null and
+      finishing a dropped response keeps the upstream bytes. An edited entry pinned to a closed project is discarded.
 - [x] Capture benchmark (add `BenchmarkCapture` if missing): pending + complete within 15% of the M1 single insert; numbers in Handoff.
 - [x] `make check` and `make test-int` green.
 
@@ -85,13 +89,20 @@ arrives, and the capture API can store the edited record of a pair. `HttpRequest
 - The proxy records bodyless requests after reading the head and body-bearing requests after streaming the upload, before it
   reads the upstream response. History keeps exact captured bytes and generated 502 responses.
 - Capture stores dropped state and edited links. GraphQL `editedBy` resolves the edited record when it exists.
+- T-031's F-INT-1 clarification makes `Written` a precondition of T-105's hold calls. T-105 can pass
+  `PendingDB(id)` to the hold so T-031 can decline it after a switch, and use that database in `Entry.ProjectDB`
+  when storing the edited row. `CompleteDropped` marks the already-persisted original, keeping a response only
+  when one exists. A receipt queued just after its insert commits completes without another flush.
+- The branch merges cleanly with T-031 at `f364083`. A temporary combined tree passed the intercept, resolver,
+  history, proxy and app race tests with `-p 1 -tags integration`. A smoke test used actual capture and intercept
+  services to verify that history is readable during a hold, the drop is persisted and an old project's hold is declined.
 - `make test-int` and `VITEST_MAX_WORKERS=2 make check` passed. The worker cap avoided the sitemap test timeout on the
   first run. `TestHistoryListsPendingBeforeUpstreamResponse` verifies the pending row, event order, final bytes
   and timing. The history and resolver tests cover project switches, `Written`, dropped rows and edited pairs.
 - `BenchmarkCapture` used seven interleaved one-second runs per version on Darwin/arm64 with `-cpu=2 -benchmem`.
   M1 used the same fixture and benchmark with `Capture.Add` and the original capture and store code from `607c0a6`.
-  Median M1 was 38.45 µs/op, 4,219 B/op, 90 allocs/op. Pending and complete measured 42.56 µs/op, 4,344 B/op,
-  90 allocs/op, 10.7% slower and within the 15% limit.
+  Median M1 was 67.79 µs/op, 4,177 B/op, 89 allocs/op. Pending and complete measured 76.62 µs/op, 4,324 B/op,
+  90 allocs/op, 13.0% slower and within the 15% limit.
 - The capture queue retains bounded backpressure when full. T-105 will wire in interception and creation of edited pairs.
 
 ## Review (reviewer)

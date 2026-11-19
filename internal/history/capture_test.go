@@ -140,6 +140,12 @@ func TestWrittenWaitsForPendingCommit(t *testing.T) {
 		if err := c.Written(ctx, id); err != nil || time.Since(start) != 0 {
 			t.Fatalf("Written for committed request returned after %s: %v", time.Since(start), err)
 		}
+		c.CompleteDropped(ctx, id, nil)
+		time.Sleep(history.FlushInterval)
+		synctest.Wait()
+		if r, err := svc.Get(ctx, id); err != nil || !r.Dropped || r.Resp != nil {
+			t.Fatalf("dropped request = %+v, err %v", r, err)
+		}
 
 		next := c.NewPending(ctx, sample())
 		closed := waitFor(ctx, next)
@@ -175,12 +181,24 @@ func TestPendingIDsAcrossProjectSwitch(t *testing.T) {
 	if otherID == id || otherID == 0 {
 		t.Fatalf("new project reused outstanding ID %d", otherID)
 	}
+	if c.PendingDB(id) != old || c.PendingDB(otherID) != other {
+		t.Fatal("pending requests lost their original project")
+	}
+	edit := e
+	edit.ProjectDB = old
+	edit.EditedFrom = &id
+	if got := c.NewPending(ctx, edit); got != 0 {
+		t.Fatalf("queued an edited record in the wrong project: ID %d", got)
+	}
 	c.Complete(ctx, id, e.Resp)
 	c.Complete(ctx, otherID, e.Resp)
 	cancel()
 	c.Run(ctx)
-	if c.Dropped() != 1 {
-		t.Fatalf("dropped = %d, want 1", c.Dropped())
+	if c.Dropped() != 2 {
+		t.Fatalf("dropped = %d, want 2", c.Dropped())
+	}
+	if c.PendingDB(id) != nil || c.PendingDB(otherID) != nil {
+		t.Fatal("completed requests still reserve project ownership")
 	}
 
 	root, err := os.OpenRoot(filepath.Dir(old.Path()))
@@ -210,9 +228,10 @@ func TestCaptureStoresEditedPairAndDroppedRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	e := sample()
 	original := c.NewPending(ctx, e)
-	c.Complete(ctx, original, e.Resp)
 
 	edit := e
+	edit.ProjectDB = c.PendingDB(original)
+	c.Complete(ctx, original, e.Resp)
 	edit.Source = "intercept"
 	edit.EditedFrom = &original
 	edited := c.NewPending(ctx, edit)
@@ -220,10 +239,13 @@ func TestCaptureStoresEditedPairAndDroppedRequest(t *testing.T) {
 	resp.Truncated = true
 	c.Complete(ctx, edited, &resp)
 
-	drop := e
-	drop.Dropped = true
-	dropped := c.NewPending(ctx, drop)
-	c.Complete(ctx, dropped, nil)
+	dropped := c.NewPending(ctx, e)
+	c.CompleteDropped(ctx, dropped, nil)
+	droppedResponse := c.NewPending(ctx, e)
+	c.CompleteDropped(ctx, droppedResponse, e.Resp)
+	e.Dropped = true
+	initiallyDropped := c.NewPending(ctx, e)
+	c.Complete(ctx, initiallyDropped, nil)
 	cancel()
 	c.Run(ctx)
 
@@ -233,12 +255,18 @@ func TestCaptureStoresEditedPairAndDroppedRequest(t *testing.T) {
 		r.Source != "intercept" || !r.Truncated || r.Resp == nil || r.Resp.Code != 200 {
 		t.Fatalf("edited record = %+v, found %t, err %v", r, found, err)
 	}
-	r, err = svc.Get(t.Context(), dropped)
-	if err != nil || !r.Dropped || r.Resp != nil {
-		t.Fatalf("dropped record = %+v, err %v", r, err)
+	for _, id := range []int64{dropped, initiallyDropped} {
+		r, err = svc.Get(t.Context(), id)
+		if err != nil || !r.Dropped || r.Resp != nil {
+			t.Fatalf("dropped record = %+v, err %v", r, err)
+		}
 	}
 	if _, found, err := svc.EditedBy(t.Context(), dropped); err != nil || found {
 		t.Fatalf("edited record for dropped request: found %t, err %v", found, err)
+	}
+	r, err = svc.Get(t.Context(), droppedResponse)
+	if err != nil || !r.Dropped || r.Resp == nil || r.Resp.Code != 200 {
+		t.Fatalf("record for dropped response = %+v, err %v", r, err)
 	}
 }
 
