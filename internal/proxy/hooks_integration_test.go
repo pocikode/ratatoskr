@@ -152,6 +152,7 @@ type hookRig struct {
 	addr   string // upstream address for send; up's when empty
 	events <-chan events.Msg[history.Event]
 	icpt   *fakeInterceptor
+	cap    *history.Capture
 }
 
 func newHookRig(t *testing.T, held []intercept.Kind, rw proxy.Rewriter, limits rawhttp.Limits) *hookRig {
@@ -196,7 +197,7 @@ func newHookRig(t *testing.T, held []intercept.Kind, rw proxy.Rewriter, limits r
 		}
 	})
 
-	return &hookRig{t: t, ctx: ctx, proxy: r, svc: svc, up: testutil.NewRawServer(t), events: sub, icpt: icpt}
+	return &hookRig{t: t, ctx: ctx, proxy: r, svc: svc, up: testutil.NewRawServer(t), events: sub, icpt: icpt, cap: capture}
 }
 
 // send writes a request through the proxy on a new connection; %s in format
@@ -951,11 +952,35 @@ func TestOverCapRequestStreamsResponse(t *testing.T) {
 	rw := &fakeRewriter{active: map[string][2]bool{"proxy": {false, true}}}
 	h := newHookRig(t, nil, rw, rawhttp.Limits{MaxBodyBytes: 5})
 
+	gate := h.gatedUpstream()
+
+	h.expectStreamed(gate, "POST http://%s/u HTTP/1.1\r\nHost: %s\r\nContent-Length: 20\r\n\r\n01234567890123456789")
+
+	if calls := rw.seen(); len(calls) != 0 {
+		t.Fatalf("response rules ran: %q", calls)
+	}
+}
+
+// Paused capture gives no history record, so no response can be held: a
+// queued Response kind must not buffer the response.
+func TestPausedCaptureStreamsResponse(t *testing.T) {
+	h := newHookRig(t, []intercept.Kind{intercept.Response}, nil, rawhttp.Limits{})
+	h.cap.SetPaused(true)
+	gate := h.gatedUpstream()
+
+	h.expectStreamed(gate, "GET http://%s/d HTTP/1.1\r\nHost: %s\r\n\r\n")
+}
+
+// gatedUpstream starts an origin that answers the first request with a head
+// and the body prefix "ab", then sends "cd" only once the returned gate closes.
+func (h *hookRig) gatedUpstream() chan struct{} {
+	h.t.Helper()
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		h.t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = ln.Close() })
+	h.t.Cleanup(func() { _ = ln.Close() })
 	h.addr = ln.Addr().String()
 
 	gate := make(chan struct{})
@@ -981,25 +1006,30 @@ func TestOverCapRequestStreamsResponse(t *testing.T) {
 		}
 	}()
 
-	conn, br := h.send("POST http://%s/u HTTP/1.1\r\nHost: %s\r\nContent-Length: 20\r\n\r\n01234567890123456789")
+	return gate
+}
+
+// expectStreamed sends format and requires the response head and body prefix
+// before it opens gate.
+func (h *hookRig) expectStreamed(gate chan struct{}, format string) {
+	h.t.Helper()
+
+	conn, br := h.send(format)
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second)) // fail before the upstream gives up at the rig timeout
 
-	resp, err := rawhttp.ReadResponse(br, "POST", rawhttp.Limits{})
+	method, _, _ := strings.Cut(format, " ")
+	resp, err := rawhttp.ReadResponse(br, method, rawhttp.Limits{})
 	if err != nil {
-		t.Fatalf("head not delivered before the rest of the body: %v", err)
+		h.t.Fatalf("head not delivered before the rest of the body: %v", err)
 	}
 
 	first := make([]byte, 2)
 	if _, err := io.ReadFull(resp.Body(), first); err != nil {
-		t.Fatalf("body prefix not delivered before the rest: %v", err)
+		h.t.Fatalf("body prefix not delivered before the rest: %v", err)
 	}
 	close(gate)
 
 	if string(first) != "ab" {
-		t.Fatalf("body prefix %q, want %q", first, "ab")
-	}
-
-	if calls := rw.seen(); len(calls) != 0 {
-		t.Fatalf("response rules ran: %q", calls)
+		h.t.Fatalf("body prefix %q, want %q", first, "ab")
 	}
 }

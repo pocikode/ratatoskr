@@ -66,9 +66,9 @@ func (s *Server) hookRequest() bool {
 
 // hookResponse reports whether the response side must be buffered. A request
 // cut at the capture cap gets no response rule (F-MR-1), so only a hold can
-// buffer its response.
-func (s *Server) hookResponse(reqTruncated bool) bool {
-	if s.icpt != nil && s.icpt.WouldHold(intercept.Response) {
+// buffer its response; a hold needs a history record (id != 0).
+func (s *Server) hookResponse(id int64, reqTruncated bool) bool {
+	if id != 0 && s.icpt != nil && s.icpt.WouldHold(intercept.Response) {
 		return true
 	}
 

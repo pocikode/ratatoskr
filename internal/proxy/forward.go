@@ -112,7 +112,7 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		Code: resp.Status(), RoundTrip: time.Since(entry.CreatedAt), CreatedAt: time.Now(),
 	}
 
-	if c.s.hookResponse(req.Truncated()) {
+	if c.s.hookResponse(id, req.Truncated()) {
 		return c.respondHooked(x, id, &entry, req, resp, up, answer)
 	}
 

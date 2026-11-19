@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -109,8 +109,11 @@ without changing the streaming path for traffic that neither feature touches.
   passed 3/3 alone. Bench after the fixes: 1.12 ms/op, 73.8 KB, 107 allocs (unchanged).
 - Review round 4: 2 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green; nil-hook
   path untouched, benchmark not rerun.
+- Review round 5: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Review round 2: 3 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Known limitations:
+  - With capture paused and request queuing on, the request side still buffers (≤ cap) before it learns there is no
+    record (the pending row needs the body); it is then sent unheld. Bounded by the cap.
   - The edited record of a request edit stores the bytes the origin received (origin-form target); a response-only
     edit keeps the client's request bytes in both records (F-HIST-4).
   - A client that pipelines more than the 4 KiB read buffer during a hold ends the disconnect watch; its disconnect
@@ -178,6 +181,8 @@ Verification: the focused proxy integration suite passed under the race detector
 ### Round 5
 
 - Verdict: changes_requested
-- [ ] [major] internal/proxy/forward.go:115 — When history capture is paused, `NewPending` returns zero. With response queuing on and no active response rule, the proxy still buffers the response even though the hold path requires a nonzero history ID. A slow download can wait for upstream completion or the capture cap before the client gets its response head. Require a nonzero pending ID for Intercept-driven response buffering and add a gated streaming test with paused capture.
+- [x] [major] internal/proxy/forward.go:115 — When history capture is paused, `NewPending` returns zero. With response queuing on and no active response rule, the proxy still buffers the response even though the hold path requires a nonzero history ID. A slow download can wait for upstream completion or the capture cap before the client gets its response head. Require a nonzero pending ID for Intercept-driven response buffering and add a gated streaming test with paused capture.
+  - Fixed: `hookResponse(id, …)` buffers for a hold only when `id != 0`. Test `TestPausedCaptureStreamsResponse`
+    (gated upstream shared with `TestOverCapRequestStreamsResponse`), mutation-checked.
 
 Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int` (including the 200-client proxy load test), and `git diff --check main...HEAD` passed. The nil-hook benchmark comparison was not rerun.
