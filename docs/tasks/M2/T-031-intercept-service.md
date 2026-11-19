@@ -3,7 +3,7 @@ id: T-031
 title: Intercept service - queue, settings, conditions, release semantics, resolvers
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-030]
 owner: "Codex"
 branch: task/T-031-intercept-service
@@ -113,5 +113,19 @@ per-project settings, and serves the T-030 contract. Proxy integration is T-105.
   `query.Message` after `Capture.Written`. T-109 initializes the service and calls `ProjectChanged` on selection.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
+- Checks (reviewer, 2026-11-19):
+  - `make check` run 1: exit 2. Only failure: `web/src/pages/sitemap/sitemap.svelte.test.ts:132` "drops a stale expansion result when filters change…" → `Test timed out in 5000ms` (294 of 295 pass). The sitemap files alone pass 10/10. Run 2: exit 0 (Go all `ok`, web 295/295). The timeout is load-sensitive and not in T-031's files.
+  - `make test-int`: not run. `proxy`, `store` and `rawhttp` are not changed.
+  - Scope: all code changes are inside `paths`. Other changed files (`docs/01`, `docs/03`, `docs/tasks/M2/T-105`, `T-109`, `schema/intercept.graphqls`, generated `exec.go`/`models.go`/web `schema.graphql`) come from the lead's resolution commits `f68c801` and `086230b`. The generated files match the schema. Lead to confirm the schema text is theirs (rule 5).
+  - AC: each checked item has a test. I checked the hold matrix, release order and cancel (synctest), project switch, settings reopen and validation, the exact and over 16 MiB limits, conflicting `Content-Length` → `BAD_INPUT`, and resolver `NOT_FOUND`.
 - Findings:
+  - [ ] [major] `internal/intercept/service.go:245` — the held queue has no limit on count or total bytes. Each held item keeps its whole message (up to 64 MiB) until the user acts. Case: queuing and responses on, a script sends 1000 responses of 1 MB each → about 1 GB held, with no end. → Lead decides a cap (count or total bytes) and what happens past it (for example pass through and log at info, like the 64 MiB rule). Then add a test that fails if the cap is missing. Not an implementer decision.
+  - [ ] [minor] `internal/intercept/replacement.go:62-78` duplicates `internal/replay/sender/content_length.go:15-38` (Transfer-Encoding check, `bodyAt` math, length compare, builder write). Both must change together (F-INT-1 and F-REP-2). → Move one helper into `sender` (or `rawhttp`) that takes `(raw, msg *rawhttp.Message, bodyAt int)`. Both call sites use it. About 12 lines saved.
+  - [ ] [minor] `internal/intercept/replacement.go:35,46-48` — the response is parsed with method `""` (treated as GET). Case, from reading the code, not run: a 304 with `Content-Length: 1234` and no body. The body is empty, so an edit of one header with `updateContentLength` (default true) turns the length into `Content-Length: 0`. The spec text says this literally, so it is a spec question. → Lead decides whether HEAD, 1xx, 204 and 304 skip the rule. If yes, pass the request method (from `msg.Request()`) into `replacement` and add a table case.
+  - [ ] [minor] `internal/intercept/service.go:221-231` — `matches` swallows errors. An eval error or a failed scope read returns false, so the message goes out unheld with no log. Case: the scope preset is deleted while active → nothing is ever held, silently. → Log the error with `slog.Warn` before returning false. Lead to confirm "deleted preset holds nothing" (the query side already does this in `compile`).
+  - [ ] [nit] `internal/intercept/settings.go:189-191` — `persisted` exists only to skip a write on a queuing-only change. → Remove it and always call `save`. It is one transaction of five upserts. Same result, fewer lines.
+  - [ ] [minor] `web/src/pages/sitemap/sitemap.svelte.test.ts:132` — times out at 5 s under full-suite load (outside T-031; passed on rerun). → Report to the T-020 owner. The fix belongs there, not in a timeout bump here.
+- Lean: -12 lines possible (finding 2), -2 (finding 5).
+- Not checked: `make test-int` (paths not touched). Real HEAD and 304 behaviour (finding 3, reasoned from code). Load test of the queue (finding 1, reasoned from code).
+- To reach approve: decide and fix finding 1. Findings 2 to 5 can be fixed here or taken as follow-ups with the lead's agreement.
