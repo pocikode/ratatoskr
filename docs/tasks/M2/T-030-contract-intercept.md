@@ -3,9 +3,9 @@ id: T-030
 title: Contract - intercept queue and settings, HttpRequest.editedBy
 milestone: M2
 role: lead
-status: todo
+status: in_progress
 depends_on: []
-owner: ""
+owner: "claude-code (opus-5.5)"
 branch: task/T-030-contract-intercept
 paths:
   - internal/api/graphql/schema/intercept.graphqls
@@ -59,6 +59,14 @@ stubs and mocks, so T-031/T-100 (backend) and T-032/T-038 (frontend) can start i
 - Backend tasks later move the placeholder interface into their own resolver file and delete the stub file.
 
 ## Plan (implementer, ≤15 lines)
+1. `intercept.graphqls`: types, input, queue change, Query/Mutation/Subscription extensions; docs carry the F-INT-1 rules and error codes.
+2. `history.graphqls`: `editedBy`, pair-model docs on `HttpRequest`, `editedFrom`, `INTERCEPT`, `isDropped`, `response`.
+3. `gqlgen.yml`: `editedBy` field resolver; `InterceptSettingsInput.scopeId` omittable (null clears vs omitted keeps).
+4. `stubs_intercept.go` (placeholder `InterceptService`, all fields `ErrNotImplemented`), `stubs_history_edited.go`, `Deps.Intercept`.
+5. `make gen` twice, diff clean.
+6. Mocks: `intercept.ts` (settings, FIFO queue, forward/drop/all, release on toggle off, subscriptions, opt-in timer)
+   merged into the exchange; `editedBy` in the history mock. Vitest `intercept.test.ts`.
+7. `make check`, handoff.
 
 ## Out-of-scope change needed (if any)
 
