@@ -64,10 +64,20 @@ func (s *Server) hookRequest() bool {
 		s.icpt != nil && s.icpt.WouldHold(intercept.Request)
 }
 
-// hookResponse reports whether the response side must be buffered.
-func (s *Server) hookResponse() bool {
-	return s.deps.Rewriter != nil && s.deps.Rewriter.Active(sourceProxy, true) ||
-		s.icpt != nil && s.icpt.WouldHold(intercept.Response)
+// hookResponse reports whether the response side must be buffered. A request
+// cut at the capture cap gets no response rule (F-MR-1), so only a hold can
+// buffer its response.
+func (s *Server) hookResponse(reqTruncated bool) bool {
+	if s.icpt != nil && s.icpt.WouldHold(intercept.Response) {
+		return true
+	}
+
+	rule := s.deps.Rewriter != nil && s.deps.Rewriter.Active(sourceProxy, true)
+	if rule && reqTruncated {
+		s.log.Info("proxy: request over the capture cap; response rules skipped", "component", "proxy", "source", sourceProxy)
+	}
+
+	return rule && !reqTruncated
 }
 
 func (s *Server) captureCap() int64 {
@@ -322,7 +332,7 @@ func dropPage(code int, method string) []byte {
 	out = append(out, "HTTP/1.1 "+status+"\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: "+
 		strconv.Itoa(len(body))+"\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"...)
 
-	if method == "HEAD" { // the fields a GET would get, without the content (RFC 9110 §9.3.2)
+	if isHead(method) { // the fields a GET would get, without the content (RFC 9110 §9.3.2)
 		return out
 	}
 
@@ -424,7 +434,12 @@ type edits struct {
 // the response then has a body the client does not expect, or lacks one it
 // waits for, so the client connection must close after it.
 func (x *edits) headChanged(client *rawhttp.Request) bool {
-	return (x.sent.Method() == "HEAD") != (client.Method() == "HEAD")
+	return isHead(x.sent.Method()) != isHead(client.Method())
+}
+
+// isHead matches HEAD as rawhttp frames responses: case-insensitively.
+func isHead(method string) bool {
+	return strings.EqualFold(method, "HEAD")
 }
 
 // upstreamRaw returns the request bytes as the origin server received them.

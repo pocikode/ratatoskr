@@ -722,36 +722,39 @@ func TestInterceptEditedLengthSendsBytesAsGiven(t *testing.T) {
 	}
 }
 
-// A hook that turns GET into HEAD: the origin answers HEAD, and the GET
-// client must not wait for the body the head announces.
+// A hook that turns GET into HEAD (in any case): the origin answers HEAD, and
+// the GET client must not wait for the body the head announces.
 func TestMethodEditToHeadClosesClient(t *testing.T) {
-	toHead := func(raw []byte) []byte { return bytes.Replace(raw, []byte("GET "), []byte("HEAD "), 1) }
 	headReply := "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n"
 
-	for name, respActive := range map[string]bool{"streaming": false, "hooked": true} {
-		t.Run(name, func(t *testing.T) {
-			rw := &fakeRewriter{active: map[string][2]bool{"proxy": {true, respActive}}, edit: toHead}
-			h := newHookRig(t, nil, rw, rawhttp.Limits{})
-			up := newScripted(t, func(req *rawhttp.Request) string {
-				if req.Method() != "HEAD" {
-					return "HTTP/1.1 500 Not HEAD\r\nContent-Length: 0\r\n\r\n"
+	for _, method := range []string{"HEAD", "head"} {
+		toHead := func(raw []byte) []byte { return bytes.Replace(raw, []byte("GET "), []byte(method+" "), 1) }
+
+		for name, respActive := range map[string]bool{"streaming": false, "hooked": true} {
+			t.Run(method+"/"+name, func(t *testing.T) {
+				rw := &fakeRewriter{active: map[string][2]bool{"proxy": {true, respActive}}, edit: toHead}
+				h := newHookRig(t, nil, rw, rawhttp.Limits{})
+				up := newScripted(t, func(req *rawhttp.Request) string {
+					if !strings.EqualFold(req.Method(), "HEAD") {
+						return "HTTP/1.1 500 Not HEAD\r\nContent-Length: 0\r\n\r\n"
+					}
+
+					return headReply
+				})
+				h.addr = up.addr
+
+				_, br := h.send("GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n")
+
+				want := headReply
+				if respActive {
+					want = string(addHeader([]byte(headReply), "X-Mr-proxy")) // the response rule ran
 				}
 
-				return headReply
+				if got := readAll(t, br); got != want {
+					t.Fatalf("client got %q, want %q", got, want)
+				}
 			})
-			h.addr = up.addr
-
-			_, br := h.send("GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n")
-
-			want := headReply
-			if respActive {
-				want = string(addHeader([]byte(headReply), "X-Mr-proxy")) // the response rule ran
-			}
-
-			if got := readAll(t, br); got != want {
-				t.Fatalf("client got %q, want %q", got, want)
-			}
-		})
+		}
 	}
 }
 
@@ -935,6 +938,65 @@ func TestOverCapRequestSkipsResponseRules(t *testing.T) {
 
 	if got := h.response(br, "POST"); got != edited {
 		t.Fatalf("client got %q, want %q", got, edited)
+	}
+
+	if calls := rw.seen(); len(calls) != 0 {
+		t.Fatalf("response rules ran: %q", calls)
+	}
+}
+
+// With no response hold possible, an over-cap upload's response is not
+// buffered for a rule that will not run: its bytes reach the client as they come.
+func TestOverCapRequestStreamsResponse(t *testing.T) {
+	rw := &fakeRewriter{active: map[string][2]bool{"proxy": {false, true}}}
+	h := newHookRig(t, nil, rw, rawhttp.Limits{MaxBodyBytes: 5})
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	h.addr = ln.Addr().String()
+
+	gate := make(chan struct{})
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+
+		req, err := rawhttp.ReadRequest(bufio.NewReader(c), rawhttp.Limits{})
+		if err != nil {
+			return
+		}
+		_, _ = io.Copy(io.Discard, req.Body())
+
+		// The 4-byte body fits the cap: buffering would hold "ab" until "cd" arrives.
+		_, _ = io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nab")
+		select {
+		case <-gate:
+			_, _ = io.WriteString(c, "cd")
+		case <-h.ctx.Done():
+		}
+	}()
+
+	conn, br := h.send("POST http://%s/u HTTP/1.1\r\nHost: %s\r\nContent-Length: 20\r\n\r\n01234567890123456789")
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second)) // fail before the upstream gives up at the rig timeout
+
+	resp, err := rawhttp.ReadResponse(br, "POST", rawhttp.Limits{})
+	if err != nil {
+		t.Fatalf("head not delivered before the rest of the body: %v", err)
+	}
+
+	first := make([]byte, 2)
+	if _, err := io.ReadFull(resp.Body(), first); err != nil {
+		t.Fatalf("body prefix not delivered before the rest: %v", err)
+	}
+	close(gate)
+
+	if string(first) != "ab" {
+		t.Fatalf("body prefix %q, want %q", first, "ab")
 	}
 
 	if calls := rw.seen(); len(calls) != 0 {

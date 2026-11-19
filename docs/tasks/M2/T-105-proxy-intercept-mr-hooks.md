@@ -107,6 +107,8 @@ without changing the streaming path for traffic that neither feature touches.
   watch loop, the head-only rebuild or the HEAD close each fails its new test. `make check` green; `make test-int`
   green except the known `TestLoadNoLeakAndLatency` p99 flake under `-p=2` (5.56 ms); `./internal/proxy` integration
   passed 3/3 alone. Bench after the fixes: 1.12 ms/op, 73.8 KB, 107 allocs (unchanged).
+- Review round 4: 2 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green; nil-hook
+  path untouched, benchmark not rerun.
 - Review round 2: 3 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Known limitations:
   - The edited record of a request edit stores the bytes the origin received (origin-form target); a response-only
@@ -162,3 +164,13 @@ Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git di
 Verification: `go test -count=1 -race -tags integration -run 'Intercept|OverCap|Rewriter|ResponseRules|MethodEdit' ./internal/proxy` passed. The full repository checks and benchmark were not rerun.
 
 Round 3 fixes verified with `make check` and `GOFLAGS='-count=1 -p=2' make test-int` (green); benchmark not rerun (nil-hook path untouched).
+
+### Round 4
+
+- Verdict: changes_requested
+- [x] [major] internal/proxy/hooks.go:427 — The response parser uppercases the method, while the client connection reuse guard compares it case-sensitively. If a rule turns GET into lowercase head and the origin answers with HEAD framing, the guard can leave the GET client waiting for a body. Use the same method normalization in both checks and cover the lowercase edit.
+  - Fixed: `isHead` (case-insensitive, as `rawhttp` frames responses) in `headChanged` and the drop page. `TestMethodEditToHeadClosesClient` now runs `HEAD` and `head` × streaming/hooked, mutation-checked.
+- [x] [major] internal/proxy/forward.go:115 — An over-cap upload disables response rules inside `respondHooked`, after the proxy has already chosen to buffer. When no response can be held, an active response rule still delays a slow download until the entire body or the capture cap arrives. Apply the truncation check before choosing to buffer and cover early delivery with a gated upstream response.
+  - Fixed: `hookResponse(req.Truncated())` buffers for a rule only when the request was not cut (the skip is logged there); a hold still buffers. Test `TestOverCapRequestStreamsResponse` (gated upstream, client must see head + prefix first), mutation-checked.
+
+Verification: the focused proxy integration suite passed under the race detector and `git diff --check main...HEAD` passed. The full repository checks and benchmark were not rerun in this review.
