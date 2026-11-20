@@ -23,7 +23,7 @@ Rules and collections persist per project, the engine always runs the current en
 ## Scope
 - In: `matchreplace.Service` over `mr_collections` / `mr_rules` (`definition_json` holds condition, sources, section,
   operation, matcher, term; migration 0005 only if a column is really missing): collection CRUD + reorder, rule CRUD,
-  enable, move, delete; limits; export/import (all or nothing, appends); `Test` via the engine; after every change and on
+  enable, move, delete; limits; export/import (all or nothing, appends); `Test` via the engine (the engine does every tester check and returns the `apperr` error; pass it through); after every change and on
   project switch the service pushes the compiled enabled list into the `Engine` (`Reload(ctx)`); resolvers; delete
   `stubs_matchreplace.go`.
 - Out: proxy/replay wiring (T-105/T-106/T-109), UI.
@@ -36,6 +36,9 @@ Rules and collections persist per project, the engine always runs the current en
       rule adds nothing; wrong `version` → `BAD_INPUT`.
 - [ ] After `updateMatchReplaceRule`/`setMatchReplaceRuleEnabled` the engine's next `Request` call uses the new list (test);
       `Reload` after a project switch loads that project's rules.
+- [ ] Presets (F-MR-1 "Presets", lead 2026-11-20): the service passes the project's filter presets to the engine's
+      `Set` and `Test`, and exposes `Reload(ctx)` (re-reads rules and presets; test: after deleting a preset a rule uses,
+      `Reload` skips that rule without failing). Calling it on preset changes is T-109's job.
 - [ ] `testMatchReplace` resolver returns output/conditionMatched/changed for a draft rule without saving it.
 - [ ] `testMatchReplace` rejects a request with bytes after the head and neither `Content-Length` nor
       `Transfer-Encoding` (`BAD_INPUT`, rawhttp `FramingNone`); a header-only request with a `FULL` body rule still gains a body (test).
@@ -47,6 +50,9 @@ Rules and collections persist per project, the engine always runs the current en
 
 ## Notes from lead
 - Ordering is `(collection.sort_order, rule.sort_order, id)`; keep it in one SQL `ORDER BY` so the engine list is deterministic.
+- Condition fields (lead, 2026-11-20, F-MR-1): the engine rejects fields the bytes do not carry (`req.tls`, `row.id`,
+  `source:`, …) as `BAD_QUERY` with span; pass it through on create/update/tester. On import it is `BAD_INPUT` naming
+  the rule, like an unparsable condition.
 
 ## Plan (implementer, ≤15 lines)
 

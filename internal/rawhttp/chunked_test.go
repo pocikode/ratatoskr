@@ -103,6 +103,28 @@ func TestChunkedErrors(t *testing.T) {
 	}
 }
 
+func TestSplitChunkedBody(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		wire, payload, trailer string
+		err                    error
+	}{
+		{"2\r\nhi\r\n1\r\n!\r\n0\r\nX-Test: a\r\nY-Test: b\r\n\r\n", "hi!", "X-Test: a\r\nY-Test: b\r\n", nil},
+		{"2;ext=value\nhi\n0\nX-Test: a\nY-Test: b\n\n", "hi", "X-Test: a\nY-Test: b\n", nil},
+		{"0\r\n\r\n", "", "", nil},
+		{"3;a=b\nabc\r\n0;last\nX-Test: a\r\nY-Test: b\n\r\n", "abc", "X-Test: a\r\nY-Test: b\n", nil},
+		{"", "", "", io.ErrUnexpectedEOF},
+		{"0\r\nX-Test: a\r\n", "", "", io.ErrUnexpectedEOF},
+		{"0\r\n\r\nextra", "", "", ErrFraming},
+	} {
+		payload, trailer, err := SplitChunkedBody([]byte(tt.wire))
+		if !errors.Is(err, tt.err) || string(payload) != tt.payload || string(trailer) != tt.trailer {
+			t.Errorf("SplitChunkedBody(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				tt.wire, payload, trailer, err, tt.payload, tt.trailer, tt.err)
+		}
+	}
+}
+
 func truncate(s string) string {
 	if len(s) > 40 {
 		return s[:40] + "..."

@@ -10,6 +10,7 @@ branch: task/T-109-wire-m2-services
 paths:
   - internal/app/**
   - internal/api/graphql/resolvers/resolver.go
+  - internal/api/graphql/resolvers/filter.go
 spec:
   - docs/03-architecture.md §2 (no globals, wiring in internal/app), §4
   - docs/01-feature-spec.md#F-INT-1 (project switch), #F-MR-1 (reload on switch)
@@ -27,6 +28,8 @@ M2 GraphQL field answers `NOT_IMPLEMENTED`.
 - Out: new behaviour; anything not already implemented by the listed tasks.
 
 ## Acceptance criteria
+- [ ] Filter preset create/update/delete/reorder/import calls `matchreplace.Service.Reload` for the current project
+      (F-MR-1 "Presets", lead 2026-11-20); test: changing a preset changes which requests an M&R rule rewrites.
 - [ ] App-level test: with queuing on (via GraphQL), a request through the proxy is listed by `interceptQueue`, forwarded
       with `forwardInterceptItem`, and reaches the test server.
 - [ ] App-level test: an enabled `REQUEST_HEADER / ADD` rule adds the header to a proxied request and history shows the pair.

@@ -287,13 +287,40 @@ Open in browser · Filter by this host/path/status · Delete · Export.
   - Body: one `Content-Encoding` of gzip, deflate, br or zstd is removed before matching and reapplied after; other or
     stacked codings skip body rules. A message whose body exceeds the capture cap (64 MiB) passes through with no rule
     applied (logged at info). A changed body keeps its framing: `Content-Length` is updated,
-    a chunked body becomes one chunk plus the last chunk (trailers kept). Messages no rule changed keep their bytes.
+    a chunked body becomes one chunk plus the last chunk (trailers kept).
+    The other framing header fields keep their position and bytes. Messages no rule changed keep their bytes.
+  - Presets (lead, 2026-11-20, T-035): a condition may use `preset:`. It is expanded against the project's filter
+    presets (`filterpreset.Expand`) when rules load and when the tester runs; rules also reload when a filter preset
+    changes. Create, update and the tester reject an unknown or cyclic preset as `BAD_QUERY` with span. A stored rule
+    whose condition no longer expands (preset deleted or renamed later) is skipped at load (logged at warn), not an error.
+  - Condition fields (lead, 2026-11-20, T-035): a condition reads only what the message bytes carry: `req.method`,
+    `req.host`, `req.path`, `req.query`, `req.ext`, `req.raw`, `req.body`, `req.header`, `req.len`, `resp.code`,
+    `resp.len`, `resp.raw`, `resp.body`, `resp.header`. Any other field or clause (`req.port`, `req.tls`,
+    `req.created_at`, `resp.roundtrip`, `row.id`, `req.color`, `req.note`, `req.edited`, `source:`; `sources[]` already
+    selects the source) is `BAD_QUERY` with its span ("<field> is not available in Match & Replace conditions"), checked
+    after preset expansion, so a preset that brings one in fails like an unknown preset (create, update, tester), or skips
+    the rule at load. `req.host` comes from the `Host` header, else the absolute-form target.
+  - Invalid results (lead, 2026-11-20, T-035): a rule whose result is not a valid message of the same kind is skipped
+    (logged at warn with the rule name) and the next rule gets the previous output, as for a status result that is not
+    three digits. Valid means `internal/rawhttp` parses the head and reads the framed body to its end from the buffer
+    (a declared length beyond the bytes present, a broken chunked body or a bad start line fails). Framing header edits
+    are otherwise applied as written; bytes after the framed body are kept as they are and are not body for later
+    rules. The proxy hooks return an error only when the input itself does not parse or the context is done; the caller
+    then uses the original bytes (`internal/proxy` already does).
+    Forwarding such bytes is intended: desync and smuggling tests need them (ADR-0003). The proxy keeps them off shared
+    connections (T-105, already merged). A changed request that is not exactly one complete message goes out once on a
+    fresh upstream connection, which is closed after the exchange and never pooled. The client connection stays open. A
+    changed response whose bytes do not end where their framing says closes the client connection after delivery. The
+    engine adds no framing check of its own.
   - When the request of an exchange is over the capture cap, no response rule runs on that exchange (logged at info);
     its response may still be held (operator, 2026-11-19, T-105 review round 2). A 2xx answer to a request sent as
     `CONNECT` is never rewritten (see F-INT-1).
   - The Workflow replacer arrives with M5 (T-066) and WebSocket sections with M4 (T-053); M2 has the Term replacer only.
   - Tester: one draft rule (saved or not) against pasted or picked bytes, request or response → output bytes, whether the
     condition matched and whether anything changed. The UI shows a line diff.
+    The engine's tester entry point does every tester check itself (lead, 2026-11-20, T-035): rule validity, a section
+    for the other message kind, `raw` over 12 MiB, the framing rules below and the 16 MiB output cap. It returns an
+    `apperr` error (`BAD_INPUT`, or `BAD_QUERY` with span for the condition) and no output; the service passes it through.
   - Export/import JSON `{"version":1,"collections":[{"name":…,"rules":[…]}]}`; import appends collections, all or nothing.
   - Limits: names 1–200 characters, ≤ 1000 rules per project, term ≤ 1 MiB. Rules reload on every change and on project switch.
   - API details (lead, 2026-11-19, T-099; schema `matchreplace.graphqls`): there is no default collection (the list may
@@ -303,12 +330,17 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester takes `MatchReplaceTestRuleInput` (a rule without name, enabled and sources, so a tester request stays
     under the 32 MiB API cap whatever the draft name), rejects
     a section for the other message kind, a `Content-Length` that is not decimal or disagrees with another (exact decimal values, leading zeroes ignored), and a body
-    whose length differs from `Content-Length` (a response with no body may declare any length, as for `HEAD`; body
+    whose length differs from `Content-Length` (a response with no body may declare any length the wire parser accepts, as for `HEAD`; a value over 2^63−1, which
+    `internal/rawhttp` rejects as overflowing, is `BAD_INPUT` even with no body (lead, 2026-11-20, T-035); body
     rules leave an empty response that declares a nonzero length unchanged, since it may answer `HEAD`, but fill one
     with `Content-Length: 0`), and a request with bytes after the head but neither `Content-Length` nor
     `Transfer-Encoding` (such a request has no body, so those bytes are not part of it; a header-only request stays
     valid and a rule may add a body) (`BAD_INPUT`); otherwise `raw` is framed exactly as the wire parser
-    (`internal/rawhttp`) frames it, e.g. `Transfer-Encoding` is ignored on HTTP/1.0, and evaluates the condition on the given message only (clauses
+    (`internal/rawhttp`) frames it, e.g. `Transfer-Encoding` is ignored on HTTP/1.0. On HTTP/1.1 a chunked
+    `Transfer-Encoding` wins over `Content-Length`: the declared length must still be decimal, in range and consistent
+    (as above), but is not compared with the body; a final coding other than `chunked` is `BAD_INPUT`, as `rawhttp`
+    rejects it; a body rule then rewrites the chunked body and drops `Content-Length`, other rules leave it as sent (lead,
+    2026-11-20, T-035). The tester evaluates the condition on the given message only (clauses
     about the other message are false). Import rejects unknown fields; an unparsable condition there is `BAD_INPUT` naming
     the rule. Export rule fields are those of `MatchReplaceRuleInput`, enum values as strings, no IDs. A non-`ADD` `FULL`
     matcher is stored with an empty value.

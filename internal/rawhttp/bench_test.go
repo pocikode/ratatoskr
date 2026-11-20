@@ -2,6 +2,8 @@ package rawhttp
 
 import (
 	"bufio"
+	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -50,5 +52,35 @@ func TestHeaderIterationDoesNotAllocate(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Errorf("header iteration allocates %.1f times per run", allocs)
+	}
+}
+
+// benchHead is a 2 KiB request head, as in the Match & Replace budget (T-035).
+func benchHead() []byte {
+	var head strings.Builder
+	head.WriteString("GET /search?q=1 HTTP/1.1\r\nHost: example.com\r\n")
+	for i := 0; head.Len() < 2<<10-40; i++ {
+		head.WriteString("X-Header-" + strconv.Itoa(i) + ": " + strings.Repeat("v", 60) + "\r\n")
+	}
+	return []byte(head.String() + "\r\n")
+}
+
+func BenchmarkReadRequest(b *testing.B) {
+	wire := benchHead()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := ReadRequest(bufio.NewReader(bytes.NewReader(wire)), DefaultLimits); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkParseRequest(b *testing.B) {
+	wire := benchHead()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := ParseRequest(wire, DefaultLimits); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

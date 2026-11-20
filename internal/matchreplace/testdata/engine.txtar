@@ -1,0 +1,399 @@
+# Match & Replace engine goldens (F-MR-1): every valid section x operation x
+# matcher, regex expansion, framing and invalid-result handling, conditions,
+# sources and presets. Run with -update to rewrite `out`; review the diff.
+-- default/request --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- default/response --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-first-line-full/out --
+"PUT /z HTTP/1.0\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-first-line-full/rules --
+{"section": "REQUEST_FIRST_LINE", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "PUT /z HTTP/1.0"}
+-- req-first-line-string/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.0\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-first-line-string/rules --
+{"section": "REQUEST_FIRST_LINE", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "HTTP/1.1"}, "term": "HTTP/1.0"}
+-- req-first-line-regex/out --
+"PUT /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-first-line-regex/rules --
+{"section": "REQUEST_FIRST_LINE", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "^POST (?P<p>\\S+)"}, "term": "PUT ${p}"}
+-- req-method-full/out --
+"PUT /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-method-full/rules --
+{"section": "REQUEST_METHOD", "operation": "UPDATE", "matcher": {"kind": "FULL", "value": ""}, "term": "PUT"}
+-- req-method-string/out --
+"PATT /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-method-string/rules --
+{"section": "REQUEST_METHOD", "operation": "UPDATE", "matcher": {"kind": "STRING", "value": "OS"}, "term": "AT"}
+-- req-method-regex/out --
+"PUT$ /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-method-regex/rules --
+{"section": "REQUEST_METHOD", "operation": "UPDATE", "matcher": {"kind": "REGEX", "value": "^(P)OST$"}, "term": "${1}UT$$"}
+-- req-path-full/out --
+"POST /new?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-path-full/rules --
+{"section": "REQUEST_PATH", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "/new"}
+-- req-path-string/out --
+"POST /a/c.css?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-path-string/rules --
+{"section": "REQUEST_PATH", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "b.js"}, "term": "c.css"}
+-- req-path-regex/out --
+"POST /a-x/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-path-regex/rules --
+{"section": "REQUEST_PATH", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "/(\\w+)/"}, "term": "/$1-x/"}
+-- req-query-raw-full/out --
+"POST /a/b.js?q=1 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-raw-full/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "q=1"}
+-- req-query-raw-full-adds-mark/in --
+"GET / HTTP/1.1\r\nHost: a\r\nX-A: 1\r\n\r\n"
+-- req-query-raw-full-adds-mark/out --
+"GET /?q=1 HTTP/1.1\r\nHost: a\r\nX-A: 1\r\n\r\n"
+-- req-query-raw-full-adds-mark/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "q=1"}
+-- req-query-raw-string/out --
+"POST /a/b.js?z=1&y=2&z=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-raw-string/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "x="}, "term": "z="}
+-- req-query-raw-regex/out --
+"POST /a/b.js?x=10&y=2&x=30 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-raw-regex/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "x=(\\d)"}, "term": "x=${1}0"}
+-- req-query-value-full/out --
+"POST /a/b.js?x=v&y=v&x=v HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-value-full/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_VALUE", "matcher": {"kind": "FULL", "value": ""}, "term": "v"}
+-- req-query-value-string/out --
+"POST /a/b.js?x=9&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-value-string/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_VALUE", "matcher": {"kind": "STRING", "value": "1"}, "term": "9"}
+-- req-query-value-regex/out --
+"POST /a/b.js?x=<1>&y=<2>&x=<3> HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-value-regex/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_VALUE", "matcher": {"kind": "REGEX", "value": "\\d"}, "term": "<$0>"}
+-- req-query-value-name/out --
+"POST /a/b.js?x=new&y=2&x=new HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-value-name/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_VALUE", "matcher": {"kind": "NAME", "value": "x"}, "term": "new"}
+-- req-query-add/out --
+"POST /a/b.js?x=1&y=2&x=3&z=4 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-add/rules --
+{"section": "REQUEST_QUERY", "operation": "ADD", "matcher": {"kind": "STRING", "value": "ignored"}, "term": "z=4"}
+-- req-query-add-first-param/in --
+"GET / HTTP/1.1\r\nHost: a\r\nX-A: 1\r\n\r\n"
+-- req-query-add-first-param/out --
+"GET /?z HTTP/1.1\r\nHost: a\r\nX-A: 1\r\n\r\n"
+-- req-query-add-first-param/rules --
+{"section": "REQUEST_QUERY", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "z"}
+-- req-query-remove-full/out --
+"POST /a/b.js HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-remove-full/rules --
+{"section": "REQUEST_QUERY", "operation": "REMOVE", "matcher": {"kind": "FULL", "value": ""}, "term": ""}
+-- req-query-remove-string/out --
+"POST /a/b.js?x=1&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-remove-string/rules --
+{"section": "REQUEST_QUERY", "operation": "REMOVE", "matcher": {"kind": "STRING", "value": "y="}, "term": ""}
+-- req-query-remove-regex/out --
+"POST /a/b.js?y=2 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-remove-regex/rules --
+{"section": "REQUEST_QUERY", "operation": "REMOVE", "matcher": {"kind": "REGEX", "value": "^x="}, "term": ""}
+-- req-query-remove-name/out --
+"POST /a/b.js?x=1&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-query-remove-name/rules --
+{"section": "REQUEST_QUERY", "operation": "REMOVE", "matcher": {"kind": "NAME", "value": "y"}, "term": ""}
+-- req-header-raw-full/in --
+"GET / HTTP/1.1\r\nHost: a\r\nX-A: 1\r\n\r\n"
+-- req-header-raw-full/out --
+"GET / HTTP/1.1\r\nX-All: 1\r\nX-All: 1\r\n\r\n"
+-- req-header-raw-full/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "X-All: 1"}
+-- req-header-raw-string/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: probe\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-raw-string/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "test"}, "term": "probe"}
+-- req-header-raw-regex/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: <one>\r\nX-Dup: <two>\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-raw-regex/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "(?i)^x-dup: (\\w+)"}, "term": "X-Dup: <$1>"}
+-- req-header-raw-empty-drops-line/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-raw-empty-drops-line/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "^Accept: .*"}, "term": ""}
+-- req-header-value-full/in --
+"GET / HTTP/1.1\r\nHost: a\r\nX-A: 1\r\n\r\n"
+-- req-header-value-full/out --
+"GET / HTTP/1.1\r\nHost: v\r\nX-A: v\r\n\r\n"
+-- req-header-value-full/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_VALUE", "matcher": {"kind": "FULL", "value": ""}, "term": "v"}
+-- req-header-value-string/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.c0m\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: 0ne\r\nx-dup: tw0\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-value-string/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_VALUE", "matcher": {"kind": "STRING", "value": "o"}, "term": "0"}
+-- req-header-value-regex/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: Test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: Two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-value-regex/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_VALUE", "matcher": {"kind": "REGEX", "value": "^t(\\w+)"}, "term": "T$1"}
+-- req-header-value-name/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: z\r\nx-dup: z\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-value-name/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_VALUE", "matcher": {"kind": "NAME", "value": "x-dup"}, "term": "z"}
+-- req-header-add-user-agent/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nUser-Agent: x\r\n\r\nhello world"
+-- req-header-add-user-agent/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "User-Agent: x"}
+-- req-header-remove-full/in --
+"GET / HTTP/1.1\r\nHost: a\r\nX-A: 1\r\n\r\n"
+-- req-header-remove-full/out --
+"GET / HTTP/1.1\r\n\r\n"
+-- req-header-remove-full/rules --
+{"section": "REQUEST_HEADER", "operation": "REMOVE", "matcher": {"kind": "FULL", "value": ""}, "term": ""}
+-- req-header-remove-string/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-remove-string/rules --
+{"section": "REQUEST_HEADER", "operation": "REMOVE", "matcher": {"kind": "STRING", "value": "Accept"}, "term": ""}
+-- req-header-remove-regex/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-remove-regex/rules --
+{"section": "REQUEST_HEADER", "operation": "REMOVE", "matcher": {"kind": "REGEX", "value": "(?i)^x-dup"}, "term": ""}
+-- req-header-remove-name/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nContent-Length: 11\r\n\r\nhello world"
+-- req-header-remove-name/rules --
+{"section": "REQUEST_HEADER", "operation": "REMOVE", "matcher": {"kind": "NAME", "value": "X-DUP"}, "term": ""}
+-- req-body-full/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 8\r\n\r\nnew body"
+-- req-body-full/rules --
+{"section": "REQUEST_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "new body"}
+-- req-body-string/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello there"
+-- req-body-string/rules --
+{"section": "REQUEST_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "world"}, "term": "there"}
+-- req-body-regex/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 14\r\n\r\nworld hello $1"
+-- req-body-regex/rules --
+{"section": "REQUEST_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "(?P<w>\\w+) (\\w+)"}, "term": "${2} ${w} $$1"}
+-- req-body-fills-bodyless/in --
+"GET / HTTP/1.1\r\nHost: a\r\nX-A: 1\r\n\r\n"
+-- req-body-fills-bodyless/out --
+"GET / HTTP/1.1\r\nHost: a\r\nX-A: 1\r\nContent-Length: 3\r\n\r\na=1"
+-- req-body-fills-bodyless/rules --
+{"section": "REQUEST_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "a=1"}
+-- req-body-chunked-trailer/in --
+"POST /c HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3;ext\r\nhel\r\n2\r\nlo\r\n0\r\nX-T: v\r\n\r\n"
+-- req-body-chunked-trailer/out --
+"POST /c HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhelLO\r\n0\r\nX-T: v\r\n\r\n"
+-- req-body-chunked-trailer/rules --
+{"section": "REQUEST_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "lo"}, "term": "LO"}
+-- req-body-chunked-drops-content-length/in --
+"POST /c HTTP/1.1\r\nHost: a\r\nContent-Length: 999\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\n\r\n"
+-- req-body-chunked-drops-content-length/out --
+"POST /c HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n0\r\n\r\n"
+-- req-body-chunked-drops-content-length/rules --
+{"section": "REQUEST_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "x"}
+-- resp-first-line-full/out --
+"HTTP/1.1 404 Not Found\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-first-line-full/rules --
+{"section": "RESPONSE_FIRST_LINE", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "HTTP/1.1 404 Not Found"}
+-- resp-first-line-string/out --
+"HTTP/1.1 200 Fine\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-first-line-string/rules --
+{"section": "RESPONSE_FIRST_LINE", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "OK"}, "term": "Fine"}
+-- resp-first-line-regex/out --
+"HTTP/1.0 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-first-line-regex/rules --
+{"section": "RESPONSE_FIRST_LINE", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "^HTTP/1\\.1 (\\d+)"}, "term": "HTTP/1.0 $1"}
+-- resp-status-full/out --
+"HTTP/1.1 500 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-status-full/rules --
+{"section": "RESPONSE_STATUS_CODE", "operation": "UPDATE", "matcher": {"kind": "FULL", "value": ""}, "term": "500"}
+-- resp-status-string/out --
+"HTTP/1.1 400 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-status-string/rules --
+{"section": "RESPONSE_STATUS_CODE", "operation": "UPDATE", "matcher": {"kind": "STRING", "value": "2"}, "term": "4"}
+-- resp-status-regex/out --
+"HTTP/1.1 300 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-status-regex/rules --
+{"section": "RESPONSE_STATUS_CODE", "operation": "UPDATE", "matcher": {"kind": "REGEX", "value": "^2(\\d\\d)$"}, "term": "3$1"}
+-- resp-status-leading-zero/out --
+"HTTP/1.1 099 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-status-leading-zero/rules --
+{"section": "RESPONSE_STATUS_CODE", "operation": "UPDATE", "matcher": {"kind": "FULL", "value": ""}, "term": "099"}
+-- resp-status-not-three-digits-skipped/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-Next: 1\r\n\r\nhello world"
+-- resp-status-not-three-digits-skipped/rules --
+{"section": "RESPONSE_STATUS_CODE", "operation": "UPDATE", "matcher": {"kind": "FULL", "value": ""}, "term": "2000"}
+{"section": "RESPONSE_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-Next: 1"}
+-- resp-header-raw-full/in --
+"HTTP/1.1 204 No Content\r\nServer: s\r\nX-A: 1\r\n\r\n"
+-- resp-header-raw-full/out --
+"HTTP/1.1 204 No Content\r\nX-All: 1\r\nX-All: 1\r\n\r\n"
+-- resp-header-raw-full/rules --
+{"section": "RESPONSE_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "X-All: 1"}
+-- resp-header-raw-string/out --
+"HTTP/1.1 200 OK\r\nServer: s2\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-header-raw-string/rules --
+{"section": "RESPONSE_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "s1"}, "term": "s2"}
+-- resp-header-raw-regex/out --
+"HTTP/1.1 200 OK\r\nServer: [s1]\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-header-raw-regex/rules --
+{"section": "RESPONSE_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "^Server: (?P<v>.*)"}, "term": "Server: [${v}]"}
+-- resp-header-value-full/in --
+"HTTP/1.1 204 No Content\r\nServer: s\r\nX-A: 1\r\n\r\n"
+-- resp-header-value-full/out --
+"HTTP/1.1 204 No Content\r\nServer: v\r\nX-A: v\r\n\r\n"
+-- resp-header-value-full/rules --
+{"section": "RESPONSE_HEADER", "operation": "UPDATE_VALUE", "matcher": {"kind": "FULL", "value": ""}, "term": "v"}
+-- resp-header-value-string/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: TEXT/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-header-value-string/rules --
+{"section": "RESPONSE_HEADER", "operation": "UPDATE_VALUE", "matcher": {"kind": "STRING", "value": "text"}, "term": "TEXT"}
+-- resp-header-value-regex/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: _text/plain\r\nX-Dup: _one\r\nx-dup: _two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-header-value-regex/rules --
+{"section": "RESPONSE_HEADER", "operation": "UPDATE_VALUE", "matcher": {"kind": "REGEX", "value": "^(o|t)"}, "term": "_$1"}
+-- resp-header-value-name/out --
+"HTTP/1.1 200 OK\r\nServer: hidden\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-header-value-name/rules --
+{"section": "RESPONSE_HEADER", "operation": "UPDATE_VALUE", "matcher": {"kind": "NAME", "value": "server"}, "term": "hidden"}
+-- resp-header-add/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-Added: spaced\r\n\r\nhello world"
+-- resp-header-add/rules --
+{"section": "RESPONSE_HEADER", "operation": "ADD", "matcher": {"kind": "NAME", "value": ""}, "term": "X-Added:  spaced"}
+-- resp-header-remove-full/in --
+"HTTP/1.1 204 No Content\r\nServer: s\r\nX-A: 1\r\n\r\n"
+-- resp-header-remove-full/out --
+"HTTP/1.1 204 No Content\r\n\r\n"
+-- resp-header-remove-full/rules --
+{"section": "RESPONSE_HEADER", "operation": "REMOVE", "matcher": {"kind": "FULL", "value": ""}, "term": ""}
+-- resp-header-remove-string/out --
+"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-header-remove-string/rules --
+{"section": "RESPONSE_HEADER", "operation": "REMOVE", "matcher": {"kind": "STRING", "value": "Server"}, "term": ""}
+-- resp-header-remove-regex/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-header-remove-regex/rules --
+{"section": "RESPONSE_HEADER", "operation": "REMOVE", "matcher": {"kind": "REGEX", "value": "(?i)^x-dup: t"}, "term": ""}
+-- resp-header-remove-name/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-header-remove-name/rules --
+{"section": "RESPONSE_HEADER", "operation": "REMOVE", "matcher": {"kind": "NAME", "value": "x-DUP"}, "term": ""}
+-- resp-body-full/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 10\r\n\r\n<b>new</b>"
+-- resp-body-full/rules --
+{"section": "RESPONSE_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "<b>new</b>"}
+-- resp-body-string/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhell0 w0rld"
+-- resp-body-string/rules --
+{"section": "RESPONSE_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "o"}, "term": "0"}
+-- resp-body-regex/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nelloh orldw"
+-- resp-body-regex/rules --
+{"section": "RESPONSE_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "REGEX", "value": "(\\w)(\\w+)"}, "term": "$2$1"}
+-- resp-body-close-delimited-gets-length/in --
+"HTTP/1.1 200 OK\r\n\r\naaa"
+-- resp-body-close-delimited-gets-length/out --
+"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nbbb"
+-- resp-body-close-delimited-gets-length/rules --
+{"section": "RESPONSE_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "a"}, "term": "b"}
+-- resp-body-head-answer-unchanged/in --
+"HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\n"
+-- resp-body-head-answer-unchanged/out --
+"HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\n"
+-- resp-body-head-answer-unchanged/req --
+"HEAD / HTTP/1.1\r\nHost: a\r\n\r\n"
+-- resp-body-head-answer-unchanged/rules --
+{"section": "RESPONSE_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "x"}
+-- resp-body-chunked-trailer/in --
+"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-T\r\n\r\n1\r\na\r\n1\r\nb\r\n0\r\nX-T: 1\r\n\r\n"
+-- resp-body-chunked-trailer/out --
+"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-T\r\n\r\n2\r\naB\r\n0\r\nX-T: 1\r\n\r\n"
+-- resp-body-chunked-trailer/rules --
+{"section": "RESPONSE_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "b"}, "term": "B"}
+-- first-line-broken-skipped-later-applies/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-B: 1\r\n\r\nhello world"
+-- first-line-broken-skipped-later-applies/rules --
+{"section": "REQUEST_FIRST_LINE", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "garbage"}
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 1"}
+-- content-length-larger-skipped/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- content-length-larger-skipped/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "Content-Length: 11"}, "term": "Content-Length: 50"}
+-- content-length-smaller-kept-with-trailing-bytes/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 5\r\n\r\nhell0 world"
+-- content-length-smaller-kept-with-trailing-bytes/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "Content-Length: 11"}, "term": "Content-Length: 5"}
+{"section": "REQUEST_BODY", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "o"}, "term": "0"}
+-- condition-sees-earlier-rule/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-A: 1\r\nX-B: 2\r\n\r\nhello world"
+-- condition-sees-earlier-rule/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-A: 1"}
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "req.header[\"X-A\"].eq:\"1\""}
+-- condition-false/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- condition-false/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "req.method.eq:\"GET\""}
+-- resp-clause-false-on-request/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- resp-clause-false-on-request/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "resp.code.eq:0 OR resp.raw.cont:\"\""}
+-- not-resp-clause-true-on-request/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-B: 2\r\n\r\nhello world"
+-- not-resp-clause-true-on-request/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "NOT resp.code.eq:0"}
+-- response-condition-reads-request/out --
+"HTTP/1.1 200 OK\r\nServer: s1\r\nContent-Type: text/plain\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-B: 2\r\n\r\nhello world"
+-- response-condition-reads-request/req --
+"POST /p HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\n"
+-- response-condition-reads-request/rules --
+{"section": "RESPONSE_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "req.method.eq:\"POST\" AND req.path.eq:\"/p\" AND resp.code.eq:200"}
+-- req-host-from-host-header/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-B: 2\r\n\r\nhello world"
+-- req-host-from-host-header/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "req.host.eq:\"example.com\" AND req.ext.eq:\".js\" AND req.query.cont:\"y=2\""}
+-- req-host-from-absolute-target/in --
+"GET http://abs.example:8080/p HTTP/1.1\r\n\r\n"
+-- req-host-from-absolute-target/out --
+"GET http://abs.example:8080/p HTTP/1.1\r\nX-B: 2\r\n\r\n"
+-- req-host-from-absolute-target/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "req.host.eq:\"abs.example\""}
+-- source-not-listed/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- source-not-listed/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "sources": ["REPLAY"]}
+-- disabled-rule/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- disabled-rule/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "enabled": false}
+-- preset-condition-matches/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-B: 2\r\n\r\nhello world"
+-- preset-condition-matches/presets --
+{"name": "JS files", "alias": "js", "query": "req.ext.eq:\".js\""}
+-- preset-condition-matches/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "preset:js"}
+-- preset-unknown-skipped-by-set/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-C: 3\r\n\r\nhello world"
+-- preset-unknown-skipped-by-set/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "preset:nope"}
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-C: 3"}
+-- preset-row-id-skipped-by-set/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\nX-C: 3\r\n\r\nhello world"
+-- preset-row-id-skipped-by-set/presets --
+{"name": "ids", "query": "row.id.gt:1"}
+-- preset-row-id-skipped-by-set/rules --
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-B: 2", "condition": "preset:ids"}
+{"section": "REQUEST_HEADER", "operation": "ADD", "matcher": {"kind": "FULL", "value": ""}, "term": "X-C: 3"}
+-- no-change-same-bytes/out --
+"POST /a/b.js?x=1&y=2&x=3 HTTP/1.1\r\nHost: example.com\r\nUser-Agent: test\r\nAccept: */*\r\nX-Dup: one\r\nx-dup: two\r\nContent-Length: 11\r\n\r\nhello world"
+-- no-change-same-bytes/rules --
+{"section": "REQUEST_HEADER", "operation": "UPDATE_RAW", "matcher": {"kind": "STRING", "value": "nothing-matches"}, "term": "x"}
+-- req-query-value-url-in-origin-form/in --
+"GET /login?next=https://example.invalid/home HTTP/1.1\r\nHost: a\r\n\r\n"
+-- req-query-value-url-in-origin-form/out --
+"GET /login?next=https://example.invalid/admin HTTP/1.1\r\nHost: a\r\n\r\n"
+-- req-query-value-url-in-origin-form/rules --
+{"section": "REQUEST_QUERY", "operation": "UPDATE_VALUE", "matcher": {"kind": "NAME", "value": "next"}, "term": "https://example.invalid/admin"}
+-- req-path-url-in-origin-form-query/in --
+"GET /login?next=https://example.invalid/home HTTP/1.1\r\nHost: a\r\n\r\n"
+-- req-path-url-in-origin-form-query/out --
+"GET /signin?next=https://example.invalid/home HTTP/1.1\r\nHost: a\r\n\r\n"
+-- req-path-url-in-origin-form-query/rules --
+{"section": "REQUEST_PATH", "operation": "UPDATE_RAW", "matcher": {"kind": "FULL", "value": ""}, "term": "/signin"}

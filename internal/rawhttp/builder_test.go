@@ -81,12 +81,61 @@ func TestBuilderDropsChunkedFraming(t *testing.T) {
 	}
 }
 
+func TestBuilderSetChunkedBody(t *testing.T) {
+	t.Parallel()
+	const start = "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding:  chunked\r\n"
+	const trailer = "X-Trailer: v\r\n"
+	const wire = start + "Content-Length: 3\r\nTrailer: X-Trailer\r\n\r\n3\r\nabc\r\n0\r\n" + trailer + "\r\n"
+	for _, tt := range []struct {
+		payload, chunk string
+	}{
+		{"hello world", "b\r\nhello world\r\n"},
+		{"", ""},
+	} {
+		got := request(t, wire).Builder().SetChunkedBody([]byte(tt.payload), []byte(trailer)).Bytes()
+		want := start + "Trailer: X-Trailer\r\n\r\n" + tt.chunk + "0\r\n" + trailer + "\r\n"
+		if string(got) != want {
+			t.Errorf("payload %q wrote %q, want %q", tt.payload, got, want)
+		}
+	}
+}
+
+func TestBuilderSetHeadersAndHead(t *testing.T) {
+	t.Parallel()
+	req := request(t, "POST / HTTP/1.1\r\nHost:  a\r\nX-Old: 1\r\nContent-Length: 2\r\n\r\nhi")
+	var hs []Header
+	for _, h := range req.Headers() {
+		if h.Name != "X-Old" {
+			hs = append(hs, h)
+		}
+	}
+	hs = append(hs, Header{Name: "X-New", Value: "2"}, Header{Raw: "X-Raw:3\r\n"})
+	b := req.Builder().SetHeaders(hs)
+	const head = "POST / HTTP/1.1\r\nHost:  a\r\nContent-Length: 2\r\nX-New: 2\r\nX-Raw:3\r\n\r\n"
+	if got := b.Head(); string(got) != head {
+		t.Errorf("Head() = %q, want %q", got, head)
+	}
+	if got := b.Bytes(); string(got) != head+"hi" {
+		t.Errorf("Bytes() = %q, want %q", got, head+"hi")
+	}
+}
+
 func TestBuilderStatusLine(t *testing.T) {
 	t.Parallel()
 	res := response(t, "", "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi")
 	got := res.Builder().SetStatus(404, "Not Found").Bytes()
 	if want := "HTTP/1.1 404 Not Found\r\nContent-Length: 2\r\n\r\nhi"; string(got) != want {
 		t.Errorf("wrote %q, want %q", got, want)
+	}
+}
+
+func TestBuilderStatusThreeDigits(t *testing.T) {
+	t.Parallel()
+	res := response(t, "", "HTTP/1.1 200 OK\r\n\r\n")
+	for code, want := range map[int]string{99: "099", 7: "007", 0: "000", 100: "100"} {
+		if got := string(res.Builder().SetStatus(code, "OK").Head()); got != "HTTP/1.1 "+want+" OK\r\n\r\n" {
+			t.Errorf("status %d wrote %q", code, got)
+		}
 	}
 }
 

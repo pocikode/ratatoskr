@@ -1,0 +1,495 @@
+package matchreplace
+
+import (
+	"bytes"
+	"errors"
+	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/pocikode/ratatoskr/internal/rawhttp"
+)
+
+var (
+	// errTooLarge means the result would exceed the output cap.
+	errTooLarge = errors.New("matchreplace: result over the output cap")
+	// errSkip means the rule cannot apply to this message (logged, not an error).
+	errSkip = errors.New("matchreplace: rule skipped")
+)
+
+// budget is how many bytes the message may still grow under the output cap.
+type budget struct{ left int }
+
+// max is the longest replacement allowed for a section of n bytes.
+func (b *budget) max(n int) int { return n + b.left }
+
+// take records a section going from before to after bytes.
+func (b *budget) take(before, after int) error {
+	b.left -= after - before
+	if b.left < 0 {
+		return errTooLarge
+	}
+	return nil
+}
+
+// apply returns the message c makes of x, or nil when c changes nothing. The
+// result is at most limit bytes (errTooLarge), checked while replacing.
+func (c *compiled) apply(x *msg, limit int) ([]byte, error) {
+	b := &budget{left: limit - len(x.raw)}
+	switch c.section {
+	case RequestFirstLine, ResponseFirstLine:
+		return c.firstLine(x, b)
+	case RequestMethod:
+		return c.method(x, b)
+	case ResponseStatusCode:
+		return c.status(x, b)
+	case RequestPath, RequestQuery:
+		return c.target(x, b)
+	case RequestHeader, ResponseHeader:
+		return c.headers(x, b)
+	case RequestBody, ResponseBody:
+		return c.body(x, b)
+	}
+	return nil, fmt.Errorf("matchreplace: unknown section %q", c.section)
+}
+
+func (c *compiled) firstLine(x *msg, b *budget) ([]byte, error) {
+	line, eol := x.startLine()
+	out, err := c.replace(line, b.max(len(line)))
+	if err != nil || bytes.Equal(out, line) {
+		return nil, err
+	}
+	return x.with(slices.Concat(out, eol, x.head()[len(line)+len(eol):]), x.body), nil
+}
+
+func (c *compiled) method(x *msg, b *budget) ([]byte, error) {
+	tok := []byte(x.req.Method())
+	out, err := c.replace(tok, b.max(len(tok)))
+	if err != nil || bytes.Equal(out, tok) {
+		return nil, err
+	}
+	return x.with(x.m.Builder().SetMethod(string(out)).Head(), x.body), nil
+}
+
+func (c *compiled) status(x *msg, b *budget) ([]byte, error) {
+	tok := fmt.Appendf(nil, "%03d", x.res.Status())
+	out, err := c.replace(tok, b.max(len(tok)))
+	if err != nil || bytes.Equal(out, tok) {
+		return nil, err
+	}
+	if len(out) != 3 || bytes.ContainsFunc(out, func(r rune) bool { return r < '0' || r > '9' }) {
+		return nil, fmt.Errorf("%w: status result %q is not three digits", errSkip, out)
+	}
+	code, _ := strconv.Atoi(string(out))
+	return x.with(x.m.Builder().SetStatus(code, x.res.Reason()).Head(), x.body), nil
+}
+
+// target handles the path and the query of the request target.
+func (c *compiled) target(x *msg, b *budget) ([]byte, error) {
+	t := splitTarget(x.req.Target())
+	var changed bool
+	var err error
+	switch {
+	case c.section == RequestPath:
+		t.path, changed, err = c.replaceString(t.path, b)
+	case c.op == UpdateRaw:
+		t.query, changed, err = c.replaceString(t.query, b)
+		t.hasQ = t.hasQ || t.query != ""
+	default:
+		t.query, changed, err = c.params(t.query, b)
+		t.hasQ = t.query != ""
+	}
+	if err != nil || !changed {
+		return nil, err
+	}
+	return x.with(x.m.Builder().SetTarget(t.String()).Head(), x.body), nil
+}
+
+func (c *compiled) replaceString(s string, b *budget) (string, bool, error) {
+	out, err := c.replace([]byte(s), b.max(len(s)))
+	if err != nil || string(out) == s {
+		return s, false, err
+	}
+	return string(out), true, b.take(len(s), len(out))
+}
+
+// params applies UPDATE_VALUE, ADD or REMOVE to the &-separated params of q.
+func (c *compiled) params(q string, b *budget) (string, bool, error) {
+	var items []string
+	if q != "" {
+		items = strings.Split(q, "&")
+	}
+	out := items[:0:0]
+	changed := false
+	for _, it := range items {
+		name, value, _ := strings.Cut(it, "=")
+		switch c.op {
+		case UpdateValue:
+			if c.kind == Name && name != c.match || c.kind != Name && !c.hits(value) {
+				break
+			}
+			v, err := c.replace([]byte(value), b.max(len(value)))
+			if err != nil {
+				return "", false, err
+			}
+			if next := name + "=" + string(v); next != it {
+				if err := b.take(len(it), len(next)); err != nil {
+					return "", false, err
+				}
+				out, changed = append(out, next), true
+				continue
+			}
+		case Remove:
+			if c.kind == Name && name == c.match || c.kind != Name && c.hits(it) {
+				changed = true
+				continue
+			}
+		}
+		out = append(out, it)
+	}
+	if c.op == Add {
+		if err := b.take(0, len(c.term)+1); err != nil {
+			return "", false, err
+		}
+		out, changed = append(out, string(c.term)), true
+	}
+	return strings.Join(out, "&"), changed, nil
+}
+
+// headers applies UPDATE_RAW, UPDATE_VALUE, ADD or REMOVE to the header fields.
+func (c *compiled) headers(x *msg, b *budget) ([]byte, error) {
+	hs := make([]rawhttp.Header, 0, x.headers+1)
+	changed := false
+	for _, h := range x.m.Headers() {
+		text, eol := cutEOL(h.Raw)
+		switch c.op {
+		case UpdateRaw:
+			if !c.hits(text) {
+				break
+			}
+			out, err := c.replace([]byte(text), b.max(len(text)))
+			if err != nil {
+				return nil, err
+			}
+			if string(out) == text {
+				break
+			}
+			if err := b.take(len(text), len(out)); err != nil {
+				return nil, err
+			}
+			changed = true
+			if len(out) > 0 { // an emptied line is dropped, not left as a blank line
+				hs = append(hs, rawhttp.Header{Name: h.Name, Value: h.Value, Raw: string(out) + eol})
+			}
+			continue
+		case UpdateValue:
+			if c.kind == Name && !strings.EqualFold(h.Name, c.match) || c.kind != Name && !c.hits(h.Value) {
+				break
+			}
+			v, err := c.replace([]byte(h.Value), b.max(len(h.Value)))
+			if err != nil {
+				return nil, err
+			}
+			if string(v) == h.Value {
+				break
+			}
+			if err := b.take(len(h.Value), len(v)); err != nil {
+				return nil, err
+			}
+			hs, changed = append(hs, rawhttp.Header{Name: h.Name, Value: string(v)}), true
+			continue
+		case Remove:
+			if c.kind == Name && strings.EqualFold(h.Name, c.match) || c.kind != Name && c.hits(text) {
+				changed = true
+				continue
+			}
+		}
+		hs = append(hs, h)
+	}
+	if c.op == Add {
+		if err := b.take(0, len(c.term)+2); err != nil {
+			return nil, err
+		}
+		hs, changed = append(hs, rawhttp.Header{Name: c.addHeader[0], Value: c.addHeader[1]}), true
+	}
+	if !changed {
+		return nil, nil
+	}
+	return x.with(x.m.Builder().SetHeaders(hs).Head(), x.body), nil
+}
+
+// hits reports whether a FULL, STRING or REGEX matcher finds anything in text
+// (cheap check before replacing, and the REMOVE test).
+func (c *compiled) hits(text string) bool {
+	switch c.kind {
+	case String:
+		return strings.Contains(text, c.match)
+	case Regex:
+		return c.re.MatchString(text)
+	}
+	return true
+}
+
+// replace applies the matcher and term to src: FULL replaces it whole, STRING
+// every occurrence, REGEX every match with $1, ${name} and $$ expanded. The
+// result is at most limit bytes (errTooLarge), checked before it is built. It
+// may alias src or the term.
+func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
+	switch c.kind {
+	case String:
+		n := bytes.Count(src, c.value)
+		if n == 0 {
+			return src, nil
+		}
+		if len(src)+n*(len(c.term)-len(c.value)) > limit {
+			return nil, errTooLarge
+		}
+		return bytes.ReplaceAll(src, c.value, c.term), nil
+	case Regex:
+		// Mirrors regexp's FindAll loop one match at a time, so memory stays
+		// bounded by the output cap however dense the matches are.
+		var dst []byte
+		bounds := make([]int, 2*len(c.tmpl.refs)) // per match: each referenced name's group, resolved once
+		last, found := 0, false
+		for pos, prevEnd := 0, -1; pos <= len(src); {
+			m := c.findAt(src, pos)
+			if m == nil {
+				break
+			}
+			accept := true
+			if m[1] == pos { // empty match: never right after the previous match
+				accept = m[0] != prevEnd
+				_, w := utf8.DecodeRune(src[pos:])
+				pos += max(w, 1)
+			} else {
+				pos = m[1]
+			}
+			prevEnd = m[1]
+			if !accept {
+				continue
+			}
+			found = true
+			c.tmpl.resolve(bounds, m)
+			if len(dst)+m[0]-last+c.tmpl.expandLen(bounds) > limit {
+				return nil, errTooLarge
+			}
+			dst = append(dst, src[last:m[0]]...)
+			dst = c.tmpl.expand(dst, src, bounds)
+			last = m[1]
+		}
+		if !found {
+			return src, nil
+		}
+		if len(dst)+len(src)-last > limit {
+			return nil, errTooLarge
+		}
+		return append(dst, src[last:]...), nil
+	}
+	if len(c.term) > limit {
+		return nil, errTooLarge
+	}
+	return c.term, nil
+}
+
+// template is a REGEX term: literal pieces and references (ref >= 0) into
+// refs, one list per distinct referenced name. A name lists every group with
+// that name; the first that took part in the match is used, as in
+// regexp.Expand. Each list is resolved once per match, so expansion work per
+// match is the pieces plus the groups, never their product.
+type template struct {
+	pieces []piece
+	refs   [][]int
+}
+
+type piece struct {
+	lit string
+	ref int // -1 for a literal
+}
+
+// resolve stores in bounds, for each ref, the bounds of its first
+// participating group in m (0, 0 if none took part).
+func (t *template) resolve(bounds, m []int) {
+	for r, gs := range t.refs {
+		bounds[2*r], bounds[2*r+1] = 0, 0
+		for _, g := range gs {
+			if 2*g+1 < len(m) && m[2*g] >= 0 {
+				bounds[2*r], bounds[2*r+1] = m[2*g], m[2*g+1]
+				break
+			}
+		}
+	}
+}
+
+// parseTemplate splits a REGEX term into pieces with regexp.Expand's rules
+// ($$, $n, $name, ${name}; a malformed $ is literal; an unknown name expands to
+// nothing), so the size of an expansion is known before it is built.
+func parseTemplate(re *regexp.Regexp, t string) template {
+	var tm template
+	var lit strings.Builder
+	var named map[string][]int
+	slot := map[string]int{}                // referenced name -> index in tm.refs
+	groups := make([]int, re.NumSubexp()+1) // groups[n:][:1:1] is the shared slice {n}
+	for i := range groups {
+		groups[i] = i
+	}
+	flush := func() {
+		if lit.Len() > 0 {
+			tm.pieces = append(tm.pieces, piece{lit: lit.String(), ref: -1})
+			lit.Reset()
+		}
+	}
+	for {
+		before, after, ok := strings.Cut(t, "$")
+		lit.WriteString(before)
+		if !ok {
+			flush()
+			return tm
+		}
+		t = after
+		if strings.HasPrefix(t, "$") {
+			lit.WriteByte('$')
+			t = t[1:]
+			continue
+		}
+		name, rest, ok := templateName(t)
+		if !ok {
+			lit.WriteByte('$')
+			continue
+		}
+		t = rest
+		var gs []int
+		// regexp.Expand reads up to 9 ASCII digits without a leading zero as a number, else a name.
+		if n, ok := templateNum(name); ok {
+			if n <= re.NumSubexp() {
+				gs = groups[n:][:1:1]
+			}
+		} else {
+			if named == nil {
+				// Indexed once per term so each reference shares one slice.
+				named = map[string][]int{}
+				for i, s := range re.SubexpNames() {
+					if i > 0 && s != "" {
+						named[s] = append(named[s], i)
+					}
+				}
+			}
+			gs = named[name]
+		}
+		if gs != nil {
+			flush()
+			r, seen := slot[name]
+			if !seen {
+				r = len(tm.refs)
+				slot[name] = r
+				tm.refs = append(tm.refs, gs)
+			}
+			tm.pieces = append(tm.pieces, piece{ref: r})
+		}
+	}
+}
+
+// templateNum reports whether name is a group number (no strconv error
+// allocation per named reference).
+func templateNum(name string) (int, bool) {
+	if len(name) > 9 || (name[0] == '0' && len(name) > 1) {
+		return 0, false
+	}
+	n := 0
+	for _, c := range []byte(name) {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, true
+}
+
+// templateName is regexp's extract: a leading name or {name} of letters,
+// digits and underscores.
+func templateName(s string) (name, rest string, ok bool) {
+	brace := strings.HasPrefix(s, "{")
+	if brace {
+		s = s[1:]
+	}
+	i := 0
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			break
+		}
+		i += w
+	}
+	if i == 0 {
+		return "", "", false
+	}
+	name, rest = s[:i], s[i:]
+	if brace {
+		if !strings.HasPrefix(rest, "}") {
+			return "", "", false
+		}
+		rest = rest[1:]
+	}
+	return name, rest, true
+}
+
+// expandLen is the size expand appends for the resolved bounds.
+func (t *template) expandLen(bounds []int) int {
+	n := 0
+	for _, p := range t.pieces {
+		if p.ref < 0 {
+			n += len(p.lit)
+		} else {
+			n += bounds[2*p.ref+1] - bounds[2*p.ref]
+		}
+	}
+	return n
+}
+
+// expand appends the term for the resolved bounds of a match of src to dst.
+func (t *template) expand(dst, src []byte, bounds []int) []byte {
+	for _, p := range t.pieces {
+		if p.ref < 0 {
+			dst = append(dst, p.lit...)
+		} else {
+			dst = append(dst, src[bounds[2*p.ref]:bounds[2*p.ref+1]]...)
+		}
+	}
+	return dst
+}
+
+// findAt returns the leftmost match of c.re in src at or after pos, with the
+// text before pos as context for ^, \b and \B, as regexp's FindAll sees it.
+// Slicing src at pos would lose that context, so after the start c.resume
+// (one rune, then the rule's regex as group 1) is run from the rune before pos.
+func (c *compiled) findAt(src []byte, pos int) []int {
+	if pos == 0 {
+		return c.re.FindSubmatchIndex(src)
+	}
+	_, w := utf8.DecodeLastRune(src[:pos])
+	m := c.resume.FindSubmatchIndex(src[pos-w:])
+	if m == nil {
+		return nil
+	}
+	m = m[2:]
+	for i, v := range m {
+		if v >= 0 {
+			m[i] = v + pos - w
+		}
+	}
+	return m
+}
+
+// cutEOL splits a raw header line into its text and line terminator.
+func cutEOL(raw string) (text, eol string) {
+	if s, ok := strings.CutSuffix(raw, "\r\n"); ok {
+		return s, "\r\n"
+	}
+	if s, ok := strings.CutSuffix(raw, "\n"); ok {
+		return s, "\n"
+	}
+	return raw, ""
+}
