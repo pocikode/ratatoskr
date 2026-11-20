@@ -118,7 +118,7 @@ to Replay with ⌘/Ctrl+R or the context menu.
   send, cancel and Send-to-Replay.
 
 ## Review (reviewer)
-- Verdict: changes_requested
+- Verdict: approve
 - Reviewer: sonnet (round 1, 5ca11b8; written by lead, reviewer has no edit tool)
 - Findings:
   - [x] [major] web/src/pages/replay/session/session.svelte.ts:189 — `send()` passes `this.connection` / `this.options`
@@ -143,3 +143,9 @@ to Replay with ⌘/Ctrl+R or the context menu.
   AC has tests; truncated entries open read-only with Send disabled; no hard-rule violations.
 - Verification: `make check` green (0 lint issues, Go tests, svelte-check 0 errors, prettier, 439 vitest tests).
   `make test-int` not run (no Go proxy/store/rawhttp changes). Not run against a real server.
+- Round 2 (sonnet, 544d53b; written by lead): all round-1 findings fixed. `send()` builds inputs via
+  `connectionInput()`/`optionsInput()`; the new test runs a real urql cacheExchange chain, asserts the loaded connection
+  carries `__typename` and the mutation variables do not. Empty draft mirrored (`input.draft != null`, tested). Dispose
+  limitation documented in a comment. `size()` has B/KB/MB. No new findings.
+  Verification: `make check` green (441 vitest tests, +2). Round-2 diff only in `web/src/pages/replay/session/**` and the
+  task file.
