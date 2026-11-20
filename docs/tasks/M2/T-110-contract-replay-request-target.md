@@ -3,7 +3,7 @@ id: T-110
 title: Contract - ReplaySession.requestTarget for the collections tree
 milestone: M2
 role: lead
-status: in_review
+status: done
 depends_on: [T-098]
 owner: claude-sonnet-5-5
 branch: task/T-110-contract-replay-request-target
