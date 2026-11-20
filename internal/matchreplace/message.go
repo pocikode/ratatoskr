@@ -1,7 +1,6 @@
 package matchreplace
 
 import (
-	"bufio"
 	"bytes"
 	"io"
 	"net"
@@ -32,21 +31,20 @@ type msg struct {
 // parse reads one message from raw. It fails when the head does not parse or
 // the framed body does not end inside raw.
 func parse(raw []byte, resp bool, method string) (*msg, error) {
-	src := bytes.NewReader(raw)
-	br := bufio.NewReader(src)
 	x := &msg{raw: raw, resp: resp, method: method}
+	var headEnd int
 	if resp {
-		r, err := rawhttp.ReadResponse(br, method, limits)
+		r, n, err := rawhttp.ParseResponse(raw, method, limits)
 		if err != nil {
 			return nil, err
 		}
-		x.res, x.m = r, &r.Message
+		x.res, x.m, headEnd = r, &r.Message, n
 	} else {
-		r, err := rawhttp.ReadRequest(br, limits)
+		r, n, err := rawhttp.ParseRequest(raw, limits)
 		if err != nil {
 			return nil, err
 		}
-		x.req, x.m = r, &r.Message
+		x.req, x.m, headEnd = r, &r.Message, n
 	}
 	for range x.m.Headers() {
 		x.headers++
@@ -55,10 +53,9 @@ func parse(raw []byte, resp bool, method string) (*msg, error) {
 	if err != nil {
 		return nil, err
 	}
-	end := len(raw) - src.Len() - br.Buffered()
-	start := end - int(n)
-	x.pre = raw[:start-len(x.m.Head())]
-	x.body = raw[start:end]
+	end := headEnd + int(n)
+	x.pre = raw[:headEnd-len(x.m.Head())]
+	x.body = raw[headEnd:end]
 	x.rest = raw[end:]
 	return x, nil
 }
