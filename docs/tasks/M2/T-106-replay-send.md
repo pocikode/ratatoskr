@@ -3,7 +3,7 @@ id: T-106
 title: Replay send and cancel - interpolation, M&R hook, records and entries
 milestone: M2
 role: backend
-status: in_progress
+status: in_review
 depends_on: [T-033, T-101, T-100, T-037]
 owner: "claude-code (opus)"
 branch: task/T-106-replay-send
@@ -78,11 +78,11 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 - Resolvers in replay_send.go; tests: service tests with testutil raw server + fake env/rewriter + real Capture.
 - API server: `uiSrv` (internal/proxy/server.go) has no Read/Write timeout, only ReadHeaderTimeout/IdleTimeout: OK.
 
-- Question for lead (2026-11-20, review round 1): findings 1, 3 and 4 are fixed (`make check` green). Finding 2
-  (durable completion) needs a `history.Capture` API outside my paths, see "Out-of-scope change needed". Blocked on it.
+- Review round 1 (2026-11-20): all four findings addressed; finding 2 via the additive `Capture.CompleteWritten`
+  after the lead widened `paths`.
 
 ## Out-of-scope change needed (if any)
-- **Blocking (review finding 2), `internal/history/capture.go`:** a durable completion API, e.g.
+- Done (lead widened paths): **review finding 2, `internal/history/capture.go`:** a durable completion API, e.g.
   `func (c *Capture) CompleteWritten(ctx context.Context, id int64, resp *history.Response) error` that queues the
   completion with a `written` barrier *behind the completion op* and returns nil only after the batch holding the
   completion committed (error when the write failed, was dropped, or the project changed). Today `Written` only
@@ -106,12 +106,14 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
     Flow: one-per-session slot (CONFLICT) → `UpdateSession` saves draft/connection/options (validates, nothing saved
     on bad input) → `environment.Interpolate` with `Env.Vars` → `Rewriter.Request(ctx, "replay", raw)` when
     `applyMatchReplace` → `sender.UpdateContentLength` → head must parse (BAD_INPUT, draft stays saved) →
-    `sender.Send` → each hop `NewPending`+`Complete` (source `replay`, `ProjectDB` pinned) → `Written(last)` →
+    `sender.Send` → each hop `NewPending`+`CompleteWritten` (source `replay`, `ProjectDB` pinned) →
     `AddEntry(last, error)`. Storing runs on `WithoutCancel` + 10 s bound so cancelled sends are stored.
   - Error texts: `cancelled`, `timeout after N ms`, `dial failed: …`, `TLS handshake failed: …`, `protocol error: …`.
   - `resolvers/replay_send.go` replaces `stubs_replay_send.go`; `ReplaySendService` is now an interface.
   - API server write timeout: `uiSrv` in internal/proxy/server.go has no Read/WriteTimeout, so 300 s sends are fine.
-- How to verify: `go test -race ./internal/replay/ ./internal/api/graphql/resolvers/ -run 'Send'`.
+  - `internal/history/capture.go`: additive `Capture.CompleteWritten` (durable per-op completion via a `done` chan).
+- How to verify: `go test -race ./internal/replay/ ./internal/api/graphql/resolvers/ -run 'Send'` and
+  `go test -race ./internal/history/ -run CompleteWritten`. `make check` and `make test-int` green.
   Tests cover every AC: draft+record+entry+Added/Updated, CONFLICT/cancel/false/NOT_FOUND, interpolation incl.
   unknown verbatim and stored interpolated bytes, M&R on/off/nil, Content-Length on/off, redirect hops, dial failure,
   BAD_INPUT parse/connection, paused capture.
@@ -120,8 +122,9 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
     because no record (and so no entry) could be stored. Alternative needs a capture API that ignores the pause.
   - Review round 1: sends are pinned to the project open at start (`{db, id}` in-flight key); `Cancel` acts only
     during the network phase (false while preparing/storing). See Review replies.
-  - Still open (review finding 2): `Written` only confirms the last request row, so its response can land one flush
-    (≤ 50 ms) after the entry, and a failed completion write is not detected. Needs the history API requested above.
+  - Each hop waits for its own flush (≤ 50 ms), so a 10-redirect send spends up to ~0.5 s storing. Acceptable for
+    a user-triggered send; batching the waits would need a split enqueue/wait API.
+  - `CompleteWritten` waits only on ctx if `Capture.Run` has stopped; Replay bounds it with its 10 s store timeout.
   - Selected-over-Global precedence is `environment.Service.Vars`' job (tested in T-037); here a fake env is used.
   - No timeout test: sender uses real network time, so `synctest` doesn't apply; timeout text mapping is trivial.
 - Follow-ups (proposed tasks): the out-of-scope items above; de-flake `TestRegexSharedGroupsPerMatch` (wall-clock bound).
@@ -136,8 +139,14 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
       open project. Regression `TestSendProjectSwitch`: overlapping session IDs, switch mid-send → error, no
       requests/entries in either project, B neither sees nor cancels A's send, A's draft saved. Env vars still come
       from `Env.Vars` (current project); after a switch those bytes are never stored (capture rejects).
-  - [ ] [major] internal/replay/send.go:150 — `Complete` queues the response and `Written` only confirms the request row. If a flush commits the request between those operations, the mutation can return success while `request.response` is still null. A failed completion write can also leave it null after success. → Require durable completion of each hop, including its response when present, before creating the entry. Add a regression covering a committed request with its completion still pending.
-    - Open (implementer): needs a history API outside my paths; requested under "Out-of-scope change needed".
+  - [x] [major] internal/replay/send.go:150 — `Complete` queues the response and `Written` only confirms the request row. If a flush commits the request between those operations, the mutation can return success while `request.response` is still null. A failed completion write can also leave it null after success. → Require durable completion of each hop, including its response when present, before creating the entry. Add a regression covering a committed request with its completion still pending.
+    - Fixed (implementer): new `Capture.CompleteWritten(ctx, id, resp) error` (additive; existing methods and
+      behaviour unchanged). It queues the completion op with a `done` channel that `flush` answers after the batch
+      holding it: error on write failure, project change, or a completion that matched no request row; then checks
+      the request row exists. Replay's `Recorder` is now `Paused/NewPending/CompleteWritten`; every hop calls
+      `CompleteWritten` before `AddEntry`; `Written(last)` is gone. Regression
+      `TestCompleteWrittenWaitsForCompletion` (synctest): request committed, completion queued → does not return
+      before its flush, then response readable; also nil response, failed response write, unknown ID, project switch.
   - [x] [major] internal/replay/send.go:105 — `Cancel` returns true throughout preparation and persistence, but only the network sender maps cancellation to a cancelled entry. Cancellation during environment lookup can return a context error with no entry, and cancellation while persistence is blocked can return true while the send returns a successful entry. → Coordinate which phases accept cancellation and ensure a true result leads to a stored cancelled entry. Keep the per-session conflict guard through persistence. Cover both boundaries in tests.
     - Fixed (implementer): only the network phase is cancellable. Preparation uses the request ctx; `sender.Send`
       gets a `WithCancelCause` ctx; a flag set under the mutex right before and after `sender.Send` decides what
