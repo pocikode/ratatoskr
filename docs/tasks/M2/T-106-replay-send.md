@@ -134,7 +134,7 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 - Follow-ups (proposed tasks): the out-of-scope items above; de-flake `TestRegexSharedGroupsPerMatch` (wall-clock bound).
 
 ## Review (reviewer)
-- Verdict: changes_requested
+- Verdict: approve
 - Findings:
   - [x] [major] internal/replay/send.go:120 — Saving the draft and resolving its project for capture are separate lookups. A project switch between them lets a request prepared from the old draft reach the new project's capture. A switch between `Written` and `AddEntry` can also link unrelated rows when both IDs exist in the new project. The in-flight map shares session IDs across projects, so a new project's send or cancel can also act on the old project's slot. → Bind draft persistence, preparation, capture and entry insertion to one project and key in-flight operations by project plus session ID. Add a project-switch regression with overlapping IDs. Coordinate any API changes outside the task paths with the lead.
     - Fixed (implementer): `Send` resolves the project DB once and runs `UpdateSession`, `AddEntry` through a
@@ -151,6 +151,7 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
       `TestSendProjectSwitchDuringEnvLookup`: real `environment.Service` per project, A has `tok=from-a`, B has secret
       `tok=SECRET-B`; the env switches the open project to B during `Vars`; the loopback target receives exactly
       `GET /?t=from-a …` (byte-for-byte via `wire`), the send then fails to store (capture rejects), B has no records.
+    - Round 3 (reviewer): Verified. The environment factory gets the same DB as draft persistence and capture. The regression switches the active project before the real environment service reads variables and asserts the exact bytes received by the loopback target.
   - [x] [major] internal/replay/send.go:150 — `Complete` queues the response and `Written` only confirms the request row. If a flush commits the request between those operations, the mutation can return success while `request.response` is still null. A failed completion write can also leave it null after success. → Require durable completion of each hop, including its response when present, before creating the entry. Add a regression covering a committed request with its completion still pending.
     - Fixed (implementer): new `Capture.CompleteWritten(ctx, id, resp) error` (additive; existing methods and
       behaviour unchanged). It queues the completion op with a `done` channel that `flush` answers after the batch
@@ -170,6 +171,7 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
   - [x] [minor] internal/replay/send_test.go:230 — The wire assertion strips the trailing `ab` before comparing, so the Content-Length-off test passes even if Replay omits those bytes on the wire. → Read the full expected byte count at the loopback listener independently of HTTP framing and compare it byte for byte.
     - Fixed (implementer): `TestSendPreparesBytes` uses a `wire` listener that reads exactly `len(want)` bytes with
       `io.ReadFull`, answers, then reads to EOF; every case compares all received bytes with `want`.
+  - [ ] [minor] internal/replay/send_test.go:607 — The project-switch regression accepts any send error before waiting on the wire channel. If preparation fails before dialing, the listener never sends a value and the test hangs until the Go test timeout. → Bound the wait and report the send error if no bytes arrive.
 
 - Verification: The Go race tests for Replay send and its GraphQL resolvers passed five runs. The API server has no write timeout. All source changes are within the task paths. The lead's accepted follow-ups remain deferred.
   - Initial `make check` stopped at lint with ``Running error: context loading failed: no go files to analyze: running `go mod tidy` may solve the problem``. Initial `make test-int` failed in `TestNoLegacyImports` with `go list: exit status 1: go: writing stat cache: open ...: operation not permitted` and a Go build-cache `operation not permitted` error.
@@ -177,3 +179,5 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 
 - Round 2 (reviewer, `f2db39a`): Verified findings 2–4 as fixed. `CompleteWritten` waits for the completion batch, reports write failures, and is called on each hop before entry insertion. The gated cancellation tests cover preparation and storage, and the network-phase test verifies the cancelled entry. The loopback wire test compares the entire request, including the body with Content-Length auto-update off. All branch source changes are within the extended task paths.
   - `make check` and `make test-int` passed with the temporary cache configuration above. The targeted Replay, GraphQL and history race tests passed five runs. The remaining project-switch issue was verified by tracing the environment lookup and send order.
+
+- Round 3 (reviewer, `e499969`): `make check` and `make test-int` passed with temporary Go build and lint caches and `GOFLAGS=-buildvcs=false`. Both project-switch tests passed five runs under the race detector. All branch source changes are in scope. No blocker or major finding remains.
