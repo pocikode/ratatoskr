@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -225,6 +225,7 @@ shape (T-105), with no storage and no API.
 - Review round 3 (claude-backend, 2026-11-20): three findings fixed (see Review): bounded single-match expansion
   via a precompiled term template, budget counts decided output only, status zero-padded. `make check` green;
   benchmark 69-74 µs/op, 360 allocs/op.
+- Review round 4 (claude-backend, 2026-11-20): both findings fixed (see Review). `make check` green; fuzz 30 s green.
 - Limitations:
   - A REGEX replacement allocates one small index slice per match (garbage, not held): live memory is bounded by the
     output cap, but a very dense body costs time proportional to its matches.
@@ -273,7 +274,9 @@ Two temporary overlay regressions failed. `TestReviewFinalReplacementBudget` rep
 
 ### Round 4
 
-- [ ] [major] internal/matchreplace/apply.go:332 — A named replacement resolves to the first group with that name even if it did not participate in the match. With `(?P<part>a)|(?P<part>b)` on `b`, `${part}` expands to empty here and to `b` in Go's regexp engine → retain the indices for duplicate names and select the first participating group consistently in both the size check and expansion. Add this case to the stdlib parity test.
-- [ ] [major] internal/matchreplace/apply.go:309 — Compiling a term with consecutive escaped dollar signs recopies the accumulated literal for every pair. A valid 1 MiB term made up of those pairs entails about 128 GiB of cumulative copying before any message is rewritten → accumulate literal runs in a buffer with amortized growth and add a compilation regression for a large escaped term.
+- [x] [major] internal/matchreplace/apply.go:332 — A named replacement resolves to the first group with that name even if it did not participate in the match. With `(?P<part>a)|(?P<part>b)` on `b`, `${part}` expands to empty here and to `b` in Go's regexp engine → retain the indices for duplicate names and select the first participating group consistently in both the size check and expansion. Add this case to the stdlib parity test.
+  Fixed: a name piece keeps every group with that name; `piece.group` picks the first participating one for both `expandLen` and `expand`. Parity table gained `(?P<p>a)|(?P<p>b)` and `(?P<p>x)?(?P<p>a)`.
+- [x] [major] internal/matchreplace/apply.go:309 — Compiling a term with consecutive escaped dollar signs recopies the accumulated literal for every pair. A valid 1 MiB term made up of those pairs entails about 128 GiB of cumulative copying before any message is rewritten → accumulate literal runs in a buffer with amortized growth and add a compilation regression for a large escaped term.
+  Fixed: `parseTemplate` accumulates literal runs in a `strings.Builder`, flushed before a group piece. `TestParseTemplateLinear` (1 MiB of `$$` compiles allocating < 16 MiB).
 
 The scoped race tests for regex parity, expansion budgets, dense matching, and three-digit status serialization passed. The 20-rule benchmark measured 70.6–81.7 µs/op and 360 allocs/op over three runs on Apple M4, within the 100 µs/op target. `git diff --check main...HEAD` passed. This was a scoped review of replacement and serialization. The full `make check` and `make test-int` suites and the request-smuggling behavior were outside this verification scope.

@@ -44,6 +44,7 @@ func TestRegexReplaceMatchesStdlib(t *testing.T) {
 		{`\b`, "|"}, {`\B`, "."}, {`\bfoo\b`, "[$0]"}, {`\Bb`, "B"}, {`a*`, "-"}, {`x*`, "-"}, {`(?:)`, "_"},
 		{`(a)(b)?`, "$2$1$$"}, {`(?P<w>\w+)`, "${w}${w}"}, {`.`, "$0$0"}, {`(?s).`, "<$0>"}, {`[^a]`, ""},
 		{`(?i)A`, "z"}, {`(a)`, "$01$1x$x${1}x${1$9999999999$"}, {`(?P<01>a)`, "<$01>"}, {`(a)`, "${"}, {`a|^b|\bc`, "#"}, {`\x{FFFD}`, "?"}, {`(?U)a+`, "1"},
+		{`(?P<p>a)|(?P<p>b)`, "<${p}$p>"}, {`(?P<p>x)?(?P<p>a)`, "<${p}>"},
 	}
 	for _, p := range patterns {
 		for _, in := range inputs {
@@ -110,5 +111,21 @@ func TestRegexBudget(t *testing.T) { // not parallel: measures allocated bytes
 	}
 	if n := after.TotalAlloc - before.TotalAlloc; n > 1<<20 {
 		t.Errorf("single expansion allocated %d bytes before failing", n)
+	}
+}
+
+// TestParseTemplateLinear: a 1 MiB term of escaped dollars compiles in linear
+// time and space (literal runs are not recopied per escape).
+func TestParseTemplateLinear(t *testing.T) { // not parallel: measures allocated bytes
+	term := strings.Repeat("$$", 1<<19)
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	c := regexRule(t, `a`, term)
+	runtime.ReadMemStats(&after)
+	if len(c.tmpl) != 1 || c.tmpl[0].lit != strings.Repeat("$", 1<<19) {
+		t.Fatalf("pieces: %d", len(c.tmpl))
+	}
+	if n := after.TotalAlloc - before.TotalAlloc; n > 16<<20 {
+		t.Errorf("compiling allocated %d bytes", n)
 	}
 }

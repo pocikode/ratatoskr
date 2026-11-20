@@ -293,10 +293,22 @@ func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
 	return c.term, nil
 }
 
-// piece is a literal (group < 0) or a capture group reference of a term.
+// piece is a literal (groups == nil) or a capture group reference of a term.
+// A name lists every group with that name; the first that took part in the
+// match is used, as in regexp.Expand.
 type piece struct {
-	lit   string
-	group int
+	lit    string
+	groups []int
+}
+
+// group returns the bounds in m of p's first participating group.
+func (p piece) group(m []int) (int, int, bool) {
+	for _, g := range p.groups {
+		if 2*g+1 < len(m) && m[2*g] >= 0 {
+			return m[2*g], m[2*g+1], true
+		}
+	}
+	return 0, 0, false
 }
 
 // parseTemplate splits a REGEX term into pieces with regexp.Expand's rules
@@ -304,38 +316,48 @@ type piece struct {
 // nothing), so the size of an expansion is known before it is built.
 func parseTemplate(re *regexp.Regexp, t string) []piece {
 	var ps []piece
-	lit := func(s string) {
-		if n := len(ps); n > 0 && ps[n-1].group < 0 {
-			ps[n-1].lit += s
-		} else if s != "" {
-			ps = append(ps, piece{lit: s, group: -1})
+	var lit strings.Builder
+	flush := func() {
+		if lit.Len() > 0 {
+			ps = append(ps, piece{lit: lit.String()})
+			lit.Reset()
 		}
 	}
 	for {
 		before, after, ok := strings.Cut(t, "$")
-		lit(before)
+		lit.WriteString(before)
 		if !ok {
+			flush()
 			return ps
 		}
 		t = after
 		if strings.HasPrefix(t, "$") {
-			lit("$")
+			lit.WriteByte('$')
 			t = t[1:]
 			continue
 		}
 		name, rest, ok := templateName(t)
 		if !ok {
-			lit("$")
+			lit.WriteByte('$')
 			continue
 		}
 		t = rest
-		g := re.SubexpIndex(name)
+		var gs []int
 		// regexp.Expand reads up to 9 ASCII digits without a leading zero as a number, else a name.
 		if n, err := strconv.Atoi(name); err == nil && len(name) <= 9 && (name[0] != '0' || len(name) == 1) {
-			g = n
+			if n <= re.NumSubexp() {
+				gs = []int{n}
+			}
+		} else {
+			for i, s := range re.SubexpNames() {
+				if i > 0 && s == name {
+					gs = append(gs, i)
+				}
+			}
 		}
-		if g >= 0 && g <= re.NumSubexp() {
-			ps = append(ps, piece{group: g})
+		if gs != nil {
+			flush()
+			ps = append(ps, piece{groups: gs})
 		}
 	}
 }
@@ -372,10 +394,10 @@ func templateName(s string) (name, rest string, ok bool) {
 func expandLen(ps []piece, m []int) int {
 	n := 0
 	for _, p := range ps {
-		if p.group < 0 {
+		if p.groups == nil {
 			n += len(p.lit)
-		} else if 2*p.group+1 < len(m) && m[2*p.group] >= 0 {
-			n += m[2*p.group+1] - m[2*p.group]
+		} else if i, j, ok := p.group(m); ok {
+			n += j - i
 		}
 	}
 	return n
@@ -384,10 +406,10 @@ func expandLen(ps []piece, m []int) int {
 // expand appends the term for match m of src to dst.
 func expand(dst []byte, ps []piece, src []byte, m []int) []byte {
 	for _, p := range ps {
-		if p.group < 0 {
+		if p.groups == nil {
 			dst = append(dst, p.lit...)
-		} else if 2*p.group+1 < len(m) && m[2*p.group] >= 0 {
-			dst = append(dst, src[m[2*p.group]:m[2*p.group+1]]...)
+		} else if i, j, ok := p.group(m); ok {
+			dst = append(dst, src[i:j]...)
 		}
 	}
 	return dst
