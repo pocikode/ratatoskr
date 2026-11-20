@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -82,6 +82,10 @@ without changing the streaming path for traffic that neither feature touches.
 - Lead: add to F-MR-1 the operator's decision (2026-11-19, T-105 review round 2): when the request of an exchange is over
   the capture cap, no response rule runs on that exchange (logged at info); its response may still be held.
 
+- Lead: add to F-INT-1 (T-105 review round 7): bytes a client pipelines while its message is held are buffered up to
+  the head limit (1 MiB default); beyond that the client is treated as disconnected (item leaves the queue, connection
+  closes).
+
 ## Handoff (implementer)
 - What changed:
   - `internal/proxy/hooks.go`: `Interceptor` (shape of `intercept.Service`), `Rewriter` (task shape), `HoldCapture`
@@ -111,14 +115,16 @@ without changing the streaming path for traffic that neither feature touches.
   path untouched, benchmark not rerun.
 - Review round 5: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Review round 6: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
+- Review round 7: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green;
+  nil-hook path untouched, benchmark not rerun.
 - Review round 2: 3 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Known limitations:
   - A capture pause that starts between the `Paused` check and `NewPending` still buffers that one request (≤ cap);
     it is then sent unheld.
   - The edited record of a request edit stores the bytes the origin received (origin-form target); a response-only
     edit keeps the client's request bytes in both records (F-HIST-4).
-  - A client that pipelines more than the 4 KiB read buffer during a hold ends the disconnect watch; its disconnect
-    is then noticed when the response is written.
+  - A client that pipelines more than the head limit (1 MiB default) during a hold is treated as gone: the hold
+    ends and the connection closes.
   - "Dropping discards edits" is read literally: a request edited in Intercept and then dropped on the response side
     leaves no edited record, although the server got the edited request. Lead may want to clarify.
   - Rewritten responses that no longer parse are delivered as-is, not held, and the client connection is closed.
@@ -203,7 +209,12 @@ Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git di
 ### Round 7
 
 - Verdict: changes_requested
-- [ ] [major] internal/proxy/hooks.go:230 — The disconnect watcher stops when the pipelined input fills the reader buffer. If the client then disconnects, its held request stays in the queue until operator action, contrary to F-INT-1. Keep disconnect handling effective when pipelined input fills the buffer while preserving bounded memory and request ordering. Extend the disconnect regression test to cover a full reader buffer.
+- [x] [major] internal/proxy/hooks.go:230 — The disconnect watcher stops when the pipelined input fills the reader buffer. If the client then disconnects, its held request stays in the queue until operator action, contrary to F-INT-1. Keep disconnect handling effective when pipelined input fills the buffer while preserving bounded memory and request ordering. Extend the disconnect regression test to cover a full reader buffer.
+  - Fixed: once the client reader is full, the watcher keeps reading into an ordered side buffer bounded by the head
+    limit (1 MiB default); after the hold those bytes are put back in front of the reader (`session.src`). Read error
+    → hold ends; more than the bound pipelined during a hold → treated as gone (lead note under Out-of-scope).
+    Tests: `TestInterceptClientGoneLeavesQueue/full_buffer`, `TestInterceptPipelinedRequestsKeepOrder` (12 KiB request
+    between two small ones); both mutation-checked.
 
 The round 6 fix checks whether capture is paused before buffering an upload for Intercept. The gated upload test verifies that the origin receives the first body bytes before the client sends the rest.
 

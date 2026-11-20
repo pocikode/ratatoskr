@@ -456,7 +456,12 @@ func TestInterceptResponseForwardWithEdits(t *testing.T) {
 }
 
 func TestInterceptClientGoneLeavesQueue(t *testing.T) {
-	for name, pipelined := range map[string]string{"idle": "", "pipelined": "GET http://%s/next HTTP/1.1\r\nHost: %s\r\n"} {
+	for name, pipelined := range map[string]string{
+		"idle":      "",
+		"pipelined": "GET http://%s/next HTTP/1.1\r\nHost: %s\r\n",
+		// more than the 4 KiB client reader holds
+		"full buffer": "GET http://%s/next HTTP/1.1\r\nHost: %s\r\nX-Pad: " + strings.Repeat("p", 3*4096) + "\r\n",
+	} {
 		t.Run(name, func(t *testing.T) { testClientGone(t, pipelined) })
 	}
 }
@@ -791,9 +796,11 @@ func TestResponseRulesSeeUpstreamRequest(t *testing.T) {
 func TestInterceptPipelinedRequestsKeepOrder(t *testing.T) {
 	h := newHookRig(t, []intercept.Kind{intercept.Request}, nil, rawhttp.Limits{})
 
-	_, br := h.send("GET http://%s/1 HTTP/1.1\r\nHost: %s\r\n\r\nGET http://%s/2 HTTP/1.1\r\nHost: %s\r\n\r\n")
+	// /2 is larger than the 4 KiB client reader, so the hold of /1 reads part of it.
+	_, br := h.send("GET http://%s/1 HTTP/1.1\r\nHost: %s\r\n\r\nGET http://%s/2 HTTP/1.1\r\nHost: %s\r\nX-Pad: " +
+		strings.Repeat("p", 3*4096) + "\r\n\r\nGET http://%s/3 HTTP/1.1\r\nHost: %s\r\n\r\n")
 
-	for i := range 2 {
+	for i := range 3 {
 		call := h.nextHold(intercept.Request)
 		if want := fmt.Sprintf("/%d", i+1); call.msg.Path() != want {
 			t.Fatalf("hold %d path = %q, want %q", i, call.msg.Path(), want)

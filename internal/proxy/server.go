@@ -281,6 +281,8 @@ type session struct {
 	ui   *chanListener
 	conn net.Conn
 	br   *bufio.Reader
+	// src is what br reads from; a hold may put pipelined bytes in front of it.
+	src io.Reader
 	// idle refreshes the client read deadline on every read.
 	idle *netx.IdleConn
 	// tun is the CONNECT destination when the connection is a tunnel.
@@ -308,7 +310,7 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn, info listenerInfo
 	defer s.untrack(conn)
 
 	ic := &netx.IdleConn{Conn: conn, Idle: s.deps.IdleTimeout}
-	sess := &session{s: s, ctx: ctx, info: info, ui: ui, conn: ic, br: bufio.NewReader(ic), idle: ic}
+	sess := &session{s: s, ctx: ctx, info: info, ui: ui, conn: ic, br: bufio.NewReader(ic), src: ic, idle: ic}
 
 	sess.requests()
 
@@ -522,7 +524,7 @@ func (c *session) connect(req *rawhttp.Request) bool {
 	_ = tc.SetDeadline(time.Time{})
 	c.idle.Idle = c.s.deps.IdleTimeout
 
-	c.conn, c.br = tc, bufio.NewReader(tc)
+	c.conn, c.br, c.src = tc, bufio.NewReader(tc), tc
 	c.tun = &destination{host: host, port: port, tls: true, sni: tc.ConnectionState().ServerName}
 
 	return true

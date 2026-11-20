@@ -221,17 +221,38 @@ func (c *session) watchClient(cancel context.CancelFunc) (stop func()) {
 
 	done := make(chan struct{})
 
+	// over holds pipelined bytes beyond a full c.br, in order; only the
+	// watcher touches it until done is closed.
+	var over []byte
+
+	gone := func() {
+		if !stopping.Load() {
+			cancel()
+		}
+	}
+
 	go func() {
 		defer close(done)
 
 		// Pipelined bytes stay in c.br for the next read; only a read error means
-		// the client is gone. shortcut: a client that pipelines a full buffer
-		// (4 KiB) ends the watch, its disconnect is then seen at the next write.
+		// the client is gone.
 		for n := c.br.Buffered() + 1; n <= c.br.Size(); n = c.br.Buffered() + 1 {
 			if _, err := c.br.Peek(n); err != nil {
-				if !stopping.Load() {
-					cancel()
-				}
+				gone()
+
+				return
+			}
+		}
+
+		// c.br is full: keep reading behind it, bounded by the head limit. A
+		// client that pipelines more during a hold is treated as gone.
+		buf := make([]byte, c.br.Size())
+		for {
+			n, err := c.br.Read(buf)
+			over = append(over, buf[:n]...)
+
+			if err != nil || len(over) > c.s.maxHead() {
+				gone()
 
 				return
 			}
@@ -240,10 +261,16 @@ func (c *session) watchClient(cancel context.CancelFunc) (stop func()) {
 
 	return func() {
 		stopping.Store(true)
-		_ = c.conn.SetReadDeadline(time.Now()) // unblocks the Peek; a deadline error is not sticky
+		_ = c.conn.SetReadDeadline(time.Now()) // unblocks the read; a deadline error is not sticky
 		<-done
 		_ = c.conn.SetReadDeadline(time.Time{})
 		c.idle.Idle = idle
+
+		if len(over) > 0 { // put the pipelined bytes back in front, in order
+			rest, _ := c.br.Peek(c.br.Buffered())
+			c.src = io.MultiReader(bytes.NewReader(append(over, rest...)), c.src)
+			c.br.Reset(c.src)
+		}
 	}
 }
 
