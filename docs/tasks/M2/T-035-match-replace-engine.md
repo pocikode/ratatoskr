@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -290,3 +290,12 @@ The scoped race tests for regex parity, expansion budgets, dense matching, and t
   Fixed: `parseTemplate` indexes capture names once per term (`map[name][]int`) and every reference shares that slice; numeric references share one slice from a per-term index table; numbers are recognised without `strconv` (no error allocation per named reference). `TestParseTemplateSharedGroups` (1000 groups named `p`, 1 MiB of `${p}`: ~45 MiB vs ~2 GiB before).
 
 Both round 4 fixes passed the scoped race tests for regex replacement and template compilation. The standalone 20-rule benchmark measured 69.1–70.9 µs/op and 360 allocs/op across three runs on Apple M4. `git diff --check main...HEAD` passed. This round used scoped checks and excluded request-smuggling verification and the full `make check` and `make test-int` suites.
+
+
+### Round 6 — lead escalation
+
+Verdict: **changes_requested**. The compile-time finding from round 5 is resolved. The review limit in §7 of the agent workflow has been exceeded. The lead owns disposition of the remaining finding.
+
+- [ ] [major] internal/matchreplace/apply.go:305 — Expansion walks the shared duplicate-name slice for every reference, in both the size check and the write pass. A late or absent participating group makes the work per match proportional to the product of reference and group counts, even for an empty expansion. Resolve each referenced name once per match, reuse that result in both passes, and cover repeated references to a late or absent group.
+
+The scoped race tests for regex replacement, template compilation, and status serialization passed, as did `git diff --check main...HEAD`. Full `make check`, `make test-int`, and request-smuggling verification were outside this review scope.
