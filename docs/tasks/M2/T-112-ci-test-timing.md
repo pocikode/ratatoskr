@@ -72,6 +72,15 @@ spec:
   - None.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: approve
+- Reviewer: sonnet (round 1, 4e1c6ac; written by lead, reviewer has no edit tool)
 - Findings:
-  - [ ] [blocker|major|minor|nit] path:line — description
+  - [ ] [nit] internal/proxy/proxy_test.go:158 — `127.0.0.1:1` assumes an unprivileged test process (documented in
+    Handoff); a root-run suite could in principle bind it. No change needed.
+  - [ ] [nit] internal/matchreplace/replace_test.go:169 — under `-race` the case still runs fully (~5 s/case); only the
+    time check is skipped, as scoped. A future task could shrink the input under race if CI time matters.
+- Checks: scope inside paths, no non-test code; rule 7 kept (10 s bound unchanged when `!raceEnabled`, correctness
+  assertions run in every build); build-tag pair gives one `raceEnabled` const per build; proxy assertions unchanged.
+- Verification: `go test -race -count=20 -run 'TestRegexSharedGroupsPerMatch|TestUpstreamErrorIs502AndRecorded'
+  ./internal/matchreplace/ ./internal/proxy/` passed; `make check` green (first `web-test` run had 2 unrelated 5 s
+  timeouts under load, rerun 461/461). `make test-int` not needed.
