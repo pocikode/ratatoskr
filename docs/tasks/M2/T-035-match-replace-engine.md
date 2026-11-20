@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -240,7 +240,7 @@ shape (T-105), with no storage and no API.
 
 ## Review (reviewer)
 
-- Verdict: changes_requested (round 3)
+- Verdict: changes_requested (round 4)
 - Round 2 findings:
   - [x] [major] internal/matchreplace/message.go:104 — An origin-form target with a URL in its query is mistaken for absolute-form. The `next` parameter in `/login?next=https://example.invalid/home` disappears from query matching, and the parsed path is also wrong → identify the target form from its prefix before splitting path and query, and add a golden for updating this parameter.
     Fixed: `splitTarget` treats the target as absolute-form only when `scheme://` comes before any `/?#`. Goldens `req-query-value-url-in-origin-form` (updates `next`) and `req-path-url-in-origin-form-query`.
@@ -269,3 +269,11 @@ shape (T-105), with no storage and no API.
 `make check`, `make test-int`, and `git diff --check main...HEAD` passed. After the suites finished, the standalone 20-rule benchmark measured 69.3–74.7 µs/op and 360 allocs/op over three runs on Apple M4, within the 100 µs/op target.
 
 Two temporary overlay regressions failed. `TestReviewFinalReplacementBudget` reported `out="" err=matchreplace: result over the output cap` for a two-byte final result under a five-byte limit. `TestReviewThreeDigitStatus` reported `changed=false err=<nil>` and returned the original status. The single-match allocation issue was assessed by code inspection.
+
+
+### Round 4
+
+- [ ] [major] internal/matchreplace/apply.go:332 — A named replacement resolves to the first group with that name even if it did not participate in the match. With `(?P<part>a)|(?P<part>b)` on `b`, `${part}` expands to empty here and to `b` in Go's regexp engine → retain the indices for duplicate names and select the first participating group consistently in both the size check and expansion. Add this case to the stdlib parity test.
+- [ ] [major] internal/matchreplace/apply.go:309 — Compiling a term with consecutive escaped dollar signs recopies the accumulated literal for every pair. A valid 1 MiB term made up of those pairs entails about 128 GiB of cumulative copying before any message is rewritten → accumulate literal runs in a buffer with amortized growth and add a compilation regression for a large escaped term.
+
+The scoped race tests for regex parity, expansion budgets, dense matching, and three-digit status serialization passed. The 20-rule benchmark measured 70.6–81.7 µs/op and 360 allocs/op over three runs on Apple M4, within the 100 µs/op target. `git diff --check main...HEAD` passed. This was a scoped review of replacement and serialization. The full `make check` and `make test-int` suites and the request-smuggling behavior were outside this verification scope.
