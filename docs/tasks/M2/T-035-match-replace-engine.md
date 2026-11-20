@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -241,7 +241,7 @@ shape (T-105), with no storage and no API.
 
 ## Review (reviewer)
 
-- Verdict: changes_requested (round 4)
+- Verdict: changes_requested (round 5)
 - Round 2 findings:
   - [x] [major] internal/matchreplace/message.go:104 — An origin-form target with a URL in its query is mistaken for absolute-form. The `next` parameter in `/login?next=https://example.invalid/home` disappears from query matching, and the parsed path is also wrong → identify the target form from its prefix before splitting path and query, and add a golden for updating this parameter.
     Fixed: `splitTarget` treats the target as absolute-form only when `scheme://` comes before any `/?#`. Goldens `req-query-value-url-in-origin-form` (updates `next`) and `req-path-url-in-origin-form-query`.
@@ -280,3 +280,10 @@ Two temporary overlay regressions failed. `TestReviewFinalReplacementBudget` rep
   Fixed: `parseTemplate` accumulates literal runs in a `strings.Builder`, flushed before a group piece. `TestParseTemplateLinear` (1 MiB of `$$` compiles allocating < 16 MiB).
 
 The scoped race tests for regex parity, expansion budgets, dense matching, and three-digit status serialization passed. The 20-rule benchmark measured 70.6–81.7 µs/op and 360 allocs/op over three runs on Apple M4, within the 100 µs/op target. `git diff --check main...HEAD` passed. This was a scoped review of replacement and serialization. The full `make check` and `make test-int` suites and the request-smuggling behavior were outside this verification scope.
+
+
+### Round 5
+
+- [ ] [major] internal/matchreplace/apply.go:352 — Template compilation scans every capture group for each named reference and allocates a fresh list of duplicate group indices for each occurrence. Compile time and memory can grow with the product of two independently capped inputs. → Index capture names once per regexp and share each ordered index slice across references. Add a compilation allocation regression for repeated named references.
+
+Both round 4 fixes passed the scoped race tests for regex replacement and template compilation. The standalone 20-rule benchmark measured 69.1–70.9 µs/op and 360 allocs/op across three runs on Apple M4. `git diff --check main...HEAD` passed. This round used scoped checks and excluded request-smuggling verification and the full `make check` and `make test-int` suites.
