@@ -97,7 +97,9 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 - `internal/api/graphql/resolvers/resolver.go:39`: comment still says "until T-106 … NOT_IMPLEMENTED".
 - `deleteReplaySession` / `deleteReplayCollection` should cancel in-flight sends (schema says so). Needs
   `Sender.Cancel` called from the resolver or session.go. Today the send finishes and `AddEntry` returns NOT_FOUND.
-- T-109 wiring: `replay.NewSender(replaySvc, replay.SendDeps{Env: envSvc, Rewriter: mrEngine, Capture: capture})`.
+- T-109 wiring: `replay.NewSender(replaySvc, replay.SendDeps{Rewriter: mrEngine, Capture: capture,
+  Env: func(p *store.DB) replay.Env { return environment.New(environment.Deps{Instance: inst, Project: func() *store.DB { return p }, Secrets: box}) }})`.
+  `Env` must bind to `p`, not the open project (review round 2).
 
 ## Handoff (implementer)
 - What changed:
@@ -125,14 +127,16 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
   - Each hop waits for its own flush (≤ 50 ms), so a 10-redirect send spends up to ~0.5 s storing. Acceptable for
     a user-triggered send; batching the waits would need a split enqueue/wait API.
   - `CompleteWritten` waits only on ctx if `Capture.Run` has stopped; Replay bounds it with its 10 s store timeout.
-  - Selected-over-Global precedence is `environment.Service.Vars`' job (tested in T-037); here a fake env is used.
+  - Selected-over-Global precedence is `environment.Service.Vars`' job (tested in T-037); here a fake env is used,
+    plus the real service in the project-switch regression.
+  - Round 2: `SendDeps.Env` is a per-project factory so variables always come from the send's own project.
   - No timeout test: sender uses real network time, so `synctest` doesn't apply; timeout text mapping is trivial.
 - Follow-ups (proposed tasks): the out-of-scope items above; de-flake `TestRegexSharedGroupsPerMatch` (wall-clock bound).
 
 ## Review (reviewer)
 - Verdict: changes_requested
 - Findings:
-  - [ ] [major] internal/replay/send.go:120 — Saving the draft and resolving its project for capture are separate lookups. A project switch between them lets a request prepared from the old draft reach the new project's capture. A switch between `Written` and `AddEntry` can also link unrelated rows when both IDs exist in the new project. The in-flight map shares session IDs across projects, so a new project's send or cancel can also act on the old project's slot. → Bind draft persistence, preparation, capture and entry insertion to one project and key in-flight operations by project plus session ID. Add a project-switch regression with overlapping IDs. Coordinate any API changes outside the task paths with the lead.
+  - [x] [major] internal/replay/send.go:120 — Saving the draft and resolving its project for capture are separate lookups. A project switch between them lets a request prepared from the old draft reach the new project's capture. A switch between `Written` and `AddEntry` can also link unrelated rows when both IDs exist in the new project. The in-flight map shares session IDs across projects, so a new project's send or cancel can also act on the old project's slot. → Bind draft persistence, preparation, capture and entry insertion to one project and key in-flight operations by project plus session ID. Add a project-switch regression with overlapping IDs. Coordinate any API changes outside the task paths with the lead.
     - Fixed (implementer): `Send` resolves the project DB once and runs `UpdateSession`, `AddEntry` through a
       `replay.New` service pinned to it; records carry `ProjectDB` so capture drops them after a switch and `Written`
       fails, so no entry is added anywhere. In-flight map keyed by `{db, sessionID}`; `Sending`/`Cancel` use the
@@ -140,6 +144,13 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
       requests/entries in either project, B neither sees nor cancels A's send, A's draft saved. Env vars still come
       from `Env.Vars` (current project); after a switch those bytes are never stored (capture rejects).
     - Round 2 (reviewer), internal/replay/send.go:206 — The DB writes and in-flight slots are fixed. Preparation still reads the active project's selected environment. If B opens after A's draft is saved but before `Env.Vars` reads the project, A's target can receive B's interpolated secrets. Capture rejects the record only after the network send. → Pin the environment lookup to A or reject a project change during preparation before calling the sender. Extend the regression to switch during environment lookup and verify that no variables from B reach the loopback target.
+    - Fixed round 2 (implementer): the lookup is pinned to the send's project. `SendDeps.Env` is now
+      `func(project *store.DB) Env`; `prepare` calls it with the DB resolved once at the start of `Send` (the same one
+      used for the draft, capture and entry). Production wiring (T-109) builds `environment.New(environment.Deps{
+      Instance, Project: func() *store.DB { return project }, Secrets})`, so `Vars` reads that project only. Regression
+      `TestSendProjectSwitchDuringEnvLookup`: real `environment.Service` per project, A has `tok=from-a`, B has secret
+      `tok=SECRET-B`; the env switches the open project to B during `Vars`; the loopback target receives exactly
+      `GET /?t=from-a …` (byte-for-byte via `wire`), the send then fails to store (capture rejects), B has no records.
   - [x] [major] internal/replay/send.go:150 — `Complete` queues the response and `Written` only confirms the request row. If a flush commits the request between those operations, the mutation can return success while `request.response` is still null. A failed completion write can also leave it null after success. → Require durable completion of each hop, including its response when present, before creating the entry. Add a regression covering a committed request with its completion still pending.
     - Fixed (implementer): new `Capture.CompleteWritten(ctx, id, resp) error` (additive; existing methods and
       behaviour unchanged). It queues the completion op with a `done` channel that `flush` answers after the batch
