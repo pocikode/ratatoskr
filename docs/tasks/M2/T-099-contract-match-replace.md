@@ -552,3 +552,18 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   (CRUD, enable, move, reorder, import/export, error codes, the tester's happy path and size errors).
   Wire-fidelity findings in the mock are not blocking: add them as T-102 acceptance criteria instead.
 - Known non-blocking: four whitespace-only lines in generated web SDL (`git diff --check`), produced by `make gen`.
+
+### Review of `44ea379`
+
+- Verdict is `approve`. Task status stays `in_review` pending operator merge.
+- [ ] [minor] internal/api/graphql/schema/matchreplace.graphqls:361 — The tester description
+  refers to the presence of `Transfer-Encoding`, while F-MR-1 applies the wire parser's
+  framing rules, which ignore that header on HTTP/1.0. → Say “effective Transfer-Encoding”
+  and name the HTTP/1.0 exception in the tester description.
+- `make check` passed, including 353 web tests across 43 files. `make gen` passed and
+  left the working tree clean. All 14 changed files fall within the task paths.
+  The mock tests cover CRUD, enable, move, reorder, import/export, validation codes,
+  supported tester replacements, and the tester size limits.
+- `git diff --check main...HEAD` reports four whitespace-only additions in generated
+  web SDL. Browser E2E and Go integration were outside this contract review. Exact tester
+  framing is tracked by T-102 under the lead decision above.
