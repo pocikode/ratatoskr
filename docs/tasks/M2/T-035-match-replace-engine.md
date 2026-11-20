@@ -131,9 +131,9 @@ shape (T-105), with no storage and no API.
 - Resolved (lead, 2026-11-20): "Should `Test` return an error for `BAD_INPUT`?" Yes, the engine owns every tester check; see Notes from lead.
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
+- What changed: Added `rawhttp.SplitChunkedBody` to decode a complete chunked body and return its original trailer fields.
+- How to verify: `go test -race ./internal/rawhttp` covers multiple chunks, trailers, an empty body, truncation and trailing bytes.
+- Known limitations: The Match & Replace engine, tester and chunked body writer are still pending.
 - Follow-ups (proposed tasks):
 
 ## Review (reviewer)
