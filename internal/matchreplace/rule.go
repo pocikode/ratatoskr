@@ -193,7 +193,8 @@ func compile(r Rule, presets []filterpreset.Preset) (*compiled, error) {
 		return nil, apperr.New(apperr.BadInput, "condition must be at most 64 KiB")
 	}
 	c := &compiled{
-		name: r.Name, sources: r.Sources, section: r.Section, op: r.Operation,
+		name: r.Name, sources: slices.Clone(r.Sources), // the caller may reuse its slice after Set
+		section: r.Section, op: r.Operation,
 		kind: r.Matcher.Kind, match: r.Matcher.Value, value: []byte(r.Matcher.Value), term: []byte(r.Term),
 	}
 	if r.Operation == Add {

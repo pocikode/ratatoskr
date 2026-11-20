@@ -101,7 +101,9 @@ type target struct {
 
 func splitTarget(t string) target {
 	var r target
-	if i := strings.Index(t, "://"); i >= 0 {
+	// Absolute-form only when "scheme://" leads: an origin-form query may
+	// itself hold a URL (/login?next=https://...).
+	if i := strings.Index(t, "://"); i > 0 && !strings.ContainsAny(t[:i], "/?#") {
 		j := strings.IndexAny(t[i+3:], "/?#")
 		if j < 0 {
 			return target{prefix: t}

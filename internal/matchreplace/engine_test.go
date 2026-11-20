@@ -412,3 +412,20 @@ func TestSkippedRuleIsLogged(t *testing.T) {
 		t.Errorf("log = %q", s)
 	}
 }
+
+// TestSetCopiesSources: reusing the caller's Sources slice after Set must not
+// change which traffic the published rules apply to.
+func TestSetCopiesSources(t *testing.T) {
+	t.Parallel()
+	e := newEngine()
+	r := headerAdd("X: 1")
+	e.Set([]Rule{r}, nil)
+	r.Sources[0] = SourceReplay
+	if !e.Active("proxy", false) || e.Active("replay", false) {
+		t.Fatal("caller's Sources slice changed the live rules")
+	}
+	raw := []byte("GET / HTTP/1.1\r\nHost: a\r\n\r\n")
+	if out, err := e.Request(context.Background(), "proxy", raw); err != nil || bytes.Equal(out, raw) {
+		t.Errorf("rule not applied after caller mutation: %q, %v", out, err)
+	}
+}
