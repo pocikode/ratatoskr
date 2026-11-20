@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -522,4 +522,21 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   `make check` passed (43 Vitest files, 353 tests) and `make gen` left the working tree
   clean before this review note. All changed files are within the task paths.
   `git diff --check main...HEAD` flags four whitespace-only lines in generated web SDL.
+  Browser E2E and Go integration were skipped for this contract, stub and mock change.
+
+### Review of `4df5713`
+
+- Verdict is `changes_requested`. Escalate the remaining framing mismatch to the lead under the review round limit.
+- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:535 — The tester treats Transfer-Encoding
+  as effective on HTTP/1.0. Through the mock GraphQL client, an HTTP/1.0 request with
+  Transfer-Encoding: chunked, no Content-Length, and trailing bytes accepts a header ADD
+  draft and returns changed: true. The wire parser ignores Transfer-Encoding on HTTP/1.0
+  (internal/rawhttp/read.go:335), so it treats those bytes as outside the request.
+  → Ignore Transfer-Encoding on HTTP/1.0 in both tester length checks. Add a BAD_INPUT
+  regression for the HTTP/1.0 case and preserve acceptance of an equivalent framed HTTP/1.1 request.
+- The newly covered HTTP/1.1 request without either framing header returned BAD_INPUT.
+  Review assumed one desktop user within the documented project and tester limits.
+  All 14 changed files are within scope. `make check` passed (43 Vitest files, 353 tests)
+  and `make gen` left the working tree clean. The branch still has four whitespace-only
+  additions in generated web SDL flagged by `git diff --check main...HEAD`.
   Browser E2E and Go integration were skipped for this contract, stub and mock change.
