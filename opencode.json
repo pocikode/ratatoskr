@@ -23,6 +23,11 @@
       "git checkout*": "allow",
       "git branch*": "allow",
       "git stash*": "allow",
+      "git rm*": "allow",
+      "git mv*": "allow",
+      "git restore*": "allow",
+      "git rev-parse*": "allow",
+      "git ls-files*": "allow",
       "git push -u origin HEAD": "allow",
       "git push origin*": "allow",
       "git remote get-url*": "allow",
@@ -47,7 +52,9 @@
       "git push upstream*": "deny",
       "git reset --hard*": "deny",
       "rm -rf*": "deny",
-      "gh pr merge*": "deny"
+      "gh pr merge*": "deny",
+      "sed *": "allow",
+      "sort *": "allow"
     }
   }
 }

@@ -2,7 +2,7 @@
 description: "Code reviewer for Ratatoskr. Reviews a task branch against spec, AGENTS.md rules and conventions. Never edits code."
 mode: all
 permission:
-  edit: ask
+  edit: allow
   bash: allow
 ---
 
