@@ -38,6 +38,7 @@ export interface MockReplaySession {
   options: Options;
   /** Base64 of the draft bytes, as on the wire. */
   draft: string;
+  requestTarget: () => string;
   sending: boolean;
   createdAt: string;
   /** Newest first. */
@@ -117,14 +118,24 @@ function checkBytes(b64: unknown): string {
 // The target is delimited by bytes, not \s: JS treats UTF-8 continuation byte 0xA0 (in `à`) as whitespace.
 const REQUEST_LINE = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+) ([^ \r\n]+) HTTP\/1\.[01]\r?\n/;
 
-/** Latin1 byte string → text, decoded as UTF-8. */
+/** Latin1 byte string → text, decoded as UTF-8; a leading U+FEFF is kept, not stripped. */
 const utf8 = (bytes: string) =>
-  new TextDecoder().decode(Uint8Array.from(bytes, (ch) => ch.charCodeAt(0)));
+  new TextDecoder('utf-8', { ignoreBOM: true }).decode(
+    Uint8Array.from(bytes, (ch) => ch.charCodeAt(0)),
+  );
 
 /** `METHOD target` from the request line, cut to 60 characters; `Untitled` without one. */
 function defaultName(b64: string): string {
   const m = REQUEST_LINE.exec(atob(b64));
   return m ? [...utf8(`${m[1]} ${m[2]}`)].slice(0, 60).join('') : 'Untitled';
+}
+
+/** Target of the request line, UTF-8 decoded, cut to 2048 characters; empty without one or with ASCII controls. */
+function requestTarget(b64: string): string {
+  const t = REQUEST_LINE.exec(atob(b64))?.[2] ?? '';
+  for (const ch of t) if (ch < ' ' || ch === '\x7f') return '';
+  // 2048 code points span at most 8192 bytes, so decode only those.
+  return [...utf8(t.slice(0, 8192))].slice(0, 2048).join('');
 }
 
 const body = (s: string) => slicer(Uint8Array.from(s, (ch) => ch.charCodeAt(0)));
@@ -247,6 +258,7 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
       ...fields,
       collectionId: c.id,
       collection: () => collection(s.collectionId),
+      requestTarget: () => requestTarget(s.draft),
       entries: ({ first, after }: Args) => {
         const n = Number(first ?? 100);
         if (n < 1 || n > 1000) throw fail('BAD_INPUT', 'first must be 1..1000');

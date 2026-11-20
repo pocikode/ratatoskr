@@ -325,17 +325,18 @@ type ComplexityRoot struct {
 	}
 
 	ReplaySession struct {
-		Collection func(childComplexity int) int
-		Color      func(childComplexity int) int
-		Connection func(childComplexity int) int
-		CreatedAt  func(childComplexity int) int
-		Draft      func(childComplexity int) int
-		Entries    func(childComplexity int, first int, after *string) int
-		ID         func(childComplexity int) int
-		Kind       func(childComplexity int) int
-		Name       func(childComplexity int) int
-		Options    func(childComplexity int) int
-		Sending    func(childComplexity int) int
+		Collection    func(childComplexity int) int
+		Color         func(childComplexity int) int
+		Connection    func(childComplexity int) int
+		CreatedAt     func(childComplexity int) int
+		Draft         func(childComplexity int) int
+		Entries       func(childComplexity int, first int, after *string) int
+		ID            func(childComplexity int) int
+		Kind          func(childComplexity int) int
+		Name          func(childComplexity int) int
+		Options       func(childComplexity int) int
+		RequestTarget func(childComplexity int) int
+		Sending       func(childComplexity int) int
 	}
 
 	RequestUpdate struct {
@@ -493,6 +494,8 @@ type ReplayEntryResolver interface {
 }
 type ReplaySessionResolver interface {
 	Collection(ctx context.Context, obj *ReplaySession) (*ReplayCollection, error)
+
+	RequestTarget(ctx context.Context, obj *ReplaySession) (string, error)
 
 	Entries(ctx context.Context, obj *ReplaySession, first int, after *string) (*ReplayEntryConnection, error)
 }
@@ -2119,6 +2122,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ReplaySession.Options(childComplexity), true
+	case "ReplaySession.requestTarget":
+		if e.ComplexityRoot.ReplaySession.RequestTarget == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ReplaySession.RequestTarget(childComplexity), true
 	case "ReplaySession.sending":
 		if e.ComplexityRoot.ReplaySession.Sending == nil {
 			break
@@ -3884,6 +3893,15 @@ type ReplaySession implements Node {
   Replace or Content-Length update). At most 16 MiB (16777216 bytes).
   """
   draft: Bytes!
+  """
+  The request target of the draft's first line (` + "`" + `METHOD target HTTP/1.x` + "`" + `),
+  decoded as UTF-8 with invalid bytes replaced (a leading U+FEFF is kept), cut
+  to 2048 characters. Empty when the draft does not start with an HTTP/1.x
+  request line, including when the target holds an ASCII control byte
+  (0x00-0x1F, 0x7F). Lets the
+  collections tree search by path without loading ` + "`" + `draft` + "`" + `.
+  """
+  requestTarget: String!
   "Whether a send is in flight (see ` + "`" + `sendReplaySession` + "`" + `)."
   sending: Boolean!
   "When the session was created."
@@ -4676,6 +4694,8 @@ func (ec *executionContext) childFields_ReplaySession(ctx context.Context, field
 		return ec.fieldContext_ReplaySession_options(ctx, field)
 	case "draft":
 		return ec.fieldContext_ReplaySession_draft(ctx, field)
+	case "requestTarget":
+		return ec.fieldContext_ReplaySession_requestTarget(ctx, field)
 	case "sending":
 		return ec.fieldContext_ReplaySession_sending(ctx, field)
 	case "createdAt":
@@ -12754,6 +12774,29 @@ func (ec *executionContext) fieldContext_ReplaySession_draft(_ context.Context, 
 	return graphql.NewScalarFieldContext("ReplaySession", field, false, false, "Bytes")
 }
 
+func (ec *executionContext) _ReplaySession_requestTarget(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ReplaySession_requestTarget(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.ReplaySession().RequestTarget(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ReplaySession_requestTarget(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ReplaySession", field, true, true, "String")
+}
+
 func (ec *executionContext) _ReplaySession_sending(ctx context.Context, field graphql.CollectedField, obj *ReplaySession) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -17518,6 +17561,12 @@ func (ec *executionContext) _ReplaySession(ctx context.Context, sel ast.Selectio
 			if out.Values[i] == graphql.Null {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
+		case "requestTarget":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._ReplaySession_requestTarget(ctx, field, obj)
+				})
 		case "sending":
 			out.Values[i] = ec._ReplaySession_sending(ctx, field, obj)
 			if out.Values[i] == graphql.Null {

@@ -1747,6 +1747,16 @@ type ReplaySession implements Node {
   """Send options."""
   options: ReplayOptions!
 
+  """
+  The request target of the draft's first line (`METHOD target HTTP/1.x`),
+  decoded as UTF-8 with invalid bytes replaced (a leading U+FEFF is kept), cut
+  to 2048 characters. Empty when the draft does not start with an HTTP/1.x
+  request line, including when the target holds an ASCII control byte
+  (0x00-0x1F, 0x7F). Lets the
+  collections tree search by path without loading `draft`.
+  """
+  requestTarget: String!
+
   """Whether a send is in flight (see `sendReplaySession`)."""
   sending: Boolean!
 }
