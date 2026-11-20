@@ -3,7 +3,7 @@ id: T-106
 title: Replay send and cancel - interpolation, M&R hook, records and entries
 milestone: M2
 role: backend
-status: blocked
+status: in_progress
 depends_on: [T-033, T-101, T-100, T-037]
 owner: "claude-code (opus)"
 branch: task/T-106-replay-send
@@ -11,6 +11,8 @@ paths:
   - internal/replay/send*.go
   - internal/api/graphql/resolvers/replay_send*.go
   - internal/api/graphql/resolvers/stubs_replay_send.go
+  - internal/history/capture.go
+  - internal/history/capture_test.go
 spec:
   - docs/01-feature-spec.md#F-REP-2 (M2 contract: steps, entries, failures)
   - docs/01-feature-spec.md#F-ENV-1 (interpolation)
@@ -55,6 +57,12 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
   blocker; follow-up task to de-flake. (3) Paused capture → CONFLICT before sending: accepted (pause = no project DB or
   capture failure, an error state). (4) Out-of-scope items (sending flag in toReplaySession, cancel on delete, stale
   comment) go to a lead follow-up task; T-109 wiring stays in T-109. Ready for review.
+
+- Lead answer (2026-11-20, review round 1 block): paths extended with `internal/history/capture.go` and
+  `capture_test.go` (no other task owns them). Add the durable completion API as you proposed (`CompleteWritten`
+  or similar: returns after the batch holding the completion commits, error on failed/dropped write or project change),
+  additive only: do not change existing `Capture` behaviour or signatures. Regression test in `capture_test.go`.
+  Replay uses it per hop. Other out-of-scope items stay as lead follow-ups.
 
 ## Plan (implementer, ≤15 lines)
 - `Service`'s struct lives in service.go (outside `paths`), so the send state sits in a new `replay.Sender` (send.go)
