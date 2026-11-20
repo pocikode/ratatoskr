@@ -3,7 +3,7 @@ id: T-032
 title: Intercept page, top-bar intercept toggle and sidebar badge
 milestone: M2
 role: frontend
-status: in_review
+status: in_progress
 depends_on: [T-030, T-104, T-034]
 owner: claude-code (sonnet)
 branch: task/T-032-intercept-page
@@ -55,6 +55,11 @@ requests and responses on the Intercept page (against the T-030 mocks until T-10
   regenerated output from `bun run codegen` for operations in `web/src/pages/intercept/intercept.graphql` is authorized;
   it must stay codegen output, never hand-edited. The reviewer's `golangci-lint` error came from its sandbox, not this
   branch. Address the remaining findings.
+
+- Lead note (2026-11-20, escalation): 3 review rounds used; task re-assigned to `sol` (fresh session, same branch),
+  reviewer `sonnet`. Fix only the open round-3 findings. Your codex sandbox cannot write git metadata: do not run
+  git add/commit; edit files, run `make check` (writable temp GOCACHE/GOLANGCI_LINT_CACHE, GOFLAGS=-buildvcs=false),
+  update Handoff, set status in_review, stop. The lead commits.
 
 ## Plan (implementer, ≤15 lines)
 - `intercept.graphql` + codegen; `intercept.svelte.ts`: ref-counted `start()` (settings/queue queries, both subscriptions, refetch on project reset and WS reconnect), actions (settings, forward, drop, all).
