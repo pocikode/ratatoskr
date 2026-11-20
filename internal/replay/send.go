@@ -38,8 +38,7 @@ type Rewriter interface {
 type Recorder interface {
 	Paused() bool
 	NewPending(ctx context.Context, e history.Entry) int64
-	Complete(ctx context.Context, id int64, resp *history.Response)
-	Written(ctx context.Context, id int64) error
+	CompleteWritten(ctx context.Context, id int64, resp *history.Response) error
 }
 
 // SendDeps are the inputs to [NewSender]. Env and Rewriter may be nil (skipped).
@@ -185,10 +184,10 @@ func (s *Sender) Send(ctx context.Context, id int64, in SendInput) (Entry, error
 		if last = s.deps.Capture.NewPending(sctx, e); last == 0 {
 			return Entry{}, errors.New("replay: history capture dropped the record (project closed or switched)")
 		}
-		s.deps.Capture.Complete(sctx, last, resp)
-	}
-	if err := s.deps.Capture.Written(sctx, last); err != nil {
-		return Entry{}, fmt.Errorf("replay: store record: %w", err)
+		// Each hop, response included, is durable before the entry can point at it.
+		if err := s.deps.Capture.CompleteWritten(sctx, last, resp); err != nil {
+			return Entry{}, fmt.Errorf("replay: store record: %w", err)
+		}
 	}
 	return pinned.AddEntry(sctx, id, last, failure(sendErr, sess.Options.TimeoutMs))
 }

@@ -114,6 +114,8 @@ type captureOp struct {
 	entry    Entry
 	complete bool
 	written  chan struct{}
+	// done, when set, receives the outcome once the op's batch is flushed.
+	done chan error
 }
 
 // New creates a Capture; start its writer with [Capture.Run].
@@ -325,6 +327,41 @@ func (c *Capture) complete(ctx context.Context, id int64, resp *Response, droppe
 	}
 }
 
+// CompleteWritten is [Capture.Complete] that waits until the completion is
+// durable: it returns nil once the batch holding it committed and the request
+// row exists, with its response when resp is not nil. It fails when id is not
+// pending in the open project, the project changes, or the write fails.
+func (c *Capture) CompleteWritten(ctx context.Context, id int64, resp *Response) error {
+	db := c.takePending(id)
+	if db == nil || db != c.deps.DB() {
+		c.dropped.Add(1)
+
+		return fmt.Errorf("history: request %d is not pending in the open project", id)
+	}
+
+	// A completion without a response writes nothing; it still marks the point
+	// in the queue after which the insert has been processed.
+	done := make(chan error, 1)
+	if !c.enqueue(ctx, captureOp{db: db, id: id, entry: Entry{Resp: resp}, complete: true, done: done}) {
+		return ctx.Err()
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			return err
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	found, err := c.requestWritten(ctx, db, id)
+	if err == nil && !found {
+		err = fmt.Errorf("history: request %d was not written", id)
+	}
+
+	return err
+}
+
 func (c *Capture) enqueue(ctx context.Context, op captureOp) bool {
 	select {
 	case c.in <- op:
@@ -427,6 +464,18 @@ func (c *Capture) flush(ctx context.Context, batch []captureOp) {
 	}
 
 	for _, op := range batch {
+		if op.done != nil {
+			switch {
+			case op.db != db:
+				op.done <- errCaptureProjectChanged
+			case err != nil:
+				op.done <- fmt.Errorf("history: write batch: %w", err)
+			case op.id == 0:
+				op.done <- errors.New("history: request was deleted or never written")
+			default:
+				op.done <- nil
+			}
+		}
 		switch {
 		case op.written != nil:
 			close(op.written)

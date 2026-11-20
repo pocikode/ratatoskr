@@ -156,6 +156,70 @@ func TestWrittenWaitsForPendingCommit(t *testing.T) {
 	})
 }
 
+// TestCompleteWrittenWaitsForCompletion: the request row is committed and its
+// completion is still queued. CompleteWritten returns only once the completion
+// itself committed, and reports failed, unknown or orphaned completions.
+func TestCompleteWrittenWaitsForCompletion(t *testing.T) {
+	t.Parallel()
+
+	db, other := openDB(t), openDB(t)
+	synctest.Test(t, func(t *testing.T) {
+		var active atomic.Pointer[store.DB]
+		active.Store(db)
+		c := history.New(history.Deps{DB: active.Load})
+		svc := history.NewService(history.ServiceDeps{DB: active.Load})
+		ctx, stop := context.WithCancel(t.Context())
+		defer stop()
+		go c.Run(ctx)
+
+		e := sample()
+		id := c.NewPending(ctx, e)
+		if err := c.Written(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan error, 1)
+		go func() { done <- c.CompleteWritten(ctx, id, e.Resp) }()
+		synctest.Wait()
+		select {
+		case err := <-done:
+			t.Fatalf("CompleteWritten returned before its completion flushed: %v", err)
+		default:
+		}
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		if r, err := svc.Get(ctx, id); err != nil || r.Resp == nil || r.Resp.Code != 200 {
+			t.Fatalf("completed request = %+v, err %v", r, err)
+		}
+
+		// Without a response it still waits for the insert.
+		bare := c.NewPending(ctx, sample())
+		if err := c.CompleteWritten(ctx, bare, nil); err != nil {
+			t.Fatal(err)
+		}
+		if r, err := svc.Get(ctx, bare); err != nil || r.Resp != nil {
+			t.Fatalf("request without response = %+v, err %v", r, err)
+		}
+
+		failing := c.NewPending(ctx, sample())
+		bad := *sample().Resp
+		bad.Raw = nil // responses.raw is NOT NULL
+		if err := c.CompleteWritten(ctx, failing, &bad); err == nil {
+			t.Fatal("failed response write reported success")
+		}
+
+		if err := c.CompleteWritten(ctx, 9999, nil); err == nil {
+			t.Fatal("unknown ID reported success")
+		}
+
+		orphan := c.NewPending(ctx, sample())
+		active.Store(other)
+		if err := c.CompleteWritten(ctx, orphan, e.Resp); err == nil {
+			t.Fatal("completion after a project switch reported success")
+		}
+	})
+}
+
 func TestPendingIDsAcrossProjectSwitch(t *testing.T) {
 	t.Parallel()
 
