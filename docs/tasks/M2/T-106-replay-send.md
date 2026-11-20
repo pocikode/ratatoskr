@@ -3,7 +3,7 @@ id: T-106
 title: Replay send and cancel - interpolation, M&R hook, records and entries
 milestone: M2
 role: backend
-status: blocked
+status: in_review
 depends_on: [T-033, T-101, T-100, T-037]
 owner: "claude-code (opus)"
 branch: task/T-106-replay-send
@@ -49,6 +49,12 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 - Lead answer (2026-11-20, orchestrator): No rescope. Replay send is the core, user-initiated feature of this local
   proxy (F-REP-2); the user sends their own edited request to a target they choose, as in every intercepting proxy.
   The scope above stands. Previous implementer (sol) declined; task reassigned to `opus` per routing §3.
+
+- Lead answer (2026-11-20, unblock): (1) web deps were missing in the worktree; lead ran `bun install`, `make web-check`
+  green. (2) `TestRegexSharedGroupsPerMatch` wall-clock flake under -race is pre-existing, outside these paths: not a
+  blocker; follow-up task to de-flake. (3) Paused capture → CONFLICT before sending: accepted (pause = no project DB or
+  capture failure, an error state). (4) Out-of-scope items (sending flag in toReplaySession, cancel on delete, stale
+  comment) go to a lead follow-up task; T-109 wiring stays in T-109. Ready for review.
 
 ## Plan (implementer, ≤15 lines)
 - `Service`'s struct lives in service.go (outside `paths`), so the send state sits in a new `replay.Sender` (send.go)
