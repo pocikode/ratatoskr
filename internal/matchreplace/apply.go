@@ -317,6 +317,11 @@ func (p piece) group(m []int) (int, int, bool) {
 func parseTemplate(re *regexp.Regexp, t string) []piece {
 	var ps []piece
 	var lit strings.Builder
+	var named map[string][]int
+	groups := make([]int, re.NumSubexp()+1) // groups[n:][:1:1] is the shared slice {n}
+	for i := range groups {
+		groups[i] = i
+	}
 	flush := func() {
 		if lit.Len() > 0 {
 			ps = append(ps, piece{lit: lit.String()})
@@ -344,22 +349,43 @@ func parseTemplate(re *regexp.Regexp, t string) []piece {
 		t = rest
 		var gs []int
 		// regexp.Expand reads up to 9 ASCII digits without a leading zero as a number, else a name.
-		if n, err := strconv.Atoi(name); err == nil && len(name) <= 9 && (name[0] != '0' || len(name) == 1) {
+		if n, ok := templateNum(name); ok {
 			if n <= re.NumSubexp() {
-				gs = []int{n}
+				gs = groups[n:][:1:1]
 			}
 		} else {
-			for i, s := range re.SubexpNames() {
-				if i > 0 && s == name {
-					gs = append(gs, i)
+			if named == nil {
+				// Indexed once per term so each reference shares one slice.
+				named = map[string][]int{}
+				for i, s := range re.SubexpNames() {
+					if i > 0 && s != "" {
+						named[s] = append(named[s], i)
+					}
 				}
 			}
+			gs = named[name]
 		}
 		if gs != nil {
 			flush()
 			ps = append(ps, piece{groups: gs})
 		}
 	}
+}
+
+// templateNum reports whether name is a group number (no strconv error
+// allocation per named reference).
+func templateNum(name string) (int, bool) {
+	if len(name) > 9 || (name[0] == '0' && len(name) > 1) {
+		return 0, false
+	}
+	n := 0
+	for _, c := range []byte(name) {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, true
 }
 
 // templateName is regexp's extract: a leading name or {name} of letters,

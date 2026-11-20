@@ -129,3 +129,21 @@ func TestParseTemplateLinear(t *testing.T) { // not parallel: measures allocated
 		t.Errorf("compiling allocated %d bytes", n)
 	}
 }
+
+// TestParseTemplateSharedGroups: repeated references to a name shared by many
+// groups compile without a per-reference index list or group scan.
+func TestParseTemplateSharedGroups(t *testing.T) { // not parallel: measures allocated bytes
+	re := strings.TrimSuffix(strings.Repeat("(?P<p>a)|", 1000), "|")
+	term := strings.Repeat("${p}", 1<<18) // 1 MiB
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	c := regexRule(t, re, term)
+	runtime.ReadMemStats(&after)
+	if len(c.tmpl) != 1<<18 || len(c.tmpl[0].groups) != 1000 {
+		t.Fatalf("pieces: %d", len(c.tmpl))
+	}
+	// ~45 MiB (pieces + append growth); a scan per reference allocated ~2 GiB.
+	if n := after.TotalAlloc - before.TotalAlloc; n > 96<<20 {
+		t.Errorf("compiling allocated %d bytes", n)
+	}
+}

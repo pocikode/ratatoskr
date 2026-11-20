@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -226,6 +226,8 @@ shape (T-105), with no storage and no API.
   via a precompiled term template, budget counts decided output only, status zero-padded. `make check` green;
   benchmark 69-74 µs/op, 360 allocs/op.
 - Review round 4 (claude-backend, 2026-11-20): both findings fixed (see Review). `make check` green; fuzz 30 s green.
+- Review round 5 (claude-backend, 2026-11-20): finding fixed (see Review). `make check` green; benchmark
+  72-75 µs/op, 360 allocs/op.
 - Limitations:
   - A REGEX replacement allocates one small index slice per match (garbage, not held): live memory is bounded by the
     output cap, but a very dense body costs time proportional to its matches.
@@ -285,5 +287,6 @@ The scoped race tests for regex parity, expansion budgets, dense matching, and t
 ### Round 5
 
 - [ ] [major] internal/matchreplace/apply.go:352 — Template compilation scans every capture group for each named reference and allocates a fresh list of duplicate group indices for each occurrence. Compile time and memory can grow with the product of two independently capped inputs. → Index capture names once per regexp and share each ordered index slice across references. Add a compilation allocation regression for repeated named references.
+  Fixed: `parseTemplate` indexes capture names once per term (`map[name][]int`) and every reference shares that slice; numeric references share one slice from a per-term index table; numbers are recognised without `strconv` (no error allocation per named reference). `TestParseTemplateSharedGroups` (1000 groups named `p`, 1 MiB of `${p}`: ~45 MiB vs ~2 GiB before).
 
 Both round 4 fixes passed the scoped race tests for regex replacement and template compilation. The standalone 20-rule benchmark measured 69.1–70.9 µs/op and 360 allocs/op across three runs on Apple M4. `git diff --check main...HEAD` passed. This round used scoped checks and excluded request-smuggling verification and the full `make check` and `make test-int` suites.
