@@ -12,7 +12,7 @@ Range.prototype.getBoundingClientRect ??= () => new DOMRect();
 afterEach(() => vi.restoreAllMocks());
 
 const page = (client = createMockClient({ count: 5, liveIntervalMs: 0 })) => {
-  render(MatchReplacePage, { client });
+  render(MatchReplacePage, { client, projectId: 'p' });
   return client;
 };
 const rule = (name: string) => screen.findByRole('button', { name });
@@ -97,7 +97,9 @@ describe('MatchReplacePage', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Force 200' }));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     await userEvent.click(within(editor()).getByRole('button', { name: 'Delete' }));
+    expect(confirm).toHaveBeenCalledWith('Delete rule "Force 200"?');
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Force 200' })).not.toBeInTheDocument(),
     );
@@ -116,10 +118,11 @@ describe('MatchReplacePage', () => {
   });
 
   it('drags a rule across collections and reorders', async () => {
-    page();
+    const client = page();
     await rule('Add debug header');
     const row = (name: string) => screen.getByRole('button', { name }).closest('li')!;
 
+    const spy = vi.spyOn(client, 'mutation');
     await fireEvent.dragStart(row('Add debug header'));
     await fireEvent.drop(row('Force 200'));
     await waitFor(() => {
@@ -128,8 +131,15 @@ describe('MatchReplacePage', () => {
         within(bodies)
           .getAllByRole('button', { name: /^(?!Move)/ })
           .map((b) => b.textContent?.trim()),
-      ).toContain('Add debug header');
+      ).toEqual(['Rewrite staging links', 'Add debug header', 'Force 200']);
     });
+    const vars = spy.mock.calls.find(([d]) =>
+      JSON.stringify(d).includes('moveMatchReplaceRule'),
+    )![1] as {
+      collectionId: string;
+      index: number;
+    };
+    expect(vars.index).toBe(1);
 
     await userEvent.click(screen.getByRole('button', { name: 'Move Bodies up' }));
     const groups = screen.getAllByRole('group').map((g) => g.getAttribute('aria-label'));
@@ -164,9 +174,14 @@ describe('MatchReplacePage', () => {
     URL.revokeObjectURL = vi.fn();
     await userEvent.click(screen.getByRole('button', { name: 'Export' }));
     await waitFor(() => expect(click).toHaveBeenCalled());
-    expect(JSON.parse(await blob!.text()).version).toBe(1);
-
     const exported = await blob!.text();
+    expect(JSON.parse(exported).version).toBe(1);
+    expect(JSON.parse(exported).collections.map((c: { name: string }) => c.name)).toEqual([
+      'Headers',
+      'Bodies',
+    ]);
+    expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('match-replace.json');
+
     const file = new File([exported], 'rules.json', { type: 'application/json' });
     await userEvent.upload(screen.getByLabelText('Import file'), file);
     expect(await screen.findByText('Imported 2 collections')).toBeInTheDocument();
@@ -190,5 +205,85 @@ describe('MatchReplacePage', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Force 200' }));
     expect(within(editor()).getByLabelText('Name')).toHaveValue('Force 200');
+  });
+
+  it('does not delete the open rule when the switch is declined from the context menu', async () => {
+    page();
+    await userEvent.click(await rule('Add debug header'));
+    await userEvent.type(within(editor()).getByLabelText('Name'), '!');
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    await userEvent.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('button', { name: 'Force 200' }),
+    });
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: 'Delete Match & Replace rule' }),
+    );
+
+    expect(confirm).toHaveBeenCalledWith('Delete rule "Force 200"?');
+    expect(screen.getByRole('button', { name: 'Add debug header' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Force 200' })).toBeInTheDocument();
+  });
+
+  it('keeps edits of the next rule when a slow save finishes', async () => {
+    const client = page();
+    await userEvent.click(await rule('Add debug header'));
+    await userEvent.type(within(editor()).getByLabelText('Name'), '!');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const real = client.mutation.bind(client);
+    vi.spyOn(client, 'mutation').mockImplementation(((doc: unknown, vars: unknown) => {
+      const result = real(doc as never, vars as never);
+      if (!JSON.stringify(doc).includes('updateMatchReplaceRule')) return result;
+      return { toPromise: async () => (await gate, result.toPromise()) };
+    }) as never);
+
+    await userEvent.click(within(editor()).getByRole('button', { name: 'Save' }));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await userEvent.click(screen.getByRole('button', { name: 'Force 200' }));
+    await userEvent.type(within(editor()).getByLabelText('Name'), '?');
+    release();
+
+    await screen.findByRole('button', { name: 'Add debug header!' });
+    expect(within(editor()).getByLabelText('Name')).toHaveValue('Force 200?');
+  });
+
+  it('rolls back only the failed toggle', async () => {
+    const client = page();
+    await rule('Add debug header');
+    let fail!: () => void;
+    const gate = new Promise<void>((r) => (fail = r));
+    const real = client.mutation.bind(client);
+    let calls = 0;
+    vi.spyOn(client, 'mutation').mockImplementation(((doc: unknown, vars: unknown) => {
+      if (!JSON.stringify(doc).includes('setMatchReplaceRuleEnabled'))
+        return real(doc as never, vars as never);
+      // The first toggle fails late; the second one succeeds meanwhile.
+      return calls++ === 0
+        ? { toPromise: async () => (await gate, { error: new Error('nope') }) }
+        : real(doc as never, vars as never);
+    }) as never);
+
+    const box = (name: string) => screen.getByRole('checkbox', { name: `Enable ${name}` });
+    await userEvent.click(box('Force 200'));
+    await userEvent.click(box('Add debug header'));
+    await waitFor(() => expect(box('Add debug header')).not.toBeChecked());
+    fail();
+
+    await screen.findByRole('alert');
+    expect(box('Force 200')).not.toBeChecked();
+    expect(box('Add debug header')).not.toBeChecked();
+  });
+
+  it('starts fresh when the project changes', async () => {
+    const client = createMockClient({ count: 5, liveIntervalMs: 0 });
+    const view = render(MatchReplacePage, { client, projectId: 'a' });
+    await userEvent.click(await rule('Add debug header'));
+    expect(within(editor()).getByLabelText('Name')).toHaveValue('Add debug header');
+
+    await view.rerender({ client, projectId: 'b' });
+    await rule('Add debug header');
+    expect(screen.queryByRole('form', { name: 'Rule editor' })).not.toBeInTheDocument();
   });
 });

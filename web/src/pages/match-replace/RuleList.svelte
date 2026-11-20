@@ -166,7 +166,7 @@
                     ? ''
                     : 'text-muted line-through'}"
                   onclick={() => open(rule.id)}
-                  oncontextmenu={() => open(rule.id)}
+                  oncontextmenu={() => (mr.menuRule = rule.id)}
                 >
                   {rule.name}
                 </button>

@@ -82,6 +82,8 @@ export class MatchReplaceState {
   message = $state<string | null>(null);
   notice = $state<string | null>(null);
   busy = $state(false);
+  /** Row the context menu was opened on; its commands act on this rule, not the open one. */
+  menuRule = $state<string | null>(null);
 
   constructor(client: Client) {
     this.client = client;
@@ -186,6 +188,7 @@ export class MatchReplaceState {
     this.busy = true;
     this.errors = {};
     this.conditionError = null;
+    const sent = JSON.stringify(d.input);
     // ADD ignores the matcher, so none is sent.
     const input: RuleInput =
       d.input.operation === 'ADD' ? { ...d.input, matcher: { kind: 'FULL', value: '' } } : d.input;
@@ -205,13 +208,28 @@ export class MatchReplaceState {
       error = r.error;
     }
     this.busy = false;
+    // The user may have opened another rule while the request ran; only the originating draft
+    // gets the outcome.
+    const current = this.draft === d;
     if (error || !saved) {
-      if (error) this.fail(error);
-      else this.errors = { form: 'Saving the rule failed' };
+      if (current) {
+        if (error) this.fail(error);
+        else this.errors = { form: 'Saving the rule failed' };
+      }
       return false;
     }
     await this.load();
-    this.select(saved.id);
+    if (this.draft !== d) return true;
+    if (JSON.stringify(d.input) === sent) this.select(saved.id);
+    else {
+      // Edited while saving: keep the edits, but the rule exists now, so later saves update it.
+      d.id = saved.id;
+      this.baseline = JSON.stringify({
+        id: saved.id,
+        collectionId: d.collectionId,
+        input: JSON.parse(sent),
+      });
+    }
     return true;
   }
 
@@ -226,13 +244,12 @@ export class MatchReplaceState {
 
   /** Flips `enabled` in place; a failure puts it back. */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
-    const before = this.collections;
     this.patchRule(id, { enabled });
     const r = await this.client
       .mutation(SetMatchReplaceRuleEnabledDocument, { id, enabled })
       .toPromise();
     if (r.error) {
-      this.collections = before;
+      this.patchRule(id, { enabled: !enabled }); // only this rule: other toggles may have succeeded since
       this.message = r.error.message;
       return;
     }
