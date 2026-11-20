@@ -293,6 +293,13 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     presets (`filterpreset.Expand`) when rules load and when the tester runs; rules also reload when a filter preset
     changes. Create, update and the tester reject an unknown or cyclic preset as `BAD_QUERY` with span. A stored rule
     whose condition no longer expands (preset deleted or renamed later) is skipped at load (logged at warn), not an error.
+  - Condition fields (lead, 2026-11-20, T-035): a condition reads only what the message bytes carry: `req.method`,
+    `req.host`, `req.path`, `req.query`, `req.ext`, `req.raw`, `req.body`, `req.header`, `req.len`, `resp.code`,
+    `resp.len`, `resp.raw`, `resp.body`, `resp.header`. Any other field or clause (`req.port`, `req.tls`,
+    `req.created_at`, `resp.roundtrip`, `row.id`, `req.color`, `req.note`, `req.edited`, `source:`; `sources[]` already
+    selects the source) is `BAD_QUERY` with its span ("<field> is not available in Match & Replace conditions"), checked
+    after preset expansion, so a preset that brings one in fails like an unknown preset (create, update, tester), or skips
+    the rule at load. `req.host` comes from the `Host` header, else the absolute-form target.
   - When the request of an exchange is over the capture cap, no response rule runs on that exchange (logged at info);
     its response may still be held (operator, 2026-11-19, T-105 review round 2). A 2xx answer to a request sent as
     `CONNECT` is never rewritten (see F-INT-1).

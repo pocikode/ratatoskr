@@ -50,6 +50,9 @@ Rules and collections persist per project, the engine always runs the current en
 
 ## Notes from lead
 - Ordering is `(collection.sort_order, rule.sort_order, id)`; keep it in one SQL `ORDER BY` so the engine list is deterministic.
+- Condition fields (lead, 2026-11-20, F-MR-1): the engine rejects fields the bytes do not carry (`req.tls`, `row.id`,
+  `source:`, …) as `BAD_QUERY` with span; pass it through on create/update/tester. On import it is `BAD_INPUT` naming
+  the rule, like an unparsable condition.
 
 ## Plan (implementer, ≤15 lines)
 

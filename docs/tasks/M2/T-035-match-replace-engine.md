@@ -67,6 +67,12 @@ shape (T-105), with no storage and no API.
   `filterpreset.Expand` (pure; no store access). In `Set`, a rule whose condition fails to expand is skipped and logged
   at warn; in `Test` and in `Validate`/`Compile` it is the `BAD_QUERY` error with span that `Expand` returns. Add golden
   cases: a `preset:` condition that matches, an unknown preset in `Test`, and a rule skipped by `Set`.
+- Condition fields (lead, 2026-11-20, answers blocked Q3; F-MR-1 "Condition fields"): validation rejects every field the
+  bytes do not carry, so no zero value is ever guessed and the T-105 interface stays as merged. After `filterpreset.Expand`,
+  walk the AST (in `internal/matchreplace`) and return `*core.Error{Span, Msg}` (`BAD_QUERY`) for the first clause outside
+  the allowlist; `Set` skips such a rule at warn like a failed expansion. The `query.Message` adapter can return zero values
+  for the rejected methods, since they are never reached. Tests: `req.tls.eq:false` and `source:proxy` rejected with span in
+  `Validate` and `Test`; a preset containing `row.id` skipped by `Set`; `req.host` from `Host` and from an absolute-form target.
 
 ## Plan (implementer, ≤15 lines)
 
@@ -75,6 +81,14 @@ shape (T-105), with no storage and no API.
 3. Verify tester limits, golden cases, and header-rule performance.
 
 ## Out-of-scope change needed (if any)
+
+- Resolved (lead, 2026-11-20; see Notes from lead, Condition fields): How should conditions handle HTTPQL fields whose values the rewriter
+  and tester cannot know? For example, `req.tls.eq:false` would match an HTTPS
+  origin-form request if the engine supplies the zero value for TLS. The T-105
+  hook provides source and wire bytes, and the tester provides kind and bytes.
+  Should these clauses evaluate false when the field is unavailable, should rule
+  validation reject them, or should the caller contract supply metadata? This
+  also affects fields such as `resp.roundtrip`, `req.created_at`, and `row.id`.
 
 - Resolved (lead, 2026-11-20; see Notes from lead, Chunked bodies): F-MR-1 requires changed chunked bodies to retain chunked framing and
   trailers. The lead note requires edits through `rawhttp.Builder`, but its only
