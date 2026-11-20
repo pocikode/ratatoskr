@@ -3,7 +3,7 @@ id: T-112
 title: Make CI green - race-aware time bound in matchreplace, no port reuse race in proxy 502 test
 milestone: M2
 role: qa
-status: in_review
+status: done
 depends_on: []
 owner: "opencode (deepseek-v4.1-flash-1017)"
 branch: task/T-112-ci-test-timing
