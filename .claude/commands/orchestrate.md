@@ -13,7 +13,7 @@ Follow `docs/09-orchestration.md` exactly and route models with `docs/agents/rou
 3. Read `docs/agents/routing.md`. If any model ID you need is still marked ⚠ and you have no verified note in
    `.orchestrator/verified.md`, verify it now (`codex` model list, `opencode models`) or escalate (rule E4).
 4. Run `herdr worktree --help`, `herdr agent start --help`, `herdr agent prompt --help`, `herdr agent wait --help`,
-   `herdr agent read --help` once; write the exact syntax you will use to `.orchestrator/herdr.md`. Never guess a flag.
+   `herdr agent read --help` and `opencode run --help` once; write the exact syntax you will use to `.orchestrator/herdr.md`. Never guess a flag.
 5. Create or resume `.orchestrator/run.md` (state table below). If it exists, resume from it instead of starting over.
 
 ## 1. Plan
@@ -30,6 +30,9 @@ For each ready task, without waiting for the others:
 1. **Worktree**: `herdr worktree create` for branch `task/T-###-<slug>` from `origin/main` (reuse if it exists). Keep the returned pane id.
 2. **Implementer**: `herdr agent start t###-impl --kind <harness> --pane <pane> -- <launch args from routing §5>`;
    then `herdr agent prompt t###-impl "<first prompt from routing §6>" --wait --timeout <prompt_timeout_ms>`.
+   **opencode** is one-shot (`opencode run`), not a Herdr agent: use the pane commands in routing §5 (first turn,
+   wait on the `DONE-` marker, later turns with `--session <id>`). Everywhere below, "prompt the implementer/reviewer"
+   means a later `opencode run` turn for opencode workers.
 3. **Judge by the task file, not the screen.** Read `status` from the task file in that worktree.
    - `in_review` → step 4.
    - `blocked` → read its question; apply §3 (answer it yourself, or escalate). If you answered, prompt the implementer: `Question answered in <file/section>. Continue /task T-###.`
@@ -40,7 +43,7 @@ For each ready task, without waiting for the others:
    - verdict `changes_requested` → round += 1. If round < `max_review_rounds`: prompt the implementer `/task T-###`.
      Else: stop that implementer, escalate one tier (routing §3), restart from step 2 with a fresh session (same worktree).
      No tier left → escalate (E3).
-   - verdict `approve` → prompt the implementer `/task-done T-###` (codex: `$task-done T-###`); record the PR number.
+   - verdict `approve` → prompt the implementer with the post-approval prompt from routing §6; record the PR number.
 5. **CI + merge**: `gh pr checks <n> --repo <OWNER/REPO> --watch`.
    - red → prompt the implementer with the failing check names: `CI failed: <checks>. Fix within your paths, push, keep status done.` (counts as a round).
    - green and `auto_merge: true` → `gh pr merge <n> --repo <OWNER/REPO> --squash --delete-branch`.
