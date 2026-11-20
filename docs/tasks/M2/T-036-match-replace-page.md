@@ -119,3 +119,10 @@ Shortcuts: `window.prompt/confirm` for rename, new collection and unsaved-edit g
 - Rework round 3: update result is patched into the list before the refresh (failed refresh keeps saved values); `menuRule` state removed, row id travels in the menu's command context and palette runs use the open rule; delete-race test waits for the row to vanish first. Tests added for each. The generated-paths item stays unticked: lead authorization required.
 - Lead escalation: Round 3 reached the review limit in docs/07 §7. The lead owns the pending decision on generated paths and coordination of the remaining fixes.
 - Lead resolution (2026-11-20): generated paths authorized; browser coverage moved to T-039; round 4 review authorized (see Notes from lead).
+
+### Round 4
+
+- Verdict: approve (reviewed `53e2dd4` against `69a3e46`, limited to the fixes in `6235548` and the lead decisions).
+- Verification: `make check` passed, including all 424 web tests. `git diff --check main...HEAD` passed. The diff is within the authorized paths plus the task record. Browser E2E is assigned to T-039. The integration target was skipped because the diff changes no proxy, store or raw HTTP files.
+- The update mutation result replaces the cached rule before refresh. Row-menu deletion uses the row ID from the command context, and palette deletion uses the open draft. The delete-race test waits for the deleted row to disappear before checking the surviving draft. The lead authorized the generated paths for codegen output.
+- [ ] [minor] web/src/pages/match-replace/MatchReplacePage.test.ts:317 — The regression test can observe the updated row as soon as the mutation patches the list, before the failing refresh finishes → As a follow-up, wait for the refresh error alert before asserting that the editor and list retain the saved name.
