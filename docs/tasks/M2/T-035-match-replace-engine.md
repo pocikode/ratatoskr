@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -49,7 +49,7 @@ shape (T-105), with no storage and no API.
 - [x] `Test` returns an `apperr.BadInput` error and nil output for: a section for the other kind, `raw` > 12 MiB, each
       tester framing rejection in F-MR-1, and output that would exceed 16 MiB (detected while replacing, before the full
       result is allocated; test with a small input whose replacement crosses the cap); a bad condition is `BAD_QUERY`.
-- [ ] Benchmark: 20 enabled header rules on a 2 KiB request; result in Handoff (target ≤ 100 µs/op).
+- [x] Benchmark: 20 enabled header rules on a 2 KiB request; result in Handoff (target ≤ 100 µs/op).
 - [x] `make check` green.
 
 ## Notes from lead
@@ -210,14 +210,21 @@ shape (T-105), with no storage and no API.
 - Verification: `make check` is green. Run `go test ./internal/matchreplace/ ./internal/rawhttp/` (goldens:
   `internal/matchreplace/testdata/engine.txtar`, 83 cases, `-update` rewrites `out`) and
   `go test ./internal/matchreplace/ -run '^$' -bench HeaderRules -benchmem`.
-- Benchmark (Apple M4, GOMAXPROCS 10): `BenchmarkHeaderRules` ~115 µs/op (range 112-137 µs over 6 runs), 539 KB/op,
-  3081 allocs/op. **This misses the 100 µs target.** All 20 rules change the message, so the request is parsed 21
-  times (the contract re-parses every changed result). One rawhttp parse of the 2 KiB head costs ~4.4 µs and 23 KB
-  (measured alone), about 92 µs in total. The engine's own work is the rest. A pooled bufio reader did not
-  measurably help and was dropped.
+- Benchmark (Apple M4, GOMAXPROCS 10, machine under load avg ~12): `BenchmarkHeaderRules` 68-70 µs/op over 6 runs,
+  249 KB/op, 360 allocs/op (was ~115 µs, 3081 allocs). Target ≤ 100 µs met. Every changed result is still re-parsed
+  (21 parses). `go test ./internal/rawhttp -run '^$' -bench 'ReadRequest|ParseRequest' -benchmem`: the 2 KiB head
+  costs 3.4 µs / 51 allocs with `ReadRequest` and 1.9 µs / 9 allocs with `ParseRequest`.
+- Review round 2 (claude-backend, 2026-11-20): all six findings addressed (see Review). Changes:
+  - `message.go` `splitTarget`: absolute-form only when `scheme://` leads.
+  - `rule.go` `compile`: `Sources` cloned; `resume` regexp `(?s:.)(re)` compiled with the rule.
+  - `apply.go` `replace`/`findAt`: incremental regex replacement with stdlib FindAll semantics.
+  - `body.go`: decoded work bounded by the capture cap, encoded bytes capped as written (`capped`).
+  - `internal/rawhttp/read.go`: `ParseRequest(b, limits) (*Request, n, error)` and `ParseResponse(b, method, limits)`;
+    `Head` aliases `b`, the body is read from `b[n:]`. `ReadRequest`/`ReadResponse` share `init`; header
+    names, values, `Raw`, method, target, version and reason are now substrings of one head string (same values).
 - Limitations:
-  - A REGEX replacement holds all match indices of one section at once (bounded by the input size). The output cap is
-    still checked per match, before the result is complete.
+  - A REGEX replacement allocates one small index slice per match (garbage, not held): live memory is bounded by the
+    output cap, but a very dense body costs time proportional to its matches.
   - On proxy paths a rule result over 256 MiB is skipped. This is a memory bound only (`shortcut:` comment in
     `engine.go`); F-MR-1 sets no proxy output cap.
   - Edits rebuild the start line from parsed fields (Builder `SetMethod`/`SetTarget`/`SetStatus`), so odd spacing
@@ -225,19 +232,24 @@ shape (T-105), with no storage and no API.
   - A header line emptied by UPDATE_RAW is dropped, not written as a blank line.
   - A REQUEST_QUERY param edit that removes the last param also drops the `?`.
   - `identity` in Content-Encoding counts as an "other" coding, so body rules skip it (spec wording).
-- Follow-ups: cut the rawhttp parse allocations (`internal/rawhttp/read.go`, outside this task) to reach the 100 µs
-  budget. T-109 adds the `proxy.Rewriter` compile-time assertion. T-102 maps API enums onto `Rule` (string values
+- Follow-ups: T-109 adds the `proxy.Rewriter` compile-time assertion. T-102 maps API enums onto `Rule` (string values
   are the schema names; hook sources match case-insensitively).
 
 ## Review (reviewer)
 
 - Verdict: changes_requested
 - Findings:
-  - [ ] [major] internal/matchreplace/message.go:104 — An origin-form target with a URL in its query is mistaken for absolute-form. The `next` parameter in `/login?next=https://example.invalid/home` disappears from query matching, and the parsed path is also wrong → identify the target form from its prefix before splitting path and query, and add a golden for updating this parameter.
-  - [ ] [major] internal/matchreplace/rule.go:196 — The atomic snapshot retains the caller's `Sources` backing array. Reusing that array after `Set` changes live rule selection without a reload and can race with a hook → copy the slice before publishing and test mutation after `Set`.
-  - [ ] [major] internal/matchreplace/apply.go:252 — A body regex collects every match and capture index before checking the output budget. This can allocate far beyond the message and tester caps even when the result is small → process matches with bounded memory while preserving anchor and boundary semantics, and cover a dense-match body.
-  - [ ] [major] internal/matchreplace/body.go:50 — The tester's wire-output budget is applied to decoded growth, so a compressible replacement can be rejected even when the re-encoded message fits. The final wire-size check also runs after encoding and assembling the full message → bound decoded work independently and enforce the tester budget on encoded bytes as they are written. Cover both sides of the wire limit.
-  - [ ] [major] internal/matchreplace/engine_test.go:366 — The required 20-rule, 2 KiB benchmark measured 111.7–115.1 µs/op on Apple M4 after the other checks finished, above the 100 µs/op target → reduce rewrite overhead and rerun the same benchmark.
-  - [ ] [major] docs/01-feature-spec.md:293 — This file and the T-102 and T-109 task files are outside T-035's declared paths. The branch history labels the edits as lead decisions → record the lead's ownership of the companion commits or land them separately before merging T-035.
+  - [x] [major] internal/matchreplace/message.go:104 — An origin-form target with a URL in its query is mistaken for absolute-form. The `next` parameter in `/login?next=https://example.invalid/home` disappears from query matching, and the parsed path is also wrong → identify the target form from its prefix before splitting path and query, and add a golden for updating this parameter.
+    Fixed: `splitTarget` treats the target as absolute-form only when `scheme://` comes before any `/?#`. Goldens `req-query-value-url-in-origin-form` (updates `next`) and `req-path-url-in-origin-form-query`.
+  - [x] [major] internal/matchreplace/rule.go:196 — The atomic snapshot retains the caller's `Sources` backing array. Reusing that array after `Set` changes live rule selection without a reload and can race with a hook → copy the slice before publishing and test mutation after `Set`.
+    Fixed: `compile` stores `slices.Clone(r.Sources)`. Test `TestSetCopiesSources`.
+  - [x] [major] internal/matchreplace/apply.go:252 — A body regex collects every match and capture index before checking the output budget. This can allocate far beyond the message and tester caps even when the result is small → process matches with bounded memory while preserving anchor and boundary semantics, and cover a dense-match body.
+    Fixed: `replace` runs regexp's FindAll loop one match at a time (`findAt`); after the start it runs `(?s:.)(re)` from the rune before the position, so `^`, `\b`, `\B` see the real context. Output cap checked per match. Tests: `TestRegexReplaceMatchesStdlib` (anchors, boundaries, empty matches, invalid UTF-8 vs `regexp.ReplaceAll`), `FuzzRegexReplace`, `TestRegexDenseMatches`.
+  - [x] [major] internal/matchreplace/body.go:50 — The tester's wire-output budget is applied to decoded growth, so a compressible replacement can be rejected even when the re-encoded message fits. The final wire-size check also runs after encoding and assembling the full message → bound decoded work independently and enforce the tester budget on encoded bytes as they are written. Cover both sides of the wire limit.
+    Fixed: decoded replacement is bounded by the 64 MiB capture cap; `encode` writes into a capped buffer that fails with the output cap once the encoded bytes would cross it. Tests: `TestTesterWireCap` (20 MiB decoded, a few KiB gzip → accepted; 9 MiB random doubled → BAD_INPUT, nil output), `TestEncodeCap` (every coding).
+  - [x] [major] internal/matchreplace/engine_test.go:366 — The required 20-rule, 2 KiB benchmark measured 111.7–115.1 µs/op on Apple M4 after the other checks finished, above the 100 µs/op target → reduce rewrite overhead and rerun the same benchmark.
+    Fixed: new `rawhttp.ParseRequest`/`ParseResponse` parse from the buffer (no bufio.Reader, no head copy; same results and errors as `ReadRequest`/`ReadResponse`, checked by `TestParseMatchesRead` and `FuzzParseMatchesRead`); head fields are substrings of one head string. Every changed result is still re-parsed. Now ~68-70 µs/op, 360 allocs/op.
+  - [x] [major] docs/01-feature-spec.md:293 — This file and the T-102 and T-109 task files are outside T-035's declared paths. The branch history labels the edits as lead decisions → record the lead's ownership of the companion commits or land them separately before merging T-035.
+    Settled by the lead (Notes from lead, "Review round 2", 2026-11-20): lead commits, owned by the lead, merge with T-035.
 
 - Checks: `make check` and `make test-int` passed. Two temporary overlay regressions failed as expected on this branch: `TestReviewQueryURL` reported `changed=false err=<nil>`, and `TestReviewRuleSnapshot` returned the original request after the caller changed its sources slice. The standalone benchmark used `go test ./internal/matchreplace -run '^$' -bench HeaderRules -benchmem -count=3` and reported 3081 allocs/op.
