@@ -61,31 +61,33 @@ Flash models never review. `opus` reviews only core tasks written by `sol` (save
 ## 5. Launch commands
 
 `<role>` = the task's `role`. `<GITDIR>` = absolute path of the main checkout's `.git` directory (worktrees commit into it).
+`<wt>` = the worktree's admin dir name: `basename $(git -C <worktree> rev-parse --git-dir)`.
 
-claude and codex are interactive: pass these after `--` to `herdr agent start`.
+All three harnesses are interactive: pass these after `--` to `herdr agent start <name> --kind <harness> --pane <pane>`.
 
 | Harness | profile `safe` | profile `full` (only on a dedicated VPS/container) |
 |---|---|---|
-| claude | `--agent <role> --model <id> --permission-mode acceptEdits` (+ allowlist in `.claude/settings.json`) | `--agent <role> --model <id> --dangerously-skip-permissions` |
-| codex | `-m <id> --sandbox workspace-write --ask-for-approval never --add-dir <GITDIR> -c sandbox_workspace_write.network_access=true` | `-m <id> --dangerously-bypass-approvals-and-sandbox` |
+| claude | `--agent <role> --model <id> --permission-mode auto` (deny list in `.claude/settings.json` still applies) | `--agent <role> --model <id> --dangerously-skip-permissions` |
+| codex | `-m <id> --sandbox workspace-write --ask-for-approval never --add-dir <GITDIR>/worktrees/<wt> --add-dir <GITDIR>/objects --add-dir <GITDIR>/refs --add-dir <GITDIR>/logs -c sandbox_workspace_write.network_access=true` | `-m <id> --dangerously-bypass-approvals-and-sandbox` |
+| opencode | `mini --agent <role> --model <id>` (permissions from `opencode.json`) | same |
 
-opencode (v2) has no `--agent/--model` flags on its TUI, so it runs **one-shot** with `opencode run`: each turn is one
-shell command in the task's pane, and the process exits when the turn ends. It is not a Herdr agent session
-(`herdr agent prompt/wait/read` do not apply; use the pane commands). `<name>` = `t###-impl` or `t###-rev`.
+Notes:
+- **claude**: `auto` mode lets a safety classifier approve routine commands (pipes, `cd`, `git rm`, …) and refuse risky ones
+  without stopping on a prompt. A refused command is reported to the worker, which then follows AGENTS.md autonomous mode.
+- **codex**: the workspace-write sandbox keeps every `.git` directory read-only, even one passed with `--add-dir`, so add the
+  four sub-directories above instead (needed for `git add/commit/rm/push`). Commits may print
+  `Unable to create '.../packed-refs.lock'` from git's background maintenance; it is harmless (exit 0).
+- **opencode mini**: Herdr's opencode integration (v13) does not report state for opencode 2.3 `mini` sessions, so
+  `agent_status` from Herdr is a guess from the screen and is wrong while mini works (`blocked`/`idle`). For opencode:
+  - Send prompts with `herdr pane send-text <pane> "<prompt>"` then `herdr pane send-keys <pane> enter`
+    (`herdr agent prompt` does not always deliver).
+  - Never use `herdr agent prompt --wait` / `herdr agent wait`. The turn is over when the task file `status` leaves
+    `in_progress` (implementer) or the `## Review` verdict is filled (reviewer). Wait with a Monitor until-loop on the task
+    file in the worktree; if it is quiet for `prompt_timeout_ms`, read the pane: mini is still working while its footer
+    shows `esc stop`.
+  - An `ask` rule in `opencode.json` stops mini on a prompt; the lead never answers it (E4).
 
-| Step | Command |
-|---|---|
-| First turn | `herdr pane run <pane> "opencode run --agent <role> --model <id> --title <name> '<prompt>'; echo DONE-<name>'#'"` |
-| Wait | `herdr pane wait-output <pane> --match "DONE-<name>#" --timeout <prompt_timeout_ms>` (the quotes in the typed command keep it from matching itself) |
-| Session id | `opencode session list --format json` run in the worktree; take the `id` of the session titled `<name>` |
-| Later turns | `herdr pane run <pane> "opencode run --session <session-id> --agent <role> --model <id> '<prompt>'; echo DONE-<name>-<n>'#'"`, then wait on `DONE-<name>-<n>#` (`<n>` = turn number, so an earlier marker never matches) |
-| Output | `herdr pane read <pane> --source recent-unwrapped --lines 80` (only when the task file does not explain the result) |
-
-Profile `safe`: permissions come from `opencode.json`; a one-shot run cannot answer an `ask` rule, so the worker must
-treat a refused command as `blocked` (AGENTS.md autonomous mode). Profile `full`: add `--auto` to every `opencode run`.
-Prompts go inside single quotes: never put a `'` in them.
-
-Check each flag once with `<harness> --help` (`opencode run --help` for opencode); if a flag differs in the installed
+Check each flag once with `<harness> --help` (`opencode mini --help` for opencode); if a flag differs in the installed
 version, fix this section, don't improvise.
 
 ## 6. First prompt per harness

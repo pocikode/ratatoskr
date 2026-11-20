@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: "Code reviewer for Ratatoskr. Reviews a task branch against spec, AGENTS.md rules and conventions. Never edits code."
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 ---
 
