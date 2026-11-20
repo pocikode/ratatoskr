@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-099]
 owner: "codex"
 branch: task/T-035-match-replace-engine
@@ -54,6 +54,10 @@ shape (T-105), with no storage and no API.
 - Parse with `rawhttp`, edit with `rawhttp.Builder`; never `net/http` (ADR-0003).
 
 ## Plan (implementer, ≤15 lines)
+
+1. Compile and validate rule definitions and HTTPQL conditions.
+2. Apply ordered rules to raw HTTP sections and preserve message framing.
+3. Verify tester limits, golden cases, and header-rule performance.
 
 ## Out-of-scope change needed (if any)
 
