@@ -13,6 +13,9 @@ paths:
   - internal/rawhttp/builder_test.go
   - internal/rawhttp/chunked.go
   - internal/rawhttp/chunked_test.go
+  - internal/rawhttp/read.go
+  - internal/rawhttp/read_test.go
+  - internal/rawhttp/bench_test.go
 spec:
   - docs/01-feature-spec.md#F-MR-1 (incl. M2 contract)
   - docs/03-architecture.md §4 (hook order, buffering)
@@ -108,6 +111,16 @@ shape (T-105), with no storage and no API.
   the engine needs no smuggling-specific code: it only must not add a framing-safety check. The task is reassigned
   (owner cleared, status `todo`). Next implementer: continue from the merged rawhttp chunked work (`SplitChunkedBody`,
   `SetChunkedBody`, added in 47f3f3e after the review; re-check the open Review findings) and deliver the rest of Scope.
+
+- Review round 2 (lead, 2026-11-20):
+  - Out-of-path docs (finding 6): the edits to `docs/01-feature-spec.md`, `docs/tasks/M2/T-102-*.md` and
+    `docs/tasks/M2/T-109-*.md` on this branch are lead commits (6dc761f, b9224b7, 4e95269, 01b9529, 39e6d17, bc6a63a),
+    each answering a blocked question in this file. The lead owns them and they merge with T-035. No implementer change.
+  - Benchmark (finding 5): the 100 µs/op target and the re-parse-every-changed-result contract both stand. `paths` now
+    include `internal/rawhttp/read.go` (+ `read_test.go`, `bench_test.go`; no other open task owns them) so parse
+    allocations can be cut, e.g. a parse entry point over a `[]byte` that avoids a fresh `bufio.Reader` and copying the
+    head. Behaviour of the existing `ReadRequest`/`ReadResponse` must not change (rawhttp goldens and fuzz stay green).
+    Engine-side savings are welcome too, as long as every changed result is still re-parsed.
 
 ## Plan (implementer, ≤15 lines)
 
