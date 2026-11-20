@@ -381,3 +381,30 @@ func TestStatusLineReason(t *testing.T) {
 		}
 	}
 }
+
+// RFC 9110 §9.3.6: framing fields on a 2xx to CONNECT are ignored, not validated.
+func TestConnectResponseFraming(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		method  string
+		wire    string
+		wantErr error
+	}{
+		{"200 transfer-encoding gzip", "CONNECT", "HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\n", nil},
+		{"200 bad content-length", "connect", "HTTP/1.1 200 OK\r\nContent-Length: x\r\n\r\n", nil},
+		{"407 bad content-length", "CONNECT", "HTTP/1.1 407 Proxy Auth\r\nContent-Length: x\r\n\r\n", ErrFraming},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			res, err := ReadResponse(bufio.NewReader(strings.NewReader(tt.wire)), tt.method, DefaultLimits)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if err == nil && res.Framing() != FramingNone {
+				t.Errorf("framing = %v, want FramingNone", res.Framing())
+			}
+		})
+	}
+}

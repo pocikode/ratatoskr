@@ -323,6 +323,13 @@ func (m *Message) http10() bool { return m.version != "HTTP/1.1" }
 // frame decides where the body ends and records the choices it had to make.
 // net/http's choices are the reference for ambiguous input (task T-010).
 func (m *Message) frame() error {
+	// A 2xx answer to CONNECT turns the connection into a tunnel; the client
+	// MUST ignore Content-Length and Transfer-Encoding (RFC 9110 §9.3.6).
+	if m.kind == kindResponse && m.method == "CONNECT" && m.status/100 == 2 {
+		m.framing = FramingNone
+		return nil
+	}
+
 	var contentLengths, encodings []string
 	for _, h := range m.headers {
 		switch {
@@ -383,8 +390,8 @@ func (m *Message) frame() error {
 }
 
 // noResponseBody reports the responses that never carry a body. A 2xx answer to
-// CONNECT turns the connection into a tunnel rather than a message body; the
-// connection loop (T-011) owns that, so it is not handled here.
+// CONNECT is handled at the top of frame, before the framing fields are checked;
+// the tunnel itself belongs to the connection loop (T-011).
 func noResponseBody(status int, method string) bool {
 	return status/100 == 1 || status == 204 || status == 304 || method == "HEAD"
 }

@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -145,6 +145,8 @@ without changing the streaming path for traffic that neither feature touches.
   returns connections in the order they ended.
 - Review round 9: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green;
   nil-hook path gains one method compare per exchange, benchmark not rerun.
+- Review round 10: 1 finding fixed in `internal/rawhttp/read.go` (lead-authorized, see Review). `make check` and
+  `GOFLAGS='-count=1 -p=2' make test-int` green; golden tests unchanged; nil-hook proxy path untouched, benchmark not rerun.
 - Review round 2: 3 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Known limitations:
   - A capture pause that starts between the `Paused` check and `NewPending` still buffers that one request (≤ cap);
@@ -286,3 +288,7 @@ The round 9 regression passes for a CONNECT success without framing fields in bo
 
 `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git diff --check main...HEAD` passed. The nil-hook benchmark comparison in Handoff was reused.
   - Blocked: needs a `internal/rawhttp` change (outside paths); question for the lead under Out-of-scope.
+  - Fixed (lead authorized `rawhttp/read.go`): `frame()` gives a 2xx response to CONNECT `FramingNone` before any
+    TE/CL validation (RFC 9110 §9.3.6); non-2xx CONNECT keeps validation; 1xx/204/304/HEAD order untouched.
+    `TestConnectResponseFraming` (200 + `TE: gzip`, 200 + bad CL → no error; 407 + bad CL → `ErrFraming`);
+    `TestMethodEditToConnectClosesBoth` now runs plain / `TE: gzip` / bad CL × streaming / hooked. Mutation-checked.
