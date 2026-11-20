@@ -282,7 +282,7 @@ Escalated to the lead in this review because the task has exceeded the three-rou
 ### Round 10
 
 - Verdict: changes_requested
-- [ ] [major] internal/proxy/forward.go:222 — The new head-only branch handles parsed CONNECT successes, but the response reader validates framing fields before that branch can see the status. A successful CONNECT with unsupported transfer coding or invalid length metadata becomes a synthetic 502. The upstream response head is lost from history. → Apply the CONNECT 2xx boundary before validating body framing, preserve the raw head, and extend the regression to cover ignored framing fields. Keep ordinary framing validation for unsuccessful CONNECT responses. [RFC 9112 §6.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3)
+- [x] [major] internal/proxy/forward.go:222 — The new head-only branch handles parsed CONNECT successes, but the response reader validates framing fields before that branch can see the status. A successful CONNECT with unsupported transfer coding or invalid length metadata becomes a synthetic 502. The upstream response head is lost from history. → Apply the CONNECT 2xx boundary before validating body framing, preserve the raw head, and extend the regression to cover ignored framing fields. Keep ordinary framing validation for unsuccessful CONNECT responses. [RFC 9112 §6.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3)
 
 The round 9 regression passes for a CONNECT success without framing fields in both streaming and hooked configurations. The remaining parser issue was identified by inspection. Lead escalation remains open under docs/07 §7. A shared fix in `internal/rawhttp` requires lead authorization because it falls outside T-105's source paths.
 
@@ -292,3 +292,20 @@ The round 9 regression passes for a CONNECT success without framing fields in bo
     TE/CL validation (RFC 9110 §9.3.6); non-2xx CONNECT keeps validation; 1xx/204/304/HEAD order untouched.
     `TestConnectResponseFraming` (200 + `TE: gzip`, 200 + bad CL → no error; 407 + bad CL → `ErrFraming`);
     `TestMethodEditToConnectClosesBoth` now runs plain / `TE: gzip` / bad CL × streaming / hooked. Mutation-checked.
+
+### Round 11
+
+- Verdict: approve (reviewed `53d7e27`)
+
+The round 10 fix resolves the remaining finding. The response parser decides the
+boundary of a successful CONNECT before validating body framing. The proxy
+regression verifies the original response head reaches the client, both
+connections close, and the edited history record keeps the head. The parser test
+also verifies that an unsuccessful CONNECT still rejects an invalid length.
+
+The code diff is within the authorized proxy and raw HTTP paths. The feature
+spec changes came from the lead in `c666794`.
+
+`make check`, `make test-int`, `git diff --check main...HEAD`, and an uncached
+race-detector run of both CONNECT regression tests passed. The nil-hook
+performance criterion uses the recorded comparison in Handoff.
