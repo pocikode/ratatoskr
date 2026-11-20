@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CombinedError } from '@urql/core';
 import { createMockClient } from '$lib/api/mocks/exchange';
+import { ExportMatchReplaceDocument } from '$lib/api/generated/graphql';
 import MatchReplacePage from './MatchReplacePage.svelte';
 
 beforeEach(() => localStorage.clear());
@@ -88,6 +90,75 @@ describe('MatchReplacePage', () => {
     expect(await within(editor()).findByRole('alert')).toHaveTextContent(/unterminated string/);
   });
 
+  it('shows a BAD_INPUT error for the condition', async () => {
+    const client = page();
+    await userEvent.click(await rule('Add debug header'));
+    const real = client.mutation.bind(client);
+    vi.spyOn(client, 'mutation').mockImplementation(((doc: unknown, vars: unknown) =>
+      JSON.stringify(doc).includes('updateMatchReplaceRule')
+        ? {
+            toPromise: async () => ({
+              error: new CombinedError({
+                graphQLErrors: [
+                  { message: 'condition too long', extensions: { code: 'BAD_INPUT' } },
+                ],
+              }),
+            }),
+          }
+        : real(doc as never, vars as never)) as never);
+    await userEvent.click(within(editor()).getByRole('button', { name: 'Save' }));
+
+    expect(await within(editor()).findByText('condition too long')).toBeInTheDocument();
+  });
+
+  it('creates once and keeps the rule when the refresh is slow and fails', async () => {
+    const client = page();
+    await rule('Add debug header');
+    await userEvent.click(screen.getByRole('button', { name: '+ New rule' }));
+    await userEvent.type(within(editor()).getByLabelText('Name'), 'Once');
+    await userEvent.type(within(editor()).getByLabelText('Term'), 'X-A: 1');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const realQuery = client.query.bind(client);
+    vi.spyOn(client, 'query').mockImplementation(((doc: unknown, vars: unknown, o: unknown) =>
+      JSON.stringify(doc).includes('matchReplaceCollections')
+        ? { toPromise: async () => (await gate, { error: new Error('refresh failed') }) }
+        : realQuery(doc as never, vars as never, o as never)) as never);
+    const create = vi.spyOn(client, 'mutation');
+
+    await userEvent.click(within(editor()).getByRole('button', { name: 'Save' }));
+    await userEvent.click(within(editor()).getByRole('button', { name: 'Save' }));
+    release();
+
+    await screen.findByRole('alert');
+    expect(
+      create.mock.calls.filter(([d]) => JSON.stringify(d).includes('createMatchReplaceRule')),
+    ).toHaveLength(1);
+    expect(within(editor()).getByLabelText('Name')).toHaveValue('Once');
+    expect(within(editor()).getByRole('button', { name: 'Delete' })).toBeEnabled();
+  });
+
+  it('keeps the new draft when a delete refresh finishes after a switch', async () => {
+    const client = page();
+    await userEvent.click(await rule('Add debug header'));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const realQuery = client.query.bind(client);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(client, 'query').mockImplementation(((doc: unknown, vars: unknown, o: unknown) => {
+      const r = realQuery(doc as never, vars as never, o as never);
+      return JSON.stringify(doc).includes('matchReplaceCollections')
+        ? { toPromise: async () => (await gate, r.toPromise()) }
+        : r;
+    }) as never);
+    await userEvent.click(within(editor()).getByRole('button', { name: 'Delete' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Force 200' }));
+    await userEvent.type(within(editor()).getByLabelText('Name'), '?');
+    release();
+
+    await waitFor(() => expect(within(editor()).getByLabelText('Name')).toHaveValue('Force 200?'));
+  });
+
   it('toggles enabled and deletes a rule', async () => {
     page();
     await rule('Force 200');
@@ -166,7 +237,7 @@ describe('MatchReplacePage', () => {
   });
 
   it('exports the rules and imports a file', async () => {
-    page();
+    const client = page();
     await rule('Add debug header');
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     let blob: Blob | undefined;
@@ -175,11 +246,12 @@ describe('MatchReplacePage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Export' }));
     await waitFor(() => expect(click).toHaveBeenCalled());
     const exported = await blob!.text();
-    expect(JSON.parse(exported).version).toBe(1);
-    expect(JSON.parse(exported).collections.map((c: { name: string }) => c.name)).toEqual([
-      'Headers',
-      'Bodies',
-    ]);
+    const expected = (
+      await client
+        .query(ExportMatchReplaceDocument, {}, { requestPolicy: 'network-only' })
+        .toPromise()
+    ).data!.exportMatchReplace;
+    expect(exported).toBe(expected);
     expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('match-replace.json');
 
     const file = new File([exported], 'rules.json', { type: 'application/json' });

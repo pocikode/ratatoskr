@@ -55,6 +55,7 @@
         error={mr.conditionError}
         bind:value={draft.input.condition}
       />
+      {#if !mr.conditionError}{@render fieldError(mr.errors.condition)}{/if}
     </div>
 
     <fieldset class="flex flex-col gap-1">

@@ -184,8 +184,16 @@ export class MatchReplaceState {
   /** Creates or updates the draft; on error the message lands on its field and the draft stays. */
   async save(): Promise<boolean> {
     const d = this.draft;
-    if (!d) return false;
+    if (!d || this.busy) return false;
     this.busy = true;
+    try {
+      return await this.persist(d);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  private async persist(d: RuleDraft): Promise<boolean> {
     this.errors = {};
     this.conditionError = null;
     const sent = JSON.stringify(d.input);
@@ -207,22 +215,18 @@ export class MatchReplaceState {
       saved = r.data?.createMatchReplaceRule;
       error = r.error;
     }
-    this.busy = false;
     // The user may have opened another rule while the request ran; only the originating draft
     // gets the outcome.
-    const current = this.draft === d;
     if (error || !saved) {
-      if (current) {
+      if (this.draft === d) {
         if (error) this.fail(error);
         else this.errors = { form: 'Saving the rule failed' };
       }
       return false;
     }
-    await this.load();
-    if (this.draft !== d) return true;
-    if (JSON.stringify(d.input) === sent) this.select(saved.id);
-    else {
-      // Edited while saving: keep the edits, but the rule exists now, so later saves update it.
+    // Reconcile at once, before the refresh: the rule exists now, so later saves update it even
+    // when the refresh is slow or fails.
+    if (this.draft === d) {
       d.id = saved.id;
       this.baseline = JSON.stringify({
         id: saved.id,
@@ -230,6 +234,10 @@ export class MatchReplaceState {
         input: JSON.parse(sent),
       });
     }
+    await this.load();
+    // Unedited since sending: adopt the server's copy. Edited meanwhile: keep the edits.
+    if (this.draft === d && JSON.stringify(d.input) === sent && this.ruleById(saved.id))
+      this.select(saved.id);
     return true;
   }
 
@@ -237,9 +245,8 @@ export class MatchReplaceState {
     const r = await this.client.mutation(DeleteMatchReplaceRuleDocument, { id }).toPromise();
     if (r.error) return void (this.message = r.error.message);
     this.message = null;
-    const wasOpen = this.draft?.id === id;
     await this.load();
-    if (wasOpen) this.select(null);
+    if (this.draft?.id === id) this.select(null);
   }
 
   /** Flips `enabled` in place; a failure puts it back. */
@@ -301,7 +308,12 @@ export class MatchReplaceState {
       return;
     }
     this.message = null;
-    if (this.draft?.id === id) this.draft.collectionId = collectionId;
+    if (this.draft?.id === id) {
+      this.draft.collectionId = collectionId;
+      const base = JSON.parse(this.baseline) as RuleDraft;
+      base.collectionId = collectionId;
+      this.baseline = JSON.stringify(base);
+    }
     await this.load();
   }
 
@@ -327,9 +339,8 @@ export class MatchReplaceState {
     const r = await this.client.mutation(DeleteMatchReplaceCollectionDocument, { id }).toPromise();
     if (r.error) return void (this.message = r.error.message);
     this.message = null;
-    const open = this.draft?.collectionId === id;
     await this.load();
-    if (open) this.select(null);
+    if (this.draft?.collectionId === id) this.select(null);
   }
 
   /** Moves a collection to `index` of the list. */
