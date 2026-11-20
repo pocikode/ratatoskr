@@ -314,3 +314,11 @@ Browser E2E and the live Replay backend remain unverified.
 - Both tests fail with their fix reverted. Also de-flaked `creates one session and one collection on repeated
   submits`: it clicked `+ Collection` while the closing dialog still blocked pointer events; it now waits for
   the dialog to close. `make check` green 4/4 runs (362 frontend tests).
+
+### Re-review of `d4d8178`
+
+Verdict: approve. No blocker or major findings remain. The new tests cover a pending deep link superseded by a bare Replay route and a retired shell completing after a replacement shell saves tabs. Lead decisions explicitly assign the compact tree payload, tab reorder and browser drag coverage to follow-up tasks.
+
+Verification: `make check` passed, including Go race tests, frontend checks and 362 frontend tests. Integration tests were not required because this branch does not change proxy, store or raw HTTP code.
+
+Not checked: browser E2E and the live Replay backend; browser drag coverage is assigned to T-039.
