@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -481,3 +481,19 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   and the documented tester size limits.
 - Browser E2E and Go integration were skipped. `git diff --check main...HEAD` reports
   four existing whitespace-only lines in generated web SDL.
+
+### Review of `a0fcf40`
+
+- Verdict is `changes_requested`. The dedicated tester input removes saved-rule metadata
+  from the request.
+- [ ] [minor] `internal/api/graphql/schema/matchreplace.graphqls:355` — The size guarantee
+  assumes unwrapped base64. The `Bytes` scalar accepts CRLF. A synthetic 12 MiB HTTP
+  response in GraphQL variables serialized to 16,777,458 bytes with unwrapped base64
+  and 33,554,670 bytes with CRLF every four base64 characters. The latter exceeds
+  the 33,554,432-byte POST cap and receives HTTP 413 before the resolver runs.
+  Qualify the guarantee in the schema and F-MR-1 for unwrapped base64 in GraphQL
+  variables, and specify that encoding in T-108 for pasted and picked messages.
+- All 24 focused Vitest tests passed. Review assumed a single desktop user within
+  the documented project and tester limits. `git diff --check main...HEAD` flagged
+  four whitespace-only lines in the generated web schema. Full checks, generation,
+  browser E2E and Go integration were not rerun.
