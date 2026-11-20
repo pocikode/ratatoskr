@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"testing"
@@ -427,5 +428,49 @@ func TestSetCopiesSources(t *testing.T) {
 	raw := []byte("GET / HTTP/1.1\r\nHost: a\r\n\r\n")
 	if out, err := e.Request(context.Background(), "proxy", raw); err != nil || bytes.Equal(out, raw) {
 		t.Errorf("rule not applied after caller mutation: %q, %v", out, err)
+	}
+}
+
+// TestTesterWireCap: the 16 MiB tester cap counts encoded wire bytes, not
+// decoded growth.
+func TestTesterWireCap(t *testing.T) {
+	t.Parallel()
+	gzipped := func(plain []byte) []byte {
+		enc := encodeWith(t, "gzip", plain)
+		return []byte("HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: " + strconv.Itoa(len(enc)) + "\r\n\r\n" + string(enc))
+	}
+	e := newEngine()
+
+	// 20 "x" each become 1 MiB: 20 MiB decoded, a few KiB on the wire.
+	r := Rule{Section: ResponseBody, Operation: UpdateRaw, Matcher: Matcher{Kind: String, Value: "x"}, Term: strings.Repeat("a", 1<<20)}
+	out, _, changed, err := e.Test(r, nil, KindResponse, gzipped([]byte(strings.Repeat("x.", 20))))
+	if err != nil || !changed || len(out) > 1<<20 {
+		t.Fatalf("compressible growth: changed=%v len=%d err=%v", changed, len(out), err)
+	}
+	if plain, err := decode("gzip", readResponse(t, out).body); err != nil || len(plain) != 20<<20+20 {
+		t.Errorf("decoded %d bytes, %v", len(plain), err)
+	}
+
+	// 9 MiB of random bytes doubled: over 16 MiB once encoded.
+	random := make([]byte, 9<<20)
+	_, _ = rand.NewChaCha8([32]byte{}).Read(random)
+	r = Rule{Section: ResponseBody, Operation: UpdateRaw, Matcher: Matcher{Kind: Regex, Value: `(?s).+`}, Term: "$0$0"}
+	out, _, _, err = e.Test(r, nil, KindResponse, gzipped(random))
+	if apperr.CodeOf(err) != apperr.BadInput || out != nil {
+		t.Errorf("incompressible growth: len=%d err=%v, want BAD_INPUT", len(out), err)
+	}
+}
+
+func TestEncodeCap(t *testing.T) {
+	t.Parallel()
+	random := make([]byte, 64<<10)
+	_, _ = rand.NewChaCha8([32]byte{}).Read(random)
+	for _, coding := range []string{"gzip", "deflate", deflateRaw, "br", "zstd"} {
+		if _, err := encode(coding, random, 1<<10); !errors.Is(err, errTooLarge) {
+			t.Errorf("%s: %v, want errTooLarge", coding, err)
+		}
+		if enc, err := encode(coding, random, 128<<10); err != nil || len(enc) < len(random) {
+			t.Errorf("%s under the cap: %d bytes, %v", coding, len(enc), err)
+		}
 	}
 }

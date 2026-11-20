@@ -47,11 +47,16 @@ func (c *compiled) body(x *msg, b *budget) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: decode %s body: %w", errSkip, coding, err)
 	}
-	out, err := c.replace(plain, b.max(len(plain)))
+	// The output cap is on wire bytes; decoded work has its own bound.
+	limit := b.max(len(payload))
+	if coding != "" {
+		limit = captureCap
+	}
+	out, err := c.replace(plain, limit)
 	if err != nil || bytes.Equal(out, plain) {
 		return nil, err
 	}
-	enc, err := encode(coding, out)
+	enc, err := encode(coding, out, b.max(len(payload)))
 	if err != nil {
 		return nil, err
 	}
@@ -131,26 +136,42 @@ func decode(coding string, p []byte) ([]byte, error) {
 	return out, nil
 }
 
-func encode(coding string, p []byte) ([]byte, error) {
-	var buf bytes.Buffer
+// capped is a buffer that fails with errTooLarge once it would exceed left.
+type capped struct {
+	buf  bytes.Buffer
+	left int
+}
+
+func (c *capped) Write(p []byte) (int, error) {
+	if len(p) > c.left {
+		return 0, errTooLarge
+	}
+	c.left -= len(p)
+	return c.buf.Write(p)
+}
+
+// encode compresses p with coding. The encoded bytes are capped at limit
+// (errTooLarge) as they are written.
+func encode(coding string, p []byte, limit int) ([]byte, error) {
+	buf := &capped{left: limit}
 	var w io.WriteCloser
 	switch coding {
 	case "":
 		return p, nil
 	case "gzip":
-		w = gzip.NewWriter(&buf)
+		w = gzip.NewWriter(buf)
 	case "deflate":
-		w = zlib.NewWriter(&buf)
+		w = zlib.NewWriter(buf)
 	case deflateRaw:
-		fw, err := flate.NewWriter(&buf, flate.DefaultCompression)
+		fw, err := flate.NewWriter(buf, flate.DefaultCompression)
 		if err != nil {
 			return nil, err
 		}
 		w = fw
 	case "br":
-		w = brotli.NewWriter(&buf)
+		w = brotli.NewWriter(buf)
 	case "zstd":
-		zw, err := zstd.NewWriter(&buf, zstd.WithEncoderConcurrency(1))
+		zw, err := zstd.NewWriter(buf, zstd.WithEncoderConcurrency(1))
 		if err != nil {
 			return nil, err
 		}
@@ -162,5 +183,5 @@ func encode(coding string, p []byte) ([]byte, error) {
 	if err := w.Close(); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	return buf.buf.Bytes(), nil
 }
