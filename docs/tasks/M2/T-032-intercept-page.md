@@ -51,6 +51,11 @@ requests and responses on the Intercept page (against the T-030 mocks until T-10
 - Re-read docs/00 §4 before writing UI copy.
 - Forward/Drop shortcuts are page-scoped; ⌘⌫ must stay a text edit inside the editor (existing shortcuts test covers the rule).
 
+- Lead answer (2026-11-20, review round 1): finding 1 (generated `gql.ts`/`graphql.ts` outside paths) is resolved:
+  regenerated output from `bun run codegen` for operations in `web/src/pages/intercept/intercept.graphql` is authorized;
+  it must stay codegen output, never hand-edited. The reviewer's `golangci-lint` error came from its sandbox, not this
+  branch. Address the remaining findings.
+
 ## Plan (implementer, ≤15 lines)
 - `intercept.graphql` + codegen; `intercept.svelte.ts`: ref-counted `start()` (settings/queue queries, both subscriptions, refetch on project reset and WS reconnect), actions (settings, forward, drop, all).
 - Singleton `intercept` store; TopBar toggle + dropdown (Requests/Responses), Sidebar badge (`aria-label`), `intercept.toggle` in builtin.ts.
@@ -67,5 +72,28 @@ requests and responses on the Intercept page (against the T-030 mocks until T-10
 - Follow-ups (proposed tasks): E2E for Intercept once T-109 lands; richer cURL with headers/body.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
-- Findings:
+- Verdict: changes_requested
+
+### Findings
+
+- [ ] [major] web/src/lib/api/generated/graphql.ts:55 — This file and `web/src/lib/api/generated/gql.ts` are outside the task's `paths`. The Handoff records codegen, which still changes files governed by the path restriction → Have the lead authorize both generated paths and keep the output generated.
+- [ ] [major] web/src/lib/stores/intercept.svelte.ts:152 — A queue query can return before the settings query, then an `ADDED` or `REMOVED` event can land before `Promise.all` assigns the earlier queue snapshot. This can hide a held item or leave a released item visible until the next refresh. Settings snapshots and mutation responses can likewise overwrite newer settings events → Reconcile queue events with in-flight snapshots, guard settings writes against newer events and project resets, and test out-of-order delivery.
+- [ ] [major] web/src/lib/stores/intercept.svelte.ts:130 — A project reset clears the queue but leaves the old settings active. The toggle commands read those settings to compute the next value, so switching from a queuing project to a forwarding project can make the first toggle send `queuing: false` again → Clear settings on reset, invalidate prior writes, and disable toggles until current-project settings arrive.
+- [ ] [major] web/src/pages/intercept/InterceptPage.svelte:186 — Scope presets load only when the page mounts or the client changes. Switching projects while Intercept is open leaves the previous project's presets selectable, and the scope mutation discards the resulting error → Clear and refetch presets on project change and display scope update failures.
+- [ ] [major] web/src/pages/intercept/InterceptPage.svelte:69 — While Forward or Drop awaits the mutation, the user can select and edit another row. Completion clears that row's draft and can move selection back to the old item’s neighbor → Clear only the released item's draft and advance selection only if the user has stayed on that item. Test switching rows while a release is pending.
+- [ ] [major] web/src/pages/intercept/InterceptPage.test.ts:25 — The FIFO and release tests assert counts or store rows, leaving rendered order and the editor's selected item unverified. No component test delivers an `ADDED` event while another row is selected or advances the time-held clock. `TopBar.test.ts:60` clicks only Responses although both toggles are in the AC → Assert rendered FIFO and next selection, cover live append and ticking time, and exercise both dropdown actions.
+- [ ] [minor] web/src/pages/intercept/InterceptPage.svelte:156 — ID, Host, Method and Path show sort affordances, but the table leaves ordering to its caller and the page supplies no sort handler → Disable sorting on all queue columns to preserve FIFO.
+- [ ] [minor] web/src/pages/intercept/InterceptPage.svelte:1 — The 361-line component exceeds the 250-line limit in `docs/06-frontend-conventions.md` §3 → Extract the condition controls or editor pane within the task's page directory.
+
+### Verification
+
+- `make check` stopped at Go lint:
+
+  ```text
+  golangci-lint run ./...
+  level=error msg="Running error: context loading failed: no go files to analyze: running `go mod tidy` may solve the problem"
+  make: *** [lint] Error 5
+  ```
+
+- `make -k web-check web-test` passed. Svelte reported 0 errors and 0 warnings, and all 444 tests across 54 files passed. `git diff --check main...HEAD` passed.
+- Proxy, store backend and raw HTTP files are unchanged, so the reviewer procedure did not trigger `make test-int`. Live backend E2E remains unverified pending T-109.
