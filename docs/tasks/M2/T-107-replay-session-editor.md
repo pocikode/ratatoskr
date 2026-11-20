@@ -3,7 +3,7 @@ id: T-107
 title: Replay session editor - connection bar, request editor, send/cancel, entry history, response; Send to Replay from History
 milestone: M2
 role: frontend
-status: blocked
+status: in_progress
 depends_on: [T-034, T-104, T-103]
 owner: "DeepSeek V4.1 Flash (opencode)"
 branch: task/T-107-replay-session-editor
@@ -11,6 +11,8 @@ paths:
   - web/src/pages/replay/session/**
   - web/src/pages/http-history/commands.ts
   - web/src/pages/http-history/commands.test.ts
+  - web/src/pages/http-history/HttpHistoryPage.svelte
+  - web/src/pages/http-history/HttpHistoryPage.test.ts
 spec:
   - docs/01-feature-spec.md#F-REP-2 (incl. M2 contract)
   - docs/02-ui-layout.md §3.7, §4 (Send ⌘⏎, Send to Replay ⌘R)
@@ -45,6 +47,10 @@ to Replay with ⌘/Ctrl+R or the context menu.
 
 ## Notes from lead
 - `historyCommands` must not need new deps from `HttpHistoryPage.svelte` (owned by T-038): import `openInReplay` directly.
+
+- Lead answer (2026-11-20): T-038 is done and nothing else owns it, so `paths` now include `HttpHistoryPage.svelte`
+  and `HttpHistoryPage.test.ts`. Add only the `'history.sendToReplay'` entry to `MENU_COMMANDS` plus a test that the
+  context menu lists it; no other changes there.
 
 ## Plan (implementer, ≤15 lines)
 > Question for lead: the History context menu is built from `MENU_COMMANDS` in
