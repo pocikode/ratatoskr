@@ -294,6 +294,9 @@ Open in browser · Filter by this host/path/status · Delete · Export.
   - The Workflow replacer arrives with M5 (T-066) and WebSocket sections with M4 (T-053); M2 has the Term replacer only.
   - Tester: one draft rule (saved or not) against pasted or picked bytes, request or response → output bytes, whether the
     condition matched and whether anything changed. The UI shows a line diff.
+    The engine's tester entry point does every tester check itself (lead, 2026-11-20, T-035): rule validity, a section
+    for the other message kind, `raw` over 12 MiB, the framing rules below and the 16 MiB output cap. It returns an
+    `apperr` error (`BAD_INPUT`, or `BAD_QUERY` with span for the condition) and no output; the service passes it through.
   - Export/import JSON `{"version":1,"collections":[{"name":…,"rules":[…]}]}`; import appends collections, all or nothing.
   - Limits: names 1–200 characters, ≤ 1000 rules per project, term ≤ 1 MiB. Rules reload on every change and on project switch.
   - API details (lead, 2026-11-19, T-099; schema `matchreplace.graphqls`): there is no default collection (the list may

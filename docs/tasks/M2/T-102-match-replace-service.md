@@ -23,7 +23,7 @@ Rules and collections persist per project, the engine always runs the current en
 ## Scope
 - In: `matchreplace.Service` over `mr_collections` / `mr_rules` (`definition_json` holds condition, sources, section,
   operation, matcher, term; migration 0005 only if a column is really missing): collection CRUD + reorder, rule CRUD,
-  enable, move, delete; limits; export/import (all or nothing, appends); `Test` via the engine; after every change and on
+  enable, move, delete; limits; export/import (all or nothing, appends); `Test` via the engine (the engine does every tester check and returns the `apperr` error; pass it through); after every change and on
   project switch the service pushes the compiled enabled list into the `Engine` (`Reload(ctx)`); resolvers; delete
   `stubs_matchreplace.go`.
 - Out: proxy/replay wiring (T-105/T-106/T-109), UI.

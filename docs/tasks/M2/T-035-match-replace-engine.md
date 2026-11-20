@@ -5,7 +5,7 @@ milestone: M2
 role: backend
 status: todo
 depends_on: [T-099]
-owner: ""
+owner: "codex"
 branch: task/T-035-match-replace-engine
 paths:
   - internal/matchreplace/**
@@ -23,7 +23,8 @@ shape (T-105), with no storage and no API.
 - In: `Rule` type mirroring `MatchReplaceRuleInput` (T-099); `Validate`/`Compile` (section × operation table, allowed
   matchers, RE2 compile, term size); `Engine` holding the compiled enabled list behind an atomic pointer (`Set(rules)`),
   with `Active(source, response)`, `Request(ctx, source, raw)`, `Response(ctx, source, req, resp)` exactly as in T-105;
-  `Test(rule, kind, raw) (out, conditionMatched, changed)` for the tester; body decode/re-encode (gzip, deflate, br, zstd
+  `Test(rule, kind, raw) (out, conditionMatched, changed, err)` for the tester, owning every tester check in F-MR-1 (see
+  Notes from lead); body decode/re-encode (gzip, deflate, br, zstd
   via `klauspost/compress` / `andybalholm/brotli`, already in go.mod) and framing fix (Content-Length, chunked → one chunk +
   last chunk with trailers).
 - Out: persistence, resolvers, import/export (T-102); Workflow replacer (T-066); WebSocket sections (T-053).
@@ -38,16 +39,25 @@ shape (T-105), with no storage and no API.
       clauses are false on requests; non-matching `sources` never apply.
 - [ ] F-MR-1 AC core: `REQUEST_HEADER / ADD / "User-Agent: x"` appends the header.
 - [ ] Status update to a non-3-digit result skips the rule (logged).
+- [ ] `Test` returns an `apperr.BadInput` error and nil output for: a section for the other kind, `raw` > 12 MiB, each
+      tester framing rejection in F-MR-1, and output that would exceed 16 MiB (detected while replacing, before the full
+      result is allocated; test with a small input whose replacement crosses the cap); a bad condition is `BAD_QUERY`.
 - [ ] Benchmark: 20 enabled header rules on a 2 KiB request; result in Handoff (target ≤ 100 µs/op).
 - [ ] `make check` green.
 
 ## Notes from lead
 - Go structural typing: do not import `internal/proxy`; T-109 adds a compile-time assertion in `internal/app`.
+- Tester errors (lead, 2026-11-20, answers the blocked question): the engine owns them. `Test` returns
+  `(out []byte, conditionMatched, changed bool, err error)`; `err` is an `*apperr.Error` (`apperr.New(apperr.BadInput, …)`,
+  message naming the problem, e.g. "tester output must be at most 16 MiB"). T-102 passes it through unchanged. Proxy
+  paths (`Request`/`Response`) are unchanged: no error, oversized results there follow the capture-cap rule.
 - Parse with `rawhttp`, edit with `rawhttp.Builder`; never `net/http` (ADR-0003).
 
 ## Plan (implementer, ≤15 lines)
 
 ## Out-of-scope change needed (if any)
+
+- Resolved (lead, 2026-11-20): "Should `Test` return an error for `BAD_INPUT`?" Yes, the engine owns every tester check; see Notes from lead.
 
 ## Handoff (implementer)
 - What changed:
