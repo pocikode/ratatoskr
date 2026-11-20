@@ -3,7 +3,7 @@ id: T-106
 title: Replay send and cancel - interpolation, M&R hook, records and entries
 milestone: M2
 role: backend
-status: in_progress
+status: blocked
 depends_on: [T-033, T-101, T-100, T-037]
 owner: "claude-code (opus)"
 branch: task/T-106-replay-send
@@ -63,13 +63,46 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 - Resolvers in replay_send.go; tests: service tests with testutil raw server + fake env/rewriter + real Capture.
 - API server: `uiSrv` (internal/proxy/server.go) has no Read/Write timeout, only ReadHeaderTimeout/IdleTimeout: OK.
 
+- Blocked (2026-11-20): code done, `make test-int` green, but `make check` cannot go green in this worktree:
+  1. `make web-check` fails with `svelte-check: command not found`: web deps are not installed. Needs `bun install`
+     in `web/` (not allowlisted for me). No web files changed on this branch.
+  2. `go test -race ./internal/matchreplace -run TestRegexSharedGroupsPerMatch` fails on its 10 s wall-clock bound
+     on this machine (11-14 s under `-race`); it passed in the `make test-int` run. Not touched by this branch.
+  Go part of `make check` (fix-check, vet, golangci-lint, all other `go test -race` packages) is green.
+
 ## Out-of-scope change needed (if any)
+- `internal/api/graphql/resolvers/replay.go` `toReplaySession`: set `Sending` from `r.deps.ReplaySend.Sending(id)`
+  (nil-safe). Today `ReplaySession.sending` is always false. `Sender.Sending(id)` is ready.
+- `internal/api/graphql/resolvers/resolver.go:39`: comment still says "until T-106 … NOT_IMPLEMENTED".
+- `deleteReplaySession` / `deleteReplayCollection` should cancel in-flight sends (schema says so). Needs
+  `Sender.Cancel` called from the resolver or session.go. Today the send finishes and `AddEntry` returns NOT_FOUND.
+- T-109 wiring: `replay.NewSender(replaySvc, replay.SendDeps{Env: envSvc, Rewriter: mrEngine, Capture: capture})`.
 
 ## Handoff (implementer)
 - What changed:
-- How to verify:
+  - `internal/replay/send.go`: `Sender` (wraps `*Service`, whose struct is outside my paths) with
+    `Send(ctx, id, SendInput)`, `Cancel(ctx, id) (bool, error)` (NOT_FOUND for unknown id), `Sending(id)`.
+    Flow: one-per-session slot (CONFLICT) → `UpdateSession` saves draft/connection/options (validates, nothing saved
+    on bad input) → `environment.Interpolate` with `Env.Vars` → `Rewriter.Request(ctx, "replay", raw)` when
+    `applyMatchReplace` → `sender.UpdateContentLength` → head must parse (BAD_INPUT, draft stays saved) →
+    `sender.Send` → each hop `NewPending`+`Complete` (source `replay`, `ProjectDB` pinned) → `Written(last)` →
+    `AddEntry(last, error)`. Storing runs on `WithoutCancel` + 10 s bound so cancelled sends are stored.
+  - Error texts: `cancelled`, `timeout after N ms`, `dial failed: …`, `TLS handshake failed: …`, `protocol error: …`.
+  - `resolvers/replay_send.go` replaces `stubs_replay_send.go`; `ReplaySendService` is now an interface.
+  - API server write timeout: `uiSrv` in internal/proxy/server.go has no Read/WriteTimeout, so 300 s sends are fine.
+- How to verify: `go test -race ./internal/replay/ ./internal/api/graphql/resolvers/ -run 'Send'`.
+  Tests cover every AC: draft+record+entry+Added/Updated, CONFLICT/cancel/false/NOT_FOUND, interpolation incl.
+  unknown verbatim and stored interpolated bytes, M&R on/off/nil, Content-Length on/off, redirect hops, dial failure,
+  BAD_INPUT parse/connection, paused capture.
 - Known limitations:
-- Follow-ups (proposed tasks):
+  - Decision (technical, please confirm): when history capture is paused, Send returns CONFLICT before sending,
+    because no record (and so no entry) could be stored. Alternative needs a capture API that ignores the pause.
+  - `Written` waits for the last request row; its response completion is queued right behind it and is almost
+    always in the same flush, but a 50 ms tick landing between the two enqueues can make the response row appear
+    one flush (≤ 50 ms) after the entry. The request record never dangles.
+  - Selected-over-Global precedence is `environment.Service.Vars`' job (tested in T-037); here a fake env is used.
+  - No timeout test: sender uses real network time, so `synctest` doesn't apply; timeout text mapping is trivial.
+- Follow-ups (proposed tasks): the out-of-scope items above; de-flake `TestRegexSharedGroupsPerMatch` (wall-clock bound).
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
