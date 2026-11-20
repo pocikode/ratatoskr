@@ -243,7 +243,7 @@ shape (T-105), with no storage and no API.
 
 ## Review (reviewer)
 
-- Verdict: changes_requested (round 5)
+- Verdict: approve (round 6 fix verified)
 - Round 2 findings:
   - [x] [major] internal/matchreplace/message.go:104 — An origin-form target with a URL in its query is mistaken for absolute-form. The `next` parameter in `/login?next=https://example.invalid/home` disappears from query matching, and the parsed path is also wrong → identify the target form from its prefix before splitting path and query, and add a golden for updating this parameter.
     Fixed: `splitTarget` treats the target as absolute-form only when `scheme://` comes before any `/?#`. Goldens `req-query-value-url-in-origin-form` (updates `next`) and `req-path-url-in-origin-form-query`.
@@ -306,8 +306,7 @@ The scoped race tests for regex replacement, template compilation, and status se
 Verified the round 6 fix in 438107f. Each distinct capture reference is resolved
 once per match, and both expansion passes reuse those bounds. The regression
 covers an absent group and a last participating group across repeated matches.
-The round 6 finding is closed. The branch remains in review for lead disposition
-under the review-round limit.
+The round 6 finding is closed. Verdict: **approve**.
 
 The scoped regex, template, and status race tests and `git diff --check main...HEAD`
 passed. The 20-rule header benchmark measured 69.2–71.8 µs/op across three runs
