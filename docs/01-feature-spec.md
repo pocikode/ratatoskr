@@ -184,6 +184,15 @@ unlimited projects/plugins) are **free and unlimited** here.
   - Drop of a request: nothing goes upstream, the client gets `dropStatusCode` with a short HTML body of our own wording,
     the record gets `isDropped`. Drop of a response: the client gets the same answer; the record keeps the server's
     response and gets `isDropped`. Dropping discards edits (no edited record, F-HIST-4).
+    A `dropStatusCode` in 1xx goes out as that interim head followed by our own 502 drop page, then the connection
+    closes (operator, 2026-11-19, T-105 review).
+  - Bytes a client pipelines while its message is held are buffered up to the head limit (1 MiB default); beyond that
+    the client is treated as disconnected: the item leaves the queue and the connection closes (T-105 review round 7).
+  - When an edit (or a Match & Replace rule) makes the request sent upstream a `CONNECT` and the origin answers 2xx, the
+    client gets that response head only and both connections close; the response is not held or rewritten (operator,
+    2026-11-20, T-105 review round 9). Per RFC 9110 §9.3.6 the parser ignores `Content-Length` and
+    `Transfer-Encoding` on a 2xx answer to `CONNECT` (no framing error, no body); non-2xx answers keep normal framing
+    validation (lead, 2026-11-20, T-105 round 10).
   - Turning queuing off, or turning `requests`/`responses` off, forwards the affected held items unchanged in FIFO order.
     A project switch does the same before the new project's settings load. If the client disconnects while its request
     is held, the item leaves the queue and the record stays without a response.
@@ -279,6 +288,9 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     stacked codings skip body rules. A message whose body exceeds the capture cap (64 MiB) passes through with no rule
     applied (logged at info). A changed body keeps its framing: `Content-Length` is updated,
     a chunked body becomes one chunk plus the last chunk (trailers kept). Messages no rule changed keep their bytes.
+  - When the request of an exchange is over the capture cap, no response rule runs on that exchange (logged at info);
+    its response may still be held (operator, 2026-11-19, T-105 review round 2). A 2xx answer to a request sent as
+    `CONNECT` is never rewritten (see F-INT-1).
   - The Workflow replacer arrives with M5 (T-066) and WebSocket sections with M4 (T-053); M2 has the Term replacer only.
   - Tester: one draft rule (saved or not) against pasted or picked bytes, request or response → output bytes, whether the
     condition matched and whether anything changed. The UI shows a line diff.

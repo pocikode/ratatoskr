@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"html"
 	"io"
 	"strconv"
@@ -61,7 +62,47 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		defer func() { c.continued = false }()
 	}
 
-	resp, up, err := c.roundTrip(req, out, dst, pending)
+	x := &edits{sent: req, inTunnel: inTunnel}
+
+	if c.s.hookRequest() {
+		data, full, err := c.s.buffer(&req.Message)
+
+		switch {
+		case err != nil:
+			pending()
+
+			return c.fail(id, dst, err)
+		case !full:
+			// Over the cap: sent unheld and unchanged, the consumed bytes first.
+			head, _, err := c.s.upstreamBytes(req.Head(), inTunnel)
+			if err != nil {
+				pending()
+
+				return c.fail(id, dst, err)
+			}
+
+			out = writeAll{b: append(head, data[len(req.Head()):]...), r: req.Body()}
+		default:
+			pending()
+
+			var dropped bool
+			if out, dropped, err = c.requestHooks(x, id, &entry, data); dropped {
+				return false
+			}
+
+			if errors.Is(err, errHoldEnded) {
+				c.s.hc.Complete(c.ctx, id, nil) // the record stays without a response (F-INT-1)
+
+				return false
+			}
+
+			if err != nil {
+				return c.fail(id, dst, err)
+			}
+		}
+	}
+
+	resp, up, err := c.roundTrip(x, out, dst, pending)
 	if err != nil {
 		pending()
 		return c.fail(id, dst, err)
@@ -71,29 +112,40 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		Code: resp.Status(), RoundTrip: time.Since(entry.CreatedAt), CreatedAt: time.Now(),
 	}
 
+	if strings.EqualFold(x.sent.Method(), "CONNECT") && resp.Status()/100 == 2 {
+		// The origin turned the connection into a tunnel: the client gets the
+		// head only, then both connections close, unhooked (operator,
+		// 2026-11-20, T-105 review round 9).
+		_ = up.Close()
+		_, _ = c.conn.Write(resp.Head())
+		owner := c.editOwner(id, x.changed)
+		c.finish(id, answer, resp)
+		c.storeEdited(owner, x, id, &entry, answer)
+
+		return false
+	}
+
+	if c.s.hookResponse(id, req.Truncated()) {
+		return c.respondHooked(x, id, &entry, req, resp, up, answer)
+	}
+
+	owner := c.editOwner(id, x.changed)
+
 	if resp.Status() == 101 {
 		c.finish(id, answer, resp)
-		return c.upgrade(resp, up)
+		c.storeEdited(owner, x, id, &entry, answer)
+		return c.upgrade(resp.Head(), up)
 	}
 
 	_, copyErr := resp.WriteTo(c.conn)
 
 	c.finish(id, answer, resp)
+	c.storeEdited(owner, x, id, &entry, answer)
 
-	switch {
-	case copyErr != nil:
-		_ = up.Close() // the body is incomplete either way
-
-		return false
-	case req.Close() || resp.Close() || resp.Framing() == rawhttp.FramingClose:
-		_ = up.Close()
-
-		return false
-	}
-
-	c.s.pool.Put(up)
-
-	return true
+	// An incomplete body closes up either way. The origin answered the method
+	// it got (exchange reads with x.sent); a HEAD edit leaves the client's
+	// framing wrong, so its connection ends here.
+	return c.release(copyErr, req, x, resp, up) && !x.headChanged(req)
 }
 
 // idempotent reports the RFC 9110 safe methods: a repeat is harmless.
@@ -109,8 +161,22 @@ func idempotent(method string) bool {
 // roundTrip writes the request and reads the final response head. A pooled
 // connection the server closed meanwhile is retried once on a fresh one, but
 // only for safe methods without a body, which can be sent twice.
-func (c *session) roundTrip(req *rawhttp.Request, out io.WriterTo, dst destination, pending func()) (*rawhttp.Response, *netx.Conn, error) {
-	up, reused, err := c.s.pool.Get(c.ctx, dst.key())
+// Split bytes (x.split) go out once, on a fresh connection.
+func (c *session) roundTrip(x *edits, out io.WriterTo, dst destination, pending func()) (*rawhttp.Response, *netx.Conn, error) {
+	req := x.sent
+
+	var (
+		up     *netx.Conn
+		reused bool
+		err    error
+	)
+
+	if x.split {
+		up, err = c.s.pool.Fresh(c.ctx, dst.key())
+	} else {
+		up, reused, err = c.s.pool.Get(c.ctx, dst.key())
+	}
+
 	if err != nil {
 		return nil, nil, err
 	}
@@ -174,15 +240,15 @@ func (c *session) exchange(req *rawhttp.Request, out io.WriterTo, up *netx.Conn,
 	}
 }
 
-// upgrade relays a 101 answer: the head goes to the client, then both sides
+// upgrade relays a 101 answer: head goes to the client, then both sides
 // are copied raw until either closes. WebSocket frames are recorded by a
 // later task; the handshake is stored like any request.
-func (c *session) upgrade(resp *rawhttp.Response, up *netx.Conn) bool {
+func (c *session) upgrade(head []byte, up *netx.Conn) bool {
 	defer up.Close()
 
 	up.SetIdle(0)
 
-	if _, err := resp.WriteTo(c.conn); err != nil {
+	if _, err := c.conn.Write(head); err != nil {
 		return false
 	}
 

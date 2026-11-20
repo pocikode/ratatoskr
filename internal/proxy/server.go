@@ -63,8 +63,13 @@ type Deps struct {
 	CA CA
 	// Pool dials upstreams. Nil means a zero [netx.Pool].
 	Pool *netx.Pool
-	// Capture records exchanges. Nil records nothing.
+	// Capture records exchanges. Nil records nothing. Holds and edited pairs
+	// need it to implement [HoldCapture].
 	Capture Capture
+	// Interceptor holds messages for review. Nil disables Intercept.
+	Interceptor Interceptor
+	// Rewriter applies Match & Replace. Nil disables it.
+	Rewriter Rewriter
 	// UI serves requests addressed to Ratatoskr. Nil answers 404.
 	UI     http.Handler
 	Logger *slog.Logger
@@ -85,6 +90,10 @@ type Server struct {
 	deps Deps
 	pool *netx.Pool
 	log  *slog.Logger
+	// hc is Capture when it supports holds and edited pairs.
+	hc HoldCapture
+	// icpt is Interceptor when hc is set.
+	icpt Interceptor
 
 	mu    sync.Mutex
 	conns map[net.Conn]struct{}
@@ -111,6 +120,16 @@ func New(deps Deps) *Server {
 
 	if s.deps.HeaderTimeout == 0 {
 		s.deps.HeaderTimeout = defaultHeaderTimeout
+	}
+
+	s.hc, _ = deps.Capture.(HoldCapture)
+
+	switch {
+	case deps.Interceptor == nil:
+	case s.hc == nil:
+		s.log.Warn("proxy: capture cannot confirm pending records; Intercept holds are off", "component", "proxy")
+	default:
+		s.icpt = deps.Interceptor
 	}
 
 	return s
@@ -262,6 +281,8 @@ type session struct {
 	ui   *chanListener
 	conn net.Conn
 	br   *bufio.Reader
+	// src is what br reads from; a hold may put pipelined bytes in front of it.
+	src io.Reader
 	// idle refreshes the client read deadline on every read.
 	idle *netx.IdleConn
 	// tun is the CONNECT destination when the connection is a tunnel.
@@ -289,7 +310,7 @@ func (s *Server) serveConn(ctx context.Context, conn net.Conn, info listenerInfo
 	defer s.untrack(conn)
 
 	ic := &netx.IdleConn{Conn: conn, Idle: s.deps.IdleTimeout}
-	sess := &session{s: s, ctx: ctx, info: info, ui: ui, conn: ic, br: bufio.NewReader(ic), idle: ic}
+	sess := &session{s: s, ctx: ctx, info: info, ui: ui, conn: ic, br: bufio.NewReader(ic), src: ic, idle: ic}
 
 	sess.requests()
 
@@ -503,7 +524,7 @@ func (c *session) connect(req *rawhttp.Request) bool {
 	_ = tc.SetDeadline(time.Time{})
 	c.idle.Idle = c.s.deps.IdleTimeout
 
-	c.conn, c.br = tc, bufio.NewReader(tc)
+	c.conn, c.br, c.src = tc, bufio.NewReader(tc), tc
 	c.tun = &destination{host: host, port: port, tls: true, sni: tc.ConnectionState().ServerName}
 
 	return true
