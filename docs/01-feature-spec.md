@@ -291,7 +291,8 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester ignores name, enabled and sources, rejects
     a section for the other message kind, a `Content-Length` that is not decimal or disagrees with another (exact decimal values, leading zeroes ignored), and a body
     whose length differs from `Content-Length` (a response with no body may declare any length, as for `HEAD`; body
-    rules then leave it unchanged, since it may answer `HEAD`) (`BAD_INPUT`), and evaluates the condition on the given message only (clauses
+    rules leave an empty response that declares a nonzero length unchanged, since it may answer `HEAD`, but fill one
+    with `Content-Length: 0`) (`BAD_INPUT`), and evaluates the condition on the given message only (clauses
     about the other message are false). Import rejects unknown fields; an unparsable condition there is `BAD_INPUT` naming
     the rule. Export rule fields are those of `MatchReplaceRuleInput`, enum values as strings, no IDs. A non-`ADD` `FULL`
     matcher is stored with an empty value.

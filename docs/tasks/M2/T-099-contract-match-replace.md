@@ -418,3 +418,25 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   (43 Vitest files, 353 tests), and `make gen` left the tree unchanged. Review assumed one
   desktop user within the documented tester size limits.
 - Browser E2E and Go integration were skipped. This task changes the contract, stubs and mock.
+
+### Review of `43dcf74`
+
+- Verdict is `changes_requested`.
+- [x] [major] `web/src/lib/api/mocks/matchreplace.ts:525` — The tester trims a byte string
+  with JavaScript's Unicode `trim()`. A synthetic request with the single byte
+  `0xA0` before its decimal length succeeds through the generated GraphQL schema
+  and reports `changed: true`. The Go framing parser reads the original bytes,
+  where that byte alone is invalid UTF-8, and rejects the field as non-decimal.
+  Strip only HTTP space and tab before comparing lengths. Add the invalid byte
+  case alongside the valid space, tab and leading-zero cases.
+- [x] [minor] `internal/api/graphql/schema/matchreplace.graphqls:342` — The schema
+  and F-MR-1 say body rules leave an empty response that declares any length
+  unchanged. The lead decision and mock regression test fill an empty response
+  with `Content-Length: 0`. Say explicitly in both contract descriptions that the
+  body rule skips an empty response that declares a nonzero length.
+- All 24 focused Vitest tests passed. Review assumed a single desktop user
+  within the tester byte limits. Full checks, generation, browser E2E and Go
+  integration were skipped.
+- Fixed: the mock strips only space/tab around `Content-Length`; tests cover `0xA0` (rejected) and space/tab
+  (accepted). Schema and F-MR-1 now say body rules skip an empty response declaring a nonzero length and fill one
+  with `Content-Length: 0`. `make gen` regenerated; `make check` green (43 files, 353 tests).

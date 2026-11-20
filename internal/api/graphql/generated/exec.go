@@ -3609,7 +3609,9 @@ a ` + "`" + `Content-Length` + "`" + ` that is not decimal or disagrees with ano
 values, leading zeroes ignored), or a body
 whose length differs from ` + "`" + `Content-Length` + "`" + ` without ` + "`" + `Transfer-Encoding` + "`" + `; a
 response with no body may declare any length, as a reply to ` + "`" + `HEAD` + "`" + `, and body
-rules leave such a response unchanged), or an
+rules leave an empty response that declares a nonzero length unchanged, while
+an empty response with ` + "`" + `Content-Length: 0` + "`" + ` is a real empty body they may
+fill), or an
   ` + "`" + `output` + "`" + ` that would exceed 16 MiB (checked while replacing, before the result
   is built; no partial output is returned);
   ` + "`" + `BAD_QUERY` + "`" + ` with span for

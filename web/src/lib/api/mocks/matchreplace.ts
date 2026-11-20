@@ -522,7 +522,8 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
           .map((h) =>
             h
               .slice(15)
-              .trim()
+              // HTTP OWS only (space, tab): Unicode trim() would drop bytes such as 0xA0 that Go rejects.
+              .replace(/^[ \t]+|[ \t]+$/g, '')
               .replace(/^0+(?=\d)/, ''),
           );
         if (lens.some((l) => !/^\d+$/.test(l) || l !== lens[0]))
