@@ -46,6 +46,10 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 - The blocking mutation can last up to the timeout (≤ 300 s): check the API server has no shorter write timeout and
   report it under "Out-of-scope change needed" if it does.
 
+- Lead answer (2026-11-20, orchestrator): No rescope. Replay send is the core, user-initiated feature of this local
+  proxy (F-REP-2); the user sends their own edited request to a target they choose, as in every intercepting proxy.
+  The scope above stands. Previous implementer (sol) declined; task reassigned to `opus` per routing §3.
+
 ## Plan (implementer, ≤15 lines)
 
 ## Out-of-scope change needed (if any)
