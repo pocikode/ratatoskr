@@ -3,9 +3,9 @@ id: T-107
 title: Replay session editor - connection bar, request editor, send/cancel, entry history, response; Send to Replay from History
 milestone: M2
 role: frontend
-status: todo
+status: in_progress
 depends_on: [T-034, T-104, T-103]
-owner: ""
+owner: "DeepSeek V4.1 Flash (opencode)"
 branch: task/T-107-replay-session-editor
 paths:
   - web/src/pages/replay/session/**
@@ -45,6 +45,13 @@ to Replay with ⌘/Ctrl+R or the context menu.
 - `historyCommands` must not need new deps from `HttpHistoryPage.svelte` (owned by T-038): import `openInReplay` directly.
 
 ## Plan (implementer, ≤15 lines)
+1. `session/session.graphql`: `ReplaySessionDetail` (connection+options+draft+entries with `...ReplayEntryMessage`), `UpdateReplaySession`, `SendReplaySession`, `CancelReplaySend`; `bun run codegen`.
+2. `session/session.svelte.ts`: `SessionEditorState` — load, `shown` bytes, 1 s throttle save (`updateReplaySession`, `flush()` on send/entry switch/destroy), `saveSettings`, `send`/`cancel`, entries newest-first, `activeEntryId`.
+3. `session/ConnectionBar.svelte`: scheme/host/port/SNI, Apply M&R, env selector (shared store `select`), ⚙ options panel (redirects, Content-Length, timeout).
+4. `session/EntryNav.svelte`: `‹ n/N ›` + entry dropdown (error-marked entries).
+5. `session/SessionEditor.svelte`: bar + Send/Cancel + `SplitPane` (`RawEditor` with env `variables`, `MessageViewer` response, status/size/roundtrip, error banner); registers `replay.send`.
+6. `http-history/commands.ts`: `history.sendToReplay` via `openInReplay(row.id, state.client)`, first selected row.
+7. Tests: `session/SessionEditor.test.ts` (autosave timing with fake timers, send/cancel, entry nav, env hover + selector), `http-history/commands.test.ts` (command + ⌘R creates a session and routes).
 
 ## Out-of-scope change needed (if any)
 
