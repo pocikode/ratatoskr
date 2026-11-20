@@ -3,9 +3,9 @@ id: T-036
 title: Match & Replace page - collections, rule list, rule editor, import/export
 milestone: M2
 role: frontend
-status: todo
+status: in_progress
 depends_on: [T-099]
-owner: ""
+owner: claude-sonnet-5.5
 branch: task/T-036-match-replace-page
 paths:
   - web/src/pages/match-replace/*.svelte
@@ -42,6 +42,13 @@ Users manage Match & Replace collections and rules: create, edit, enable, reorde
 - Reuse `SplitPane`, `QueryBar`, `ContextMenu`; no new dependencies.
 
 ## Plan (implementer, ≤15 lines)
+1. `matchreplace.graphql` + `bun run codegen` (T-099 schema already on main).
+2. `rules.ts`: section/operation/matcher tables (mirror matchreplace.graphqls) + unit test.
+3. `matchreplace.svelte.ts` (`MatchReplaceState`): collections, draft + dirty, field errors (BAD_INPUT message → field, BAD_QUERY span → QueryBar), CRUD, enable toggle, move/reorder (optimistic, reload on failure), import/export.
+4. Components: `MatchReplacePage` (two nested `SplitPane`s, 30/40/30), `RuleList`, `RuleEditor`, `tester/TesterPanel` placeholder (prop `rule`).
+5. Drag/drop via HTML5 DnD plus ↑/↓ buttons for keyboard; right-click menu via `ContextMenu` + registered `mr.*` commands.
+6. Tests: rules table, state/page against `createMockClient`. Playwright spec if the mock route is reachable.
+Shortcuts: `window.prompt/confirm` for rename, new collection and unsaved-edit guard.
 
 ## Out-of-scope change needed (if any)
 
