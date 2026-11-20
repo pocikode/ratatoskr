@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -236,3 +236,14 @@ Verification: `make check`, `make test-int`, and `git diff --check main...HEAD` 
     head limit. Test `TestInterceptPipelinedOverHeadLimitEndsHold` (512-byte limit, ~1 KiB pipelined), mutation-checked.
 
 The round 7 changes keep watching for disconnects past a full reader and replay buffered input in order. `make check`, `make test-int`, and `git diff --check main...HEAD` passed. This review reused the recorded nil-hook benchmark comparison. Lead escalation under docs/07 §7 is due because the review has exceeded three rounds.
+
+### Round 9
+
+- Verdict: changes_requested
+- [ ] [major] internal/proxy/forward.go:209 — An edit can change the upstream method to CONNECT after client routing has finished. A successful upstream CONNECT changes the protocol at the end of the response head, but the raw HTTP response reader leaves that transition to the caller. The forwarding path can wait for a response body on an idle tunnel or treat the tunnel as reusable HTTP. Handle successful upstream CONNECT responses as a separate connection state and keep those connections out of the HTTP pool. Ask the lead to confirm the client-facing behavior when the original request was an ordinary HTTP request.
+
+The round 8 changes isolate edited requests with incomplete or surplus body bytes from the shared upstream pool on the ordinary HTTP path. The hold watcher now counts the reader's buffered bytes toward the configured limit.
+
+`make check`, `make test-int`, and `git diff --check main...HEAD` passed. This review reused the nil-hook benchmark comparison in Handoff. The CONNECT finding is based on code inspection.
+
+Escalated to the lead in this review because the task has exceeded the three-round limit in docs/07 §7. The lead should resolve the client-facing CONNECT behavior before implementation resumes.
