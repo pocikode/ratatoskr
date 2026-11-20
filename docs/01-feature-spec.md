@@ -324,7 +324,11 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     with `Content-Length: 0`), and a request with bytes after the head but neither `Content-Length` nor
     `Transfer-Encoding` (such a request has no body, so those bytes are not part of it; a header-only request stays
     valid and a rule may add a body) (`BAD_INPUT`); otherwise `raw` is framed exactly as the wire parser
-    (`internal/rawhttp`) frames it, e.g. `Transfer-Encoding` is ignored on HTTP/1.0, and evaluates the condition on the given message only (clauses
+    (`internal/rawhttp`) frames it, e.g. `Transfer-Encoding` is ignored on HTTP/1.0. On HTTP/1.1 a chunked
+    `Transfer-Encoding` wins over `Content-Length`: the declared length must still be decimal, in range and consistent
+    (as above), but is not compared with the body; a final coding other than `chunked` is `BAD_INPUT`, as `rawhttp`
+    rejects it; a body rule then rewrites the chunked body and drops `Content-Length`, other rules leave it as sent (lead,
+    2026-11-20, T-035). The tester evaluates the condition on the given message only (clauses
     about the other message are false). Import rejects unknown fields; an unparsable condition there is `BAD_INPUT` naming
     the rule. Export rule fields are those of `MatchReplaceRuleInput`, enum values as strings, no IDs. A non-`ADD` `FULL`
     matcher is stored with an empty value.

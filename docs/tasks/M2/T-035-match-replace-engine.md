@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: blocked
+status: in_progress
 depends_on: [T-099]
 owner: "codex"
 branch: task/T-035-match-replace-engine
@@ -78,6 +78,15 @@ shape (T-105), with no storage and no API.
   empty-body exception covers only lengths the parser accepts. No parser change; `read.go` stays out of scope. Add a
   `Test` case: empty response with `Content-Length: 9223372036854775808` → `BAD_INPUT`, nil output.
 
+- Chunked with Content-Length (lead, 2026-11-20, answers blocked Q5; F-MR-1 tester): the wire parser wins again. On
+  HTTP/1.1 with a chunked final coding, `Content-Length` is validated exactly as `rawhttp` already does (decimal, in range,
+  duplicates agree; else `BAD_INPUT`) and then ignored: no comparison with the wire bytes or the decoded payload. A final
+  coding other than `chunked` is `BAD_INPUT` (rawhttp `ErrFraming`). On HTTP/1.0 `Transfer-Encoding` is ignored and the
+  length comparison applies. A body rule writes via `SetChunkedBody` (drops `Content-Length`); a message no rule changes
+  keeps the field byte-for-byte. The T-099 mock's "skip when any TE header" shortcut is not the contract. Tests: HTTP/1.1
+  chunked + `Content-Length: 999` accepted; same with `Content-Length: abc` → `BAD_INPUT`; HTTP/1.0 chunked +
+  mismatched length → `BAD_INPUT`; `Transfer-Encoding: gzip` request → `BAD_INPUT`.
+
 ## Plan (implementer, ≤15 lines)
 
 1. Compile and validate rule definitions and HTTPQL conditions.
@@ -86,7 +95,7 @@ shape (T-105), with no storage and no API.
 
 ## Out-of-scope change needed (if any)
 
-- Tester framing decision needed: F-MR-1 requires rejecting a body whose length differs from
+- Resolved (lead, 2026-11-20; see Notes from lead, Chunked with Content-Length): F-MR-1 requires rejecting a body whose length differs from
   `Content-Length`. For a valid HTTP/1.1 chunked message with a valid decimal `Content-Length`,
   `rawhttp` uses chunked framing and ignores the declared length, and the T-099 mock skips
   the length comparison whenever a Transfer-Encoding header is present. Should the tester
