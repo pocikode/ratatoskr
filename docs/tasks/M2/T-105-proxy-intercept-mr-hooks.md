@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -199,3 +199,12 @@ Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int` (including t
 The round 5 fix gates response buffering on the pending record ID and covers early delivery with paused capture.
 
 Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git diff --check main...HEAD` passed. This round reused the recorded nil-hook benchmark comparison.
+
+### Round 7
+
+- Verdict: changes_requested
+- [ ] [major] internal/proxy/hooks.go:230 — The disconnect watcher stops when the pipelined input fills the reader buffer. If the client then disconnects, its held request stays in the queue until operator action, contrary to F-INT-1. Keep disconnect handling effective when pipelined input fills the buffer while preserving bounded memory and request ordering. Extend the disconnect regression test to cover a full reader buffer.
+
+The round 6 fix checks whether capture is paused before buffering an upload for Intercept. The gated upload test verifies that the origin receives the first body bytes before the client sends the rest.
+
+Verification: `make check`, `make test-int`, and `git diff --check main...HEAD` passed. This round reused the recorded nil-hook benchmark comparison.
