@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -217,13 +217,14 @@ shape (T-105), with no storage and no API.
   are the schema names; hook sources match case-insensitively).
 
 ## Review (reviewer)
+
 - Verdict: changes_requested
 - Findings:
-  - [ ] [blocker] internal/matchreplace/ — package does not exist. Rule type, Validate/Compile, Engine (`Set`/`Active`/`Request`/`Response`), `Test`, body codecs and framing fix are all missing → implement per Scope; nearly every AC is unmet.
-  - [ ] [blocker] internal/matchreplace/testdata/*.txtar — no golden tests (section × operation × matcher, regex `$1`/`${name}`/`$$`, presets, condition-field rejection, framing/Content-Length cases from lead notes) → add.
-  - [ ] [blocker] (benchmark) — no 20-rule/2 KiB benchmark, none recorded in Handoff → add and report.
-  - [ ] [major] internal/rawhttp/builder.go — `Builder.SetChunkedBody(payload, trailer)` (required by lead note) and its builder_test.go cases (trailers, empty payload) are absent → add.
-  - [ ] [major] docs/01-feature-spec.md, docs/tasks/M2/T-102-*.md, docs/tasks/M2/T-109-*.md — outside the task `paths`. They are lead-directed spec/task updates, but they sit in this branch under the implementer's commits → confirm the lead owns them (or split them out) before merge.
-  - [ ] [minor] internal/rawhttp/chunked.go:28 — `SplitChunkedBody` slices `wire[end-c.trailerBytes:end]` and relies on `c.line` being the unread remainder. This only holds if the trailer lines are contiguous and the final blank line is the last thing read. Add a test with bare-LF trailers and a chunk extension. Also bound `io.ReadAll` (the caller caps at 64 MiB), and doc the aliasing of the result.
-  - [ ] [minor] docs/tasks/M2/T-035-*.md — status is `in_progress` with a partial handoff. Correct for now, but set `in_review` only once the ACs are met.
-- Checks: `go test -race ./internal/rawhttp` passes. `make check` was not re-run, since the diff holds only the rawhttp splitter and docs. The delivered scope is about 10% of the task (only `SplitChunkedBody`, which is correct for the tested cases).
+  - [ ] [major] internal/matchreplace/message.go:104 — An origin-form target with a URL in its query is mistaken for absolute-form. The `next` parameter in `/login?next=https://example.invalid/home` disappears from query matching, and the parsed path is also wrong → identify the target form from its prefix before splitting path and query, and add a golden for updating this parameter.
+  - [ ] [major] internal/matchreplace/rule.go:196 — The atomic snapshot retains the caller's `Sources` backing array. Reusing that array after `Set` changes live rule selection without a reload and can race with a hook → copy the slice before publishing and test mutation after `Set`.
+  - [ ] [major] internal/matchreplace/apply.go:252 — A body regex collects every match and capture index before checking the output budget. This can allocate far beyond the message and tester caps even when the result is small → process matches with bounded memory while preserving anchor and boundary semantics, and cover a dense-match body.
+  - [ ] [major] internal/matchreplace/body.go:50 — The tester's wire-output budget is applied to decoded growth, so a compressible replacement can be rejected even when the re-encoded message fits. The final wire-size check also runs after encoding and assembling the full message → bound decoded work independently and enforce the tester budget on encoded bytes as they are written. Cover both sides of the wire limit.
+  - [ ] [major] internal/matchreplace/engine_test.go:366 — The required 20-rule, 2 KiB benchmark measured 111.7–115.1 µs/op on Apple M4 after the other checks finished, above the 100 µs/op target → reduce rewrite overhead and rerun the same benchmark.
+  - [ ] [major] docs/01-feature-spec.md:293 — This file and the T-102 and T-109 task files are outside T-035's declared paths. The branch history labels the edits as lead decisions → record the lead's ownership of the companion commits or land them separately before merging T-035.
+
+- Checks: `make check` and `make test-int` passed. Two temporary overlay regressions failed as expected on this branch: `TestReviewQueryURL` reported `changed=false err=<nil>`, and `TestReviewRuleSnapshot` returned the original request after the caller changed its sources slice. The standalone benchmark used `go test ./internal/matchreplace -run '^$' -bench HeaderRules -benchmem -count=3` and reported 3081 allocs/op.
