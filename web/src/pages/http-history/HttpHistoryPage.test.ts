@@ -120,6 +120,18 @@ describe('HttpHistoryPage', () => {
     );
   });
 
+  it('offers Send to Replay in the row context menu', async () => {
+    render(HttpHistoryPage, { client: createMockClient({ count: 5, liveIntervalMs: 0 }) });
+    await screen.findByText('5 rows');
+
+    await fireEvent.contextMenu(screen.getAllByRole('row')[1]!, { clientX: 40, clientY: 80 });
+    const item = await screen.findByRole('menuitem', { name: 'Send to Replay' });
+    expect(item).toBeInTheDocument();
+
+    await userEvent.click(item);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   it('applies a filter preset chip to the query bar', async () => {
     render(HttpHistoryPage, { client: createMockClient({ count: 5, liveIntervalMs: 0 }) });
     await screen.findByText('5 rows');

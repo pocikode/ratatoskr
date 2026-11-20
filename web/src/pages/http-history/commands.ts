@@ -1,6 +1,7 @@
 // Page commands: the context menu, the palette and (later) shortcuts read the same registry
 // entries (docs/06 §5). Registered while the page is mounted.
 import type { Command } from '$lib/commands/registry';
+import { openInReplay } from '../replay/openInReplay';
 import { colorLabel, COLORS, requestCurl, requestUrl, type HistoryRow } from './columns';
 import { literal, type HistoryState } from './history.svelte';
 
@@ -20,6 +21,19 @@ export function historyCommands(state: HistoryState, deps: HistoryCommandDeps): 
   const group = 'HTTP History';
 
   return [
+    {
+      id: 'history.sendToReplay',
+      title: 'Send to Replay',
+      group,
+      when: anySelected,
+      run: () => {
+        const row = selected()[0];
+        if (!row) return;
+        void openInReplay(row.id, state.client).then((error) => {
+          if (error) state.message = error;
+        });
+      },
+    },
     {
       id: 'history.copy.url',
       title: 'Copy URL',

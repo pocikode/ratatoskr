@@ -1,0 +1,73 @@
+# Replay session editor operations (T-107, F-REP-2), against
+# internal/api/graphql/schema/replay.graphqls. No subscription: the editor saves and
+# refetches on its own actions, and the send mutation returns the new entry.
+
+# The parts of a request record the editor shows: head, plus the body up to the 4 MiB
+# per-call cap (decoded for display only, F-HIST-2).
+fragment ReplayEntryMessage on HttpRequest {
+  id
+  head
+  bodyLength
+  body(limit: 4194304, decode: true)
+  response {
+    code
+    length
+    roundtripMs
+    head
+    bodyLength
+    body(limit: 4194304, decode: true)
+  }
+}
+
+fragment ReplayEntryRow on ReplayEntry {
+  id
+  error
+  createdAt
+  request {
+    ...ReplayEntryMessage
+  }
+}
+
+query ReplaySessionDetail($id: ID!) {
+  replaySession(id: $id) {
+    id
+    name
+    connection {
+      host
+      port
+      tls
+      sni
+    }
+    options {
+      followRedirects
+      updateContentLength
+      timeoutMs
+      applyMatchReplace
+    }
+    draft
+    sending
+    entries(first: 100) {
+      edges {
+        node {
+          ...ReplayEntryRow
+        }
+      }
+    }
+  }
+}
+
+mutation UpdateReplaySessionDraft($id: ID!, $input: UpdateReplaySessionInput!) {
+  updateReplaySession(id: $id, input: $input) {
+    id
+  }
+}
+
+mutation SendReplaySession($id: ID!, $input: SendReplaySessionInput!) {
+  sendReplaySession(id: $id, input: $input) {
+    ...ReplayEntryRow
+  }
+}
+
+mutation CancelReplaySend($id: ID!) {
+  cancelReplaySend(id: $id)
+}
