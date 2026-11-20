@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestRegexReplaceMatchesStdlib(t *testing.T) {
 		{`^foo`, "X"}, {`(?m)^foo`, "X"}, {`(?m)^`, ">"}, {`(?m)$`, "<"}, {`$`, "!"}, {`\A`, "S"}, {`\z`, "E"},
 		{`\b`, "|"}, {`\B`, "."}, {`\bfoo\b`, "[$0]"}, {`\Bb`, "B"}, {`a*`, "-"}, {`x*`, "-"}, {`(?:)`, "_"},
 		{`(a)(b)?`, "$2$1$$"}, {`(?P<w>\w+)`, "${w}${w}"}, {`.`, "$0$0"}, {`(?s).`, "<$0>"}, {`[^a]`, ""},
-		{`(?i)A`, "z"}, {`a|^b|\bc`, "#"}, {`\x{FFFD}`, "?"}, {`(?U)a+`, "1"},
+		{`(?i)A`, "z"}, {`(a)`, "$01$1x$x${1}x${1$9999999999$"}, {`(?P<01>a)`, "<$01>"}, {`(a)`, "${"}, {`a|^b|\bc`, "#"}, {`\x{FFFD}`, "?"}, {`(?U)a+`, "1"},
 	}
 	for _, p := range patterns {
 		for _, in := range inputs {
@@ -84,5 +85,30 @@ func TestRegexDenseMatches(t *testing.T) {
 	out, _, _, err = newEngine().Test(rule, nil, KindRequest, raw)
 	if e, ok := errors.AsType[*apperr.Error](err); !ok || e.Code != apperr.BadInput || out != nil {
 		t.Fatalf("dense over cap: out=%d err=%v", len(out), err)
+	}
+}
+
+// TestRegexBudget: the cap counts only output already decided, so growth then
+// shrinkage that ends under the cap is fine, and one oversized expansion fails
+// before it is built.
+func TestRegexBudget(t *testing.T) { // not parallel: measures allocated bytes
+	c := regexRule(t, `(a)|bbbb`, "${1}${1}")
+	if got, err := c.replace([]byte("abbbb"), 2); err != nil || string(got) != "aa" {
+		t.Fatalf("grow then shrink: %q %v", got, err)
+	}
+	if _, err := c.replace([]byte("abbbb"), 1); !errors.Is(err, errTooLarge) {
+		t.Fatalf("over cap: %v", err)
+	}
+	big := regexRule(t, `(.*)`, strings.Repeat("$1", 1<<10))
+	src := bytes.Repeat([]byte("x"), 1<<20) // a 1 GiB expansion if built
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	_, err := big.replace(src, 16<<20)
+	runtime.ReadMemStats(&after)
+	if !errors.Is(err, errTooLarge) {
+		t.Fatalf("single expansion: %v", err)
+	}
+	if n := after.TotalAlloc - before.TotalAlloc; n > 1<<20 {
+		t.Errorf("single expansion allocated %d bytes before failing", n)
 	}
 }

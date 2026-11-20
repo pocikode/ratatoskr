@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/pocikode/ratatoskr/internal/rawhttp"
@@ -270,15 +272,18 @@ func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
 				continue
 			}
 			found = true
-			dst = append(dst, src[last:m[0]]...)
-			dst = c.re.Expand(dst, c.term, src, m)
-			last = m[1]
-			if len(dst)+len(src)-last > limit {
+			if len(dst)+m[0]-last+expandLen(c.tmpl, m) > limit {
 				return nil, errTooLarge
 			}
+			dst = append(dst, src[last:m[0]]...)
+			dst = expand(dst, c.tmpl, src, m)
+			last = m[1]
 		}
 		if !found {
 			return src, nil
+		}
+		if len(dst)+len(src)-last > limit {
+			return nil, errTooLarge
 		}
 		return append(dst, src[last:]...), nil
 	}
@@ -286,6 +291,106 @@ func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
 		return nil, errTooLarge
 	}
 	return c.term, nil
+}
+
+// piece is a literal (group < 0) or a capture group reference of a term.
+type piece struct {
+	lit   string
+	group int
+}
+
+// parseTemplate splits a REGEX term into pieces with regexp.Expand's rules
+// ($$, $n, $name, ${name}; a malformed $ is literal; an unknown name expands to
+// nothing), so the size of an expansion is known before it is built.
+func parseTemplate(re *regexp.Regexp, t string) []piece {
+	var ps []piece
+	lit := func(s string) {
+		if n := len(ps); n > 0 && ps[n-1].group < 0 {
+			ps[n-1].lit += s
+		} else if s != "" {
+			ps = append(ps, piece{lit: s, group: -1})
+		}
+	}
+	for {
+		before, after, ok := strings.Cut(t, "$")
+		lit(before)
+		if !ok {
+			return ps
+		}
+		t = after
+		if strings.HasPrefix(t, "$") {
+			lit("$")
+			t = t[1:]
+			continue
+		}
+		name, rest, ok := templateName(t)
+		if !ok {
+			lit("$")
+			continue
+		}
+		t = rest
+		g := re.SubexpIndex(name)
+		// regexp.Expand reads up to 9 ASCII digits without a leading zero as a number, else a name.
+		if n, err := strconv.Atoi(name); err == nil && len(name) <= 9 && (name[0] != '0' || len(name) == 1) {
+			g = n
+		}
+		if g >= 0 && g <= re.NumSubexp() {
+			ps = append(ps, piece{group: g})
+		}
+	}
+}
+
+// templateName is regexp's extract: a leading name or {name} of letters,
+// digits and underscores.
+func templateName(s string) (name, rest string, ok bool) {
+	brace := strings.HasPrefix(s, "{")
+	if brace {
+		s = s[1:]
+	}
+	i := 0
+	for i < len(s) {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			break
+		}
+		i += w
+	}
+	if i == 0 {
+		return "", "", false
+	}
+	name, rest = s[:i], s[i:]
+	if brace {
+		if !strings.HasPrefix(rest, "}") {
+			return "", "", false
+		}
+		rest = rest[1:]
+	}
+	return name, rest, true
+}
+
+// expandLen is the size expand appends for match m.
+func expandLen(ps []piece, m []int) int {
+	n := 0
+	for _, p := range ps {
+		if p.group < 0 {
+			n += len(p.lit)
+		} else if 2*p.group+1 < len(m) && m[2*p.group] >= 0 {
+			n += m[2*p.group+1] - m[2*p.group]
+		}
+	}
+	return n
+}
+
+// expand appends the term for match m of src to dst.
+func expand(dst []byte, ps []piece, src []byte, m []int) []byte {
+	for _, p := range ps {
+		if p.group < 0 {
+			dst = append(dst, p.lit...)
+		} else if 2*p.group+1 < len(m) && m[2*p.group] >= 0 {
+			dst = append(dst, src[m[2*p.group]:m[2*p.group+1]]...)
+		}
+	}
+	return dst
 }
 
 // findAt returns the leftmost match of c.re in src at or after pos, with the

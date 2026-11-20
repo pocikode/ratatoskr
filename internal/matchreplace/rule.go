@@ -148,6 +148,7 @@ type compiled struct {
 	term      []byte
 	re        *regexp.Regexp
 	resume    *regexp.Regexp // (?s:.)(re): finds re after a given rune (see findAt)
+	tmpl      []piece        // term parsed as regexp.Expand reads it
 	cond      core.Node
 	addHeader [2]string // name, value of a header ADD
 }
@@ -218,7 +219,7 @@ func compile(r Rule, presets []filterpreset.Preset) (*compiled, error) {
 			if err != nil {
 				return nil, apperr.New(apperr.BadInput, "matcher.value: %v", err)
 			}
-			c.re = re
+			c.re, c.tmpl = re, parseTemplate(re, r.Term)
 			if c.resume, err = regexp.Compile(`(?s:.)(` + r.Matcher.Value + `)`); err != nil {
 				return nil, apperr.New(apperr.BadInput, "matcher.value: %v", err) // nesting limit
 			}

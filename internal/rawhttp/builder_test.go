@@ -129,6 +129,16 @@ func TestBuilderStatusLine(t *testing.T) {
 	}
 }
 
+func TestBuilderStatusThreeDigits(t *testing.T) {
+	t.Parallel()
+	res := response(t, "", "HTTP/1.1 200 OK\r\n\r\n")
+	for code, want := range map[int]string{99: "099", 7: "007", 0: "000", 100: "100"} {
+		if got := string(res.Builder().SetStatus(code, "OK").Head()); got != "HTTP/1.1 "+want+" OK\r\n\r\n" {
+			t.Errorf("status %d wrote %q", code, got)
+		}
+	}
+}
+
 func TestBuilderKeepsBareLF(t *testing.T) {
 	t.Parallel()
 	req := request(t, "GET / HTTP/1.1\nHost: a\n\n")

@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -222,6 +222,9 @@ shape (T-105), with no storage and no API.
   - `internal/rawhttp/read.go`: `ParseRequest(b, limits) (*Request, n, error)` and `ParseResponse(b, method, limits)`;
     `Head` aliases `b`, the body is read from `b[n:]`. `ReadRequest`/`ReadResponse` share `init`; header
     names, values, `Raw`, method, target, version and reason are now substrings of one head string (same values).
+- Review round 3 (claude-backend, 2026-11-20): three findings fixed (see Review): bounded single-match expansion
+  via a precompiled term template, budget counts decided output only, status zero-padded. `make check` green;
+  benchmark 69-74 µs/op, 360 allocs/op.
 - Limitations:
   - A REGEX replacement allocates one small index slice per match (garbage, not held): live memory is bounded by the
     output cap, but a very dense body costs time proportional to its matches.
@@ -256,9 +259,12 @@ shape (T-105), with no storage and no API.
 
 ### Round 3
 
-- [ ] [major] internal/matchreplace/apply.go:274 — The regex replacer expands a whole match before checking the cap. A capture-heavy replacement can allocate far beyond the limit in a single expansion → enforce the remaining budget before appending expansion bytes and cover an oversized single-match expansion.
-- [ ] [major] internal/matchreplace/apply.go:276 — The budget check counts the unprocessed suffix as final output. An early match that grows can reject a rewrite whose later matches shrink the result below the cap → count only output already determined, and check the unchanged suffix when appending it. Add a regression with growth followed by shrinkage.
-- [ ] [minor] internal/rawhttp/builder.go:214 — The builder serializes a status below 100 without zero padding. The engine accepts the three-digit replacement `099`, but the builder emits `99` and re-parsing drops the edit → preserve the validated three-digit token when serializing the status and add a regression.
+- [x] [major] internal/matchreplace/apply.go:274 — The regex replacer expands a whole match before checking the cap. A capture-heavy replacement can allocate far beyond the limit in a single expansion → enforce the remaining budget before appending expansion bytes and cover an oversized single-match expansion.
+  Fixed: the REGEX term is parsed once at compile (`parseTemplate`, regexp.Expand's rules) so `expandLen` gives the size before `expand` appends. Test `TestRegexBudget` (1 GiB expansion fails having allocated < 1 MiB); stdlib parity table gained `$01`, `${1x`, `$9999999999`, numeric names; fuzz 60 s green.
+- [x] [major] internal/matchreplace/apply.go:276 — The budget check counts the unprocessed suffix as final output. An early match that grows can reject a rewrite whose later matches shrink the result below the cap → count only output already determined, and check the unchanged suffix when appending it. Add a regression with growth followed by shrinkage.
+  Fixed: per match only decided output (prefix + expansion) is counted; the tail is checked when appended. `TestRegexBudget` grow-then-shrink case.
+- [x] [minor] internal/rawhttp/builder.go:214 — The builder serializes a status below 100 without zero padding. The engine accepts the three-digit replacement `099`, but the builder emits `99` and re-parsing drops the edit → preserve the validated three-digit token when serializing the status and add a regression.
+  Fixed: `startLine` zero-pads 0–99 to three digits. `TestBuilderStatusThreeDigits`, golden `resp-status-leading-zero`.
 
 `make check`, `make test-int`, and `git diff --check main...HEAD` passed. After the suites finished, the standalone 20-rule benchmark measured 69.3–74.7 µs/op and 360 allocs/op over three runs on Apple M4, within the 100 µs/op target.
 

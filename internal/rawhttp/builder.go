@@ -211,6 +211,12 @@ func (b *Builder) startLine() []byte {
 		}
 		line = append(line, b.m.version...)
 		line = append(line, ' ')
+		if code >= 0 && code < 100 { // keep three digits: "099", not "99"
+			line = append(line, '0')
+			if code < 10 {
+				line = append(line, '0')
+			}
+		}
 		line = strconv.AppendInt(line, int64(code), 10)
 		if reason := b.str(b.reason, b.m.reason); reason != "" {
 			line = append(line, ' ')
