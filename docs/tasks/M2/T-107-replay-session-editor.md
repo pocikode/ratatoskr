@@ -104,5 +104,23 @@ to Replay with ⌘/Ctrl+R or the context menu.
   send, cancel and Send-to-Replay.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
+- Reviewer: sonnet (round 1, 5ca11b8; written by lead, reviewer has no edit tool)
 - Findings:
+  - [ ] [major] web/src/pages/replay/session/session.svelte.ts:189 — `send()` passes `this.connection` / `this.options`
+    from the `ReplaySessionDetail` result as `ReplayConnectionInput` / `ReplayOptionsInput`. urql's cacheExchange
+    (client.ts:53) adds `__typename` to every selection set, so a real server rejects the input
+    (`Field "__typename" is not defined by type ReplayConnectionInput`). Mocks build objects without `__typename`, so no
+    test covers it. → Build inputs explicitly (`{host, port, tls, sni}` and the four option fields); add a test whose
+    mocked session includes `__typename` and assert the mutation variables do not.
+  - [ ] [minor] web/src/pages/replay/session/session.svelte.ts:175 — `...(input.draft && …)` skips the local mirror when
+    the draft is `""`, so `session.draft` goes stale after clearing the editor. → `input.draft !== undefined`.
+  - [ ] [minor] web/src/pages/replay/session/session.svelte.ts:230 — `dispose()` runs an async `flush()` on unmount; a
+    failed final save only sets `error` on a gone state object (silent). → acceptable for M2: note it as a limitation,
+    or retry once.
+  - [ ] [nit] web/src/pages/replay/session/SessionEditor.svelte:57 — `size()` has B and KB only; add MB or reuse the
+    History formatter.
+- Checked, no findings: scope inside paths (widened HttpHistoryPage one-line change; codegen output authorized); every
+  AC has tests; truncated entries open read-only with Send disabled; no hard-rule violations.
+- Verification: `make check` green (0 lint issues, Go tests, svelte-check 0 errors, prettier, 439 vitest tests).
+  `make test-int` not run (no Go proxy/store/rawhttp changes). Not run against a real server.
