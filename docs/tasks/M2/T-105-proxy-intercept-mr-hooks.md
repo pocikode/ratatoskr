@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -186,3 +186,12 @@ Verification: the focused proxy integration suite passed under the race detector
     (gated upstream shared with `TestOverCapRequestStreamsResponse`), mutation-checked.
 
 Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int` (including the 200-client proxy load test), and `git diff --check main...HEAD` passed. The nil-hook benchmark comparison was not rerun.
+
+### Round 6
+
+- Verdict: changes_requested
+- [ ] [major] internal/proxy/hooks.go:62 — With capture already paused and request queuing enabled, the proxy buffers the upload before calling `NewPending`. That call returns zero, so the request cannot be held. With no active request rewrite, a slow upload delays the start of upstream forwarding until the body completes or crosses the cap, contrary to the streaming rule in docs/03 §4. Check capture availability before buffering for a request hold, retain the zero-ID check for changes during capture, and add a gated upload test that requires the origin to see the head and first body bytes before the client sends the rest.
+
+The round 5 fix gates response buffering on the pending record ID and covers early delivery with paused capture.
+
+Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git diff --check main...HEAD` passed. This round reused the recorded nil-hook benchmark comparison.
