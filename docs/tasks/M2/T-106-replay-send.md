@@ -3,7 +3,7 @@ id: T-106
 title: Replay send and cancel - interpolation, M&R hook, records and entries
 milestone: M2
 role: backend
-status: in_review
+status: blocked
 depends_on: [T-033, T-101, T-100, T-037]
 owner: "claude-code (opus)"
 branch: task/T-106-replay-send
@@ -69,14 +69,20 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 - Resolvers in replay_send.go; tests: service tests with testutil raw server + fake env/rewriter + real Capture.
 - API server: `uiSrv` (internal/proxy/server.go) has no Read/Write timeout, only ReadHeaderTimeout/IdleTimeout: OK.
 
-- Blocked (2026-11-20): code done, `make test-int` green, but `make check` cannot go green in this worktree:
-  1. `make web-check` fails with `svelte-check: command not found`: web deps are not installed. Needs `bun install`
-     in `web/` (not allowlisted for me). No web files changed on this branch.
-  2. `go test -race ./internal/matchreplace -run TestRegexSharedGroupsPerMatch` fails on its 10 s wall-clock bound
-     on this machine (11-14 s under `-race`); it passed in the `make test-int` run. Not touched by this branch.
-  Go part of `make check` (fix-check, vet, golangci-lint, all other `go test -race` packages) is green.
+- Question for lead (2026-11-20, review round 1): findings 1, 3 and 4 are fixed (`make check` green). Finding 2
+  (durable completion) needs a `history.Capture` API outside my paths, see "Out-of-scope change needed". Blocked on it.
 
 ## Out-of-scope change needed (if any)
+- **Blocking (review finding 2), `internal/history/capture.go`:** a durable completion API, e.g.
+  `func (c *Capture) CompleteWritten(ctx context.Context, id int64, resp *history.Response) error` that queues the
+  completion with a `written` barrier *behind the completion op* and returns nil only after the batch holding the
+  completion committed (error when the write failed, was dropped, or the project changed). Today `Written` only
+  acknowledges the insert: `Run.appendOp` closes the barrier at once when the insert was flushed in an earlier batch,
+  even if the completion is still queued, and a failed completion write is invisible to the caller. With it, Replay
+  calls `CompleteWritten` for every hop (nil response = release) and drops its `Written(last)` call; the regression
+  test (request committed, completion pending) belongs with that API in history's tests.
+  Workaround I rejected: waiting on `history.Event` Updated + polling `responses` couples Replay to the bus and only
+  detects a failed write by timeout.
 - `internal/api/graphql/resolvers/replay.go` `toReplaySession`: set `Sending` from `r.deps.ReplaySend.Sending(id)`
   (nil-safe). Today `ReplaySession.sending` is always false. `Sender.Sending(id)` is ready.
 - `internal/api/graphql/resolvers/resolver.go:39`: comment still says "until T-106 … NOT_IMPLEMENTED".
@@ -103,9 +109,10 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 - Known limitations:
   - Decision (technical, please confirm): when history capture is paused, Send returns CONFLICT before sending,
     because no record (and so no entry) could be stored. Alternative needs a capture API that ignores the pause.
-  - `Written` waits for the last request row; its response completion is queued right behind it and is almost
-    always in the same flush, but a 50 ms tick landing between the two enqueues can make the response row appear
-    one flush (≤ 50 ms) after the entry. The request record never dangles.
+  - Review round 1: sends are pinned to the project open at start (`{db, id}` in-flight key); `Cancel` acts only
+    during the network phase (false while preparing/storing). See Review replies.
+  - Still open (review finding 2): `Written` only confirms the last request row, so its response can land one flush
+    (≤ 50 ms) after the entry, and a failed completion write is not detected. Needs the history API requested above.
   - Selected-over-Global precedence is `environment.Service.Vars`' job (tested in T-037); here a fake env is used.
   - No timeout test: sender uses real network time, so `synctest` doesn't apply; timeout text mapping is trivial.
 - Follow-ups (proposed tasks): the out-of-scope items above; de-flake `TestRegexSharedGroupsPerMatch` (wall-clock bound).
@@ -113,10 +120,26 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
 ## Review (reviewer)
 - Verdict: changes_requested
 - Findings:
-  - [ ] [major] internal/replay/send.go:120 — Saving the draft and resolving its project for capture are separate lookups. A project switch between them lets a request prepared from the old draft reach the new project's capture. A switch between `Written` and `AddEntry` can also link unrelated rows when both IDs exist in the new project. The in-flight map shares session IDs across projects, so a new project's send or cancel can also act on the old project's slot. → Bind draft persistence, preparation, capture and entry insertion to one project and key in-flight operations by project plus session ID. Add a project-switch regression with overlapping IDs. Coordinate any API changes outside the task paths with the lead.
+  - [x] [major] internal/replay/send.go:120 — Saving the draft and resolving its project for capture are separate lookups. A project switch between them lets a request prepared from the old draft reach the new project's capture. A switch between `Written` and `AddEntry` can also link unrelated rows when both IDs exist in the new project. The in-flight map shares session IDs across projects, so a new project's send or cancel can also act on the old project's slot. → Bind draft persistence, preparation, capture and entry insertion to one project and key in-flight operations by project plus session ID. Add a project-switch regression with overlapping IDs. Coordinate any API changes outside the task paths with the lead.
+    - Fixed (implementer): `Send` resolves the project DB once and runs `UpdateSession`, `AddEntry` through a
+      `replay.New` service pinned to it; records carry `ProjectDB` so capture drops them after a switch and `Written`
+      fails, so no entry is added anywhere. In-flight map keyed by `{db, sessionID}`; `Sending`/`Cancel` use the
+      open project. Regression `TestSendProjectSwitch`: overlapping session IDs, switch mid-send → error, no
+      requests/entries in either project, B neither sees nor cancels A's send, A's draft saved. Env vars still come
+      from `Env.Vars` (current project); after a switch those bytes are never stored (capture rejects).
   - [ ] [major] internal/replay/send.go:150 — `Complete` queues the response and `Written` only confirms the request row. If a flush commits the request between those operations, the mutation can return success while `request.response` is still null. A failed completion write can also leave it null after success. → Require durable completion of each hop, including its response when present, before creating the entry. Add a regression covering a committed request with its completion still pending.
-  - [ ] [major] internal/replay/send.go:105 — `Cancel` returns true throughout preparation and persistence, but only the network sender maps cancellation to a cancelled entry. Cancellation during environment lookup can return a context error with no entry, and cancellation while persistence is blocked can return true while the send returns a successful entry. → Coordinate which phases accept cancellation and ensure a true result leads to a stored cancelled entry. Keep the per-session conflict guard through persistence. Cover both boundaries in tests.
-  - [ ] [minor] internal/replay/send_test.go:230 — The wire assertion strips the trailing `ab` before comparing, so the Content-Length-off test passes even if Replay omits those bytes on the wire. → Read the full expected byte count at the loopback listener independently of HTTP framing and compare it byte for byte.
+    - Open (implementer): needs a history API outside my paths; requested under "Out-of-scope change needed".
+  - [x] [major] internal/replay/send.go:105 — `Cancel` returns true throughout preparation and persistence, but only the network sender maps cancellation to a cancelled entry. Cancellation during environment lookup can return a context error with no entry, and cancellation while persistence is blocked can return true while the send returns a successful entry. → Coordinate which phases accept cancellation and ensure a true result leads to a stored cancelled entry. Keep the per-session conflict guard through persistence. Cover both boundaries in tests.
+    - Fixed (implementer): only the network phase is cancellable. Preparation uses the request ctx; `sender.Send`
+      gets a `WithCancelCause` ctx; a flag set under the mutex right before and after `sender.Send` decides what
+      `Cancel` does. Outside that window `Cancel` returns false and the send stores a normal entry. If `Cancel` wins
+      the race just after the response arrived (cause = errCancelled), the send honours it: last hop stored without
+      response, entry error `cancelled`. So true ⇒ cancelled entry. The conflict guard spans the whole `Send`.
+      Tests: `TestSendCancelOutsideNetworkPhase/{preparing,storing}` (Cancel false, CONFLICT held, normal entry);
+      network phase still covered by `TestSendConflictAndCancel`.
+  - [x] [minor] internal/replay/send_test.go:230 — The wire assertion strips the trailing `ab` before comparing, so the Content-Length-off test passes even if Replay omits those bytes on the wire. → Read the full expected byte count at the loopback listener independently of HTTP framing and compare it byte for byte.
+    - Fixed (implementer): `TestSendPreparesBytes` uses a `wire` listener that reads exactly `len(want)` bytes with
+      `io.ReadFull`, answers, then reads to EOF; every case compares all received bytes with `want`.
 
 - Verification: The Go race tests for Replay send and its GraphQL resolvers passed five runs. The API server has no write timeout. All source changes are within the task paths. The lead's accepted follow-ups remain deferred.
   - Initial `make check` stopped at lint with ``Running error: context loading failed: no go files to analyze: running `go mod tidy` may solve the problem``. Initial `make test-int` failed in `TestNoLegacyImports` with `go list: exit status 1: go: writing stat cache: open ...: operation not permitted` and a Go build-cache `operation not permitted` error.
