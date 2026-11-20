@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: blocked
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -88,6 +88,14 @@ without changing the streaming path for traffic that neither feature touches.
 - Lead: add to F-MR-1/F-INT-1 the operator's decision (2026-11-20, T-105 review round 9): when an edit makes the sent
   request CONNECT and the origin answers 2xx, the client gets that head only and both connections close; the response
   is not held or rewritten.
+- BLOCKED (2026-11-20, T-105 review round 10, operator chose to block): `rawhttp.ReadResponse` validates
+  Transfer-Encoding/Content-Length (`frame()` in `internal/rawhttp/read.go`) before `noResponseBody`, and
+  `noResponseBody` does not know CONNECT 2xx. So a CONNECT 2xx carrying e.g. `Transfer-Encoding: gzip` or a bad
+  `Content-Length` returns `ErrFraming`; the proxy answers 502 and the upstream head is lost. Proposed fix (~5 lines,
+  outside T-105 paths): in `frame()`, decide "no body" (1xx/204/304/HEAD **and CONNECT 2xx**) before validating the
+  framing fields; keep validation for non-2xx CONNECT. Lead: authorize adding `internal/rawhttp/read.go` (+ its test) to
+  T-105 `paths`, or move it to a rawhttp task. The proxy side then only needs the regression extended
+  (`TestMethodEditToConnectClosesBoth` with ignored framing fields).
 
 ## Handoff (implementer)
 - What changed:
@@ -265,3 +273,4 @@ Escalated to the lead in this review because the task has exceeded the three-rou
 The round 9 regression passes for a CONNECT success without framing fields in both streaming and hooked configurations. The remaining parser issue was identified by inspection. Lead escalation remains open under docs/07 §7. A shared fix in `internal/rawhttp` requires lead authorization because it falls outside T-105's source paths.
 
 `make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git diff --check main...HEAD` passed. The nil-hook benchmark comparison in Handoff was reused.
+  - Blocked: needs a `internal/rawhttp` change (outside paths); question for the lead under Out-of-scope.
