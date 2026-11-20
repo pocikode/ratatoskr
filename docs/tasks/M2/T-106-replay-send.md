@@ -3,9 +3,9 @@ id: T-106
 title: Replay send and cancel - interpolation, M&R hook, records and entries
 milestone: M2
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-033, T-101, T-100, T-037]
-owner: ""
+owner: "claude-code (opus)"
 branch: task/T-106-replay-send
 paths:
   - internal/replay/send*.go
@@ -51,6 +51,17 @@ Content-Length rule, sent with T-101, stored as history records + a Replay entry
   The scope above stands. Previous implementer (sol) declined; task reassigned to `opus` per routing §3.
 
 ## Plan (implementer, ≤15 lines)
+- `Service`'s struct lives in service.go (outside `paths`), so the send state sits in a new `replay.Sender` (send.go)
+  wrapping `*Service`: `Send(ctx, id, SendInput) (Entry, error)`, `Cancel(ctx, id) (bool, error)`, `Sending(id) bool`.
+- Deps as small interfaces: `Env.Vars` (environment.Service), `Rewriter.Request` (proxy.Rewriter shape, nil = skip),
+  `Recorder` = `NewPending/Complete/Written/Paused` (*history.Capture).
+- Send: claim per-session slot (CONFLICT) → `UpdateSession` (validate + save draft/connection/options) → interpolate
+  (`environment.Interpolate`) → M&R `replay` → `sender.UpdateContentLength` → parse head (BAD_INPUT) → `sender.Send`
+  → per hop `NewPending`+`Complete` (source `replay`, ProjectDB pinned) → `Written(last)` → `AddEntry(last, errText)`.
+- Storing uses `WithoutCancel` + 10 s bound so a cancelled send still stores its record and entry.
+- Error texts: `cancelled`, `timeout after N ms`, `dial failed: …`, `TLS handshake failed: …`, `protocol error: …`.
+- Resolvers in replay_send.go; tests: service tests with testutil raw server + fake env/rewriter + real Capture.
+- API server: `uiSrv` (internal/proxy/server.go) has no Read/Write timeout, only ReadHeaderTimeout/IdleTimeout: OK.
 
 ## Out-of-scope change needed (if any)
 
