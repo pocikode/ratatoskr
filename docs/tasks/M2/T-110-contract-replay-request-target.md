@@ -55,9 +55,12 @@ The Replay tree can search by path without downloading every draft (T-034 review
 - Follow-ups (proposed tasks): T-033 implements; T-111 switches the UI query.
 
 ## Review (reviewer)
-- Verdict: changes_requested
+- Verdict: approve
 - Findings:
   - [x] [major] web/src/lib/api/mocks/replay.ts:119 — The mock returns a target for a malformed first line with an embedded ASCII tab, such as `GET /a\tb HTTP/1.1`. The target character class excludes spaces and line endings but accepts tabs and other ASCII control bytes → reject ASCII controls for this field and add a malformed-line test.
   - [x] [minor] web/src/lib/api/mocks/replay.ts:133 — Decoding the captured target on its own strips an initial U+FEFF even though it is valid UTF-8 within the draft → preserve U+FEFF when decoding the target and cover it in the mock test.
   - [x] [minor] web/src/lib/api/mocks/replay.ts:133 — The spread creates an array containing every decoded code point before applying the 2048-character limit. A target near the 16 MiB draft cap can cause large temporary allocations on a tree fetch → collect at most 2048 code points and test the boundary with a multibyte target.
 - Verification: `make check` passed (403 web tests). `make gen` in a temporary checkout reproduced all tracked files byte for byte.
+- Re-review (`6e62545`): Confirmed the control-byte rejection, BOM preservation, and bounded UTF-8 decoding.
+  - [ ] [minor] web/src/lib/api/mocks/replay.test.ts:38 — The UTF-8 cases cover valid sequences only → add an assertion that a malformed sequence in the target yields U+FFFD.
+- Re-review verification: `make check` passed (403 web tests). `make gen` reproduced the tracked files in a temporary checkout.
