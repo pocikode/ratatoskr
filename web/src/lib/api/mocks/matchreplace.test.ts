@@ -403,6 +403,20 @@ describe('match & replace mock', () => {
       term: 'x'.repeat(1024 * 1024),
     };
     expect(code(await m(TEST, { r: full, k: 'RESPONSE', raw: many }))).toBe('BAD_INPUT');
+    // Only the final size counts: 14 expanding headers then one shrinking 3 MiB header fit in either order.
+    const short = 'A: 1\r\n'.repeat(14);
+    const long = `B: ${'b'.repeat(3 * 1024 * 1024)}\r\n`;
+    for (const hs of [short + long, long + short]) {
+      const mixed = await m(TEST, {
+        r: full,
+        k: 'RESPONSE',
+        raw: btoa(`HTTP/1.1 200 OK\r\n${hs}\r\n`),
+      });
+      expect(mixed.error).toBeUndefined();
+      expect(atob(mixed.data!.testMatchReplace.output).length).toBe(
+        17 + 15 * (1024 * 1024 + 2) + 2,
+      );
+    }
     // Inclusive boundary: 19-byte head + 16383 x 1 KiB + 1005 bytes = exactly 16 MiB.
     const exact = (pad: number) =>
       btoa(`HTTP/1.1 200 OK\r\n\r\n${'b'.repeat(16383)}${'a'.repeat(pad)}`);

@@ -207,7 +207,8 @@ function applyRule(rule: MockRuleInput, raw: string): string {
     headers.push(term);
   } else if (isHeader && rule.operation === 'UPDATE_RAW') {
     // Two passes with no per-header plan objects: count, then replace in place.
-    for (const h of headers) grow(measure(h) - h.length);
+    // Deltas are summed before the cap check: a shrinking later header offsets earlier growth.
+    grow(headers.reduce((n, h) => n + measure(h) - h.length, 0));
     // Joined in batches so replaced lines do not all stay alive as separate strings.
     const done: string[] = [];
     for (let i = 0; i < headers.length; i += 8192)

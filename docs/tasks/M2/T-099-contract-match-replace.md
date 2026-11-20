@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -444,7 +444,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 ### Review of `24c019a`
 
 - Verdict is `changes_requested`. Escalate the remaining finding to the lead under the review round limit.
-- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:210 — The tester enforces the 16 MiB cap on a
+- [x] [major] web/src/lib/api/mocks/matchreplace.ts:210 — The tester enforces the 16 MiB cap on a
   running total that still includes the original lengths of later headers. Through the generated
   GraphQL schema, a FULL header replacement with a 1 MiB term rejects a 3,145,866-byte response
   with 14 short headers followed by one 3 MiB header. Moving the long header first succeeds and
@@ -454,3 +454,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   passed `make check` (43 web test files, 353 tests). `make gen` left the working tree clean.
   `git diff --check main...HEAD` still reports four whitespace-only lines in the generated web SDL.
   Browser E2E and Go integration were skipped for this contract, stub and mock change.
+- Fixed: header `UPDATE_RAW` sums every header delta and checks the 16 MiB cap once on the final size, before any
+  replacement text is built. Test: 14 expanding headers plus one shrinking 3 MiB header succeed in both orders with the
+  same output size (fails on the old code). The generated web SDL whitespace is `make gen` output, not hand-edited.
+  `make check` green (43 files, 353 tests).
