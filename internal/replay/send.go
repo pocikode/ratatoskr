@@ -55,12 +55,26 @@ type Sender struct {
 	deps SendDeps
 
 	mu       sync.Mutex
-	inFlight map[int64]context.CancelFunc
+	inFlight map[flightKey]*flight
 }
+
+// flightKey scopes a session ID to its project: IDs repeat across projects.
+type flightKey struct {
+	db *store.DB
+	id int64
+}
+
+// flight is one send; cancellable only while it is on the network.
+type flight struct {
+	cancel      context.CancelCauseFunc
+	cancellable bool
+}
+
+var errCancelled = errors.New("cancelled")
 
 // NewSender returns a Sender storing sessions and entries through svc.
 func NewSender(svc *Service, deps SendDeps) *Sender {
-	return &Sender{svc: svc, deps: deps, inFlight: map[int64]context.CancelFunc{}}
+	return &Sender{svc: svc, deps: deps, inFlight: map[flightKey]*flight{}}
 }
 
 // SendInput is what a send saves on the session before sending.
@@ -70,54 +84,71 @@ type SendInput struct {
 	Options    *OptionsInput
 }
 
-// Sending reports whether a send of the session is in flight.
+// Sending reports whether a send of the session in the open project is in flight.
 func (s *Sender) Sending(id int64) bool {
+	db, err := s.svc.db()
+	if err != nil {
+		return false
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, ok := s.inFlight[id]
+	_, ok := s.inFlight[flightKey{db, id}]
 	return ok
 }
 
-// Cancel cancels the session's in-flight send and reports whether there was one.
+// Cancel cancels the session's send while it is on the network and reports
+// whether it did; the send then stores an entry with error "cancelled". During
+// preparation and storing a send cannot be cancelled and Cancel reports false.
 func (s *Sender) Cancel(ctx context.Context, id int64) (bool, error) {
-	s.mu.Lock()
-	cancel, ok := s.inFlight[id]
-	s.mu.Unlock()
-	if ok {
-		cancel()
-		return true, nil
+	db, err := s.svc.db()
+	if err != nil {
+		return false, err
 	}
-	_, err := s.svc.Session(ctx, id)
+	s.mu.Lock()
+	f := s.inFlight[flightKey{db, id}]
+	cancelled := f != nil && f.cancellable
+	if cancelled {
+		f.cancel(errCancelled)
+	}
+	s.mu.Unlock()
+	if f != nil {
+		return cancelled, nil
+	}
+	_, err = s.svc.Session(ctx, id)
 	return false, err
 }
 
 // Send saves the input on the session, sends the prepared request and stores
 // each hop as a history record plus one entry for the last hop. Network
-// failures are entries with an error, not Go errors.
+// failures are entries with an error, not Go errors. Every step uses the
+// project open when the send starts.
 func (s *Sender) Send(ctx context.Context, id int64, in SendInput) (Entry, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	db, err := s.svc.db()
+	if err != nil {
+		return Entry{}, err
+	}
+	pinned := New(func() *store.DB { return db })
+	key := flightKey{db, id}
+	netCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	f := &flight{cancel: cancel}
 	s.mu.Lock()
-	if _, busy := s.inFlight[id]; busy {
+	if s.inFlight[key] != nil {
 		s.mu.Unlock()
 		return Entry{}, apperr.New(apperr.Conflict, "a send of replay session %d is already in flight", id)
 	}
-	s.inFlight[id] = cancel
+	s.inFlight[key] = f
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
-		delete(s.inFlight, id)
+		delete(s.inFlight, key)
 		s.mu.Unlock()
 	}()
 
 	if in.Raw == nil {
 		in.Raw = []byte{} // nil would keep the old draft
 	}
-	sess, err := s.svc.UpdateSession(ctx, id, UpdateInput{Draft: in.Raw, Connection: &in.Connection, Options: in.Options})
-	if err != nil {
-		return Entry{}, err
-	}
-	db, err := s.svc.db()
+	sess, err := pinned.UpdateSession(ctx, id, UpdateInput{Draft: in.Raw, Connection: &in.Connection, Options: in.Options})
 	if err != nil {
 		return Entry{}, err
 	}
@@ -130,12 +161,19 @@ func (s *Sender) Send(ctx context.Context, id int64, in SendInput) (Entry, error
 		return Entry{}, apperr.New(apperr.Conflict, "history capture is paused; the send could not be stored")
 	}
 
+	s.setCancellable(f, true)
 	start := time.Now()
-	res, sendErr := sender.Send(ctx, sender.Request{
+	res, sendErr := sender.Send(netCtx, sender.Request{
 		Host: sess.Connection.Host, Port: sess.Connection.Port, TLS: sess.Connection.TLS, SNI: deref(sess.Connection.SNI),
 		Raw:     raw,
 		Options: sender.Options{Timeout: time.Duration(sess.Options.TimeoutMs) * time.Millisecond, FollowRedirects: sess.Options.FollowRedirects},
 	})
+	s.setCancellable(f, false)
+	if errors.Is(context.Cause(netCtx), errCancelled) {
+		// Cancel reported true, possibly just after the response arrived: honour it.
+		res.Hops[len(res.Hops)-1].Response = nil
+		sendErr = &sender.Error{Kind: sender.KindCancelled, Err: errCancelled}
+	}
 
 	// A cancelled send still stores what happened.
 	sctx, stop := context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
@@ -145,14 +183,20 @@ func (s *Sender) Send(ctx context.Context, id int64, in SendInput) (Entry, error
 		e, resp := record(db, hop, start)
 		start = start.Add(hop.Elapsed)
 		if last = s.deps.Capture.NewPending(sctx, e); last == 0 {
-			return Entry{}, errors.New("replay: history capture dropped the record")
+			return Entry{}, errors.New("replay: history capture dropped the record (project closed or switched)")
 		}
 		s.deps.Capture.Complete(sctx, last, resp)
 	}
 	if err := s.deps.Capture.Written(sctx, last); err != nil {
 		return Entry{}, fmt.Errorf("replay: store record: %w", err)
 	}
-	return s.svc.AddEntry(sctx, id, last, failure(sendErr, sess.Options.TimeoutMs))
+	return pinned.AddEntry(sctx, id, last, failure(sendErr, sess.Options.TimeoutMs))
+}
+
+func (s *Sender) setCancellable(f *flight, on bool) {
+	s.mu.Lock()
+	f.cancellable = on
+	s.mu.Unlock()
 }
 
 // prepare applies interpolation, Match & Replace and the Content-Length rule,

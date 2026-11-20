@@ -3,9 +3,11 @@ package replay_test
 import (
 	"bufio"
 	"context"
+	"io"
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pocikode/ratatoskr/internal/apperr"
@@ -142,6 +144,36 @@ func serve(t *testing.T, reply func(target string) string, accepted chan<- struc
 	return addr.IP.String(), addr.Port
 }
 
+// wire accepts one connection, reads n bytes regardless of HTTP framing,
+// answers 200 and then reads anything else the client sent until it closes.
+// It delivers every byte received.
+func wire(t *testing.T, n int) (string, int, <-chan []byte) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make(chan []byte, 1)
+	var wg sync.WaitGroup
+	t.Cleanup(func() { _ = ln.Close(); wg.Wait() })
+	wg.Go(func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		stop := context.AfterFunc(t.Context(), func() { _ = conn.Close() })
+		defer stop()
+		buf := make([]byte, n)
+		k, _ := io.ReadFull(conn, buf)
+		_, _ = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"))
+		rest, _ := io.ReadAll(conn) // the sender closes after the response
+		out <- append(buf[:k], rest...)
+	})
+	addr := ln.Addr().(*net.TCPAddr)
+	return addr.IP.String(), addr.Port, out
+}
+
 func TestSendStoresDraftRecordAndEntry(t *testing.T) {
 	t.Parallel()
 	srv := testutil.NewRawServer(t)
@@ -212,23 +244,22 @@ func TestSendPreparesBytes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			srv := testutil.NewRawServer(t)
+			host, port, got := wire(t, len(tt.want))
 			rw := &fakeRewriter{}
 			deps := replay.SendDeps{Env: tt.env}
 			if tt.rewriter {
 				deps.Rewriter = rw
 			}
 			rig := newSendRig(t, deps)
-			e := rig.send(t, rig.session(t, srv.Host, srv.Port), tt.raw, &tt.opts)
+			e := rig.send(t, rig.session(t, host, port), tt.raw, &tt.opts)
 			if e.Error != nil {
 				t.Fatal(*e.Error)
 			}
 			if got := rig.record(t, e.RequestID); got.raw != tt.want {
 				t.Fatalf("stored %q, want %q", got.raw, tt.want)
 			}
-			// The server frames by Content-Length, so bytes past it may arrive as a second message.
-			if got := srv.Requests(); len(got) == 0 || !strings.HasPrefix(string(got[0]), strings.TrimSuffix(tt.want, "ab")) {
-				t.Fatalf("server got %q", got)
+			if sent := string(<-got); sent != tt.want {
+				t.Fatalf("wire %q, want %q", sent, tt.want)
 			}
 			if strings.Join(rw.sources, ",") != strings.Join(tt.wantSources, ",") {
 				t.Fatalf("rewriter sources = %q", rw.sources)
@@ -354,5 +385,144 @@ func TestSendRejects(t *testing.T) {
 	_, err = rig.sender.Send(t.Context(), s.ID, replay.SendInput{Raw: []byte("GET / HTTP/1.1\r\n\r\n"), Connection: s.Connection})
 	if apperr.CodeOf(err) != apperr.Conflict || len(srv.Requests()) != 0 || rig.count(t) != 0 {
 		t.Fatalf("paused capture err = %v, sent %d, records %d", err, len(srv.Requests()), rig.count(t))
+	}
+}
+
+// gate blocks a phase of a send until the test releases it.
+type gate struct{ entered, release chan struct{} }
+
+func newGate() gate { return gate{make(chan struct{}, 1), make(chan struct{})} }
+
+func (g gate) pass() { g.entered <- struct{}{}; <-g.release }
+
+type gatedEnv struct{ gate }
+
+func (g gatedEnv) Vars(context.Context) (map[string]string, error) { g.pass(); return nil, nil }
+
+type gatedRecorder struct {
+	*history.Capture
+	gate
+	once sync.Once
+}
+
+func (g *gatedRecorder) NewPending(ctx context.Context, e history.Entry) int64 {
+	g.once.Do(g.pass)
+	return g.Capture.NewPending(ctx, e)
+}
+
+// A send cannot be cancelled before or after it is on the network: Cancel
+// reports false, the conflict guard holds, and the send stores a normal entry.
+func TestSendCancelOutsideNetworkPhase(t *testing.T) {
+	t.Parallel()
+	for _, phase := range []string{"preparing", "storing"} {
+		t.Run(phase, func(t *testing.T) {
+			t.Parallel()
+			srv := testutil.NewRawServer(t)
+			g := newGate()
+			deps := replay.SendDeps{}
+			if phase == "preparing" {
+				deps.Env = gatedEnv{g}
+			}
+			rig := newSendRig(t, deps)
+			if phase == "storing" {
+				deps.Capture = &gatedRecorder{Capture: rig.capture, gate: g}
+				rig.sender = replay.NewSender(rig.svc, deps)
+			}
+			s := rig.session(t, srv.Host, srv.Port)
+			type result struct {
+				e   replay.Entry
+				err error
+			}
+			done := make(chan result, 1)
+			go func() {
+				e, err := rig.sender.Send(context.Background(), s.ID, replay.SendInput{Raw: []byte("GET / HTTP/1.1\r\n\r\n"), Connection: s.Connection})
+				done <- result{e, err}
+			}()
+			<-g.entered
+			if ok, err := rig.sender.Cancel(t.Context(), s.ID); ok || err != nil {
+				t.Fatalf("cancel while %s = %t, %v", phase, ok, err)
+			}
+			_, err := rig.sender.Send(t.Context(), s.ID, replay.SendInput{Raw: []byte("GET / HTTP/1.1\r\n\r\n"), Connection: s.Connection})
+			if apperr.CodeOf(err) != apperr.Conflict || !rig.sender.Sending(s.ID) {
+				t.Fatalf("second send while %s err = %v", phase, err)
+			}
+			close(g.release)
+			got := <-done
+			if got.err != nil || got.e.Error != nil {
+				t.Fatalf("send = %+v, %v", got.e, got.err)
+			}
+			if rec := rig.record(t, got.e.RequestID); rec.code == nil || *rec.code != 200 {
+				t.Fatalf("record = %+v", rec)
+			}
+		})
+	}
+}
+
+func countRows(t *testing.T, db *store.DB, table string) int {
+	t.Helper()
+	var n int
+	if err := db.Reader().QueryRowContext(t.Context(), `SELECT count(*) FROM `+table).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// A project switch mid-send must not store the old send in the new project,
+// even though both projects have a session with the same ID.
+func TestSendProjectSwitch(t *testing.T) {
+	t.Parallel()
+	a, b := openDB(t), openDB(t)
+	var current atomic.Pointer[store.DB]
+	current.Store(a)
+	svc := replay.New(current.Load)
+	c := history.New(history.Deps{DB: current.Load})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { c.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	accepted, release := make(chan struct{}, 1), make(chan struct{})
+	host, port := serve(t, func(string) string {
+		select {
+		case <-release:
+		case <-t.Context().Done():
+		}
+		return testutil.RawReply
+	}, accepted)
+	in := replay.CreateInput{Connection: &replay.Connection{Host: host, Port: port}, Raw: []byte{}}
+	sa := create(t, svc, in)
+	current.Store(b)
+	sb := create(t, svc, in)
+	current.Store(a)
+	if sa.ID != sb.ID {
+		t.Fatalf("session IDs %d and %d must overlap", sa.ID, sb.ID)
+	}
+
+	snd := replay.NewSender(svc, replay.SendDeps{Capture: c})
+	errc := make(chan error, 1)
+	go func() {
+		_, err := snd.Send(context.Background(), sa.ID, replay.SendInput{Raw: []byte("GET /a HTTP/1.1\r\n\r\n"), Connection: sa.Connection})
+		errc <- err
+	}()
+	<-accepted
+	current.Store(b)
+	if snd.Sending(sb.ID) {
+		t.Fatal("project B sees project A's send")
+	}
+	if ok, err := snd.Cancel(t.Context(), sb.ID); ok || err != nil {
+		t.Fatalf("cancel in project B = %t, %v", ok, err)
+	}
+	close(release)
+	if err := <-errc; err == nil {
+		t.Fatal("send succeeded after its project was switched away")
+	}
+	for _, db := range []*store.DB{a, b} {
+		if n, m := countRows(t, db, "requests"), countRows(t, db, "replay_entries"); n != 0 || m != 0 {
+			t.Fatalf("requests %d, entries %d stored after switch", n, m)
+		}
+	}
+	var draft []byte
+	if err := a.Reader().QueryRowContext(t.Context(), `SELECT draft FROM replay_sessions WHERE id = ?`, sa.ID).Scan(&draft); err != nil || string(draft) != "GET /a HTTP/1.1\r\n\r\n" {
+		t.Fatalf("project A draft = %q, %v", draft, err)
 	}
 }
