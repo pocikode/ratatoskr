@@ -173,7 +173,8 @@ function replaceBytes(text: string, v: string, term: string): string {
  * shortcut: only STRING/FULL `UPDATE_RAW` on headers and bodies, plus header `ADD`; every other
  * rule leaves the message unchanged and conditions always match. Body rules skip messages with a
  * `Transfer-Encoding` or `Content-Encoding` header instead of rebuilding chunk framing or codings,
- * and bodyless responses (1xx, 204, 304).
+ * and bodyless responses (1xx, 204, 304). Framing is approximated, not `internal/rawhttp`
+ * (e.g. it honours `Transfer-Encoding` on HTTP/1.0); the reference is T-102, upgrade never (mock only).
  * The real tester is T-102 (on the T-035 engine).
  */
 function applyRule(rule: MockRuleInput, raw: string): string {

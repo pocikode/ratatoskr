@@ -295,7 +295,8 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     rules leave an empty response that declares a nonzero length unchanged, since it may answer `HEAD`, but fill one
     with `Content-Length: 0`), and a request with bytes after the head but neither `Content-Length` nor
     `Transfer-Encoding` (such a request has no body, so those bytes are not part of it; a header-only request stays
-    valid and a rule may add a body) (`BAD_INPUT`), and evaluates the condition on the given message only (clauses
+    valid and a rule may add a body) (`BAD_INPUT`); otherwise `raw` is framed exactly as the wire parser
+    (`internal/rawhttp`) frames it, e.g. `Transfer-Encoding` is ignored on HTTP/1.0, and evaluates the condition on the given message only (clauses
     about the other message are false). Import rejects unknown fields; an unparsable condition there is `BAD_INPUT` naming
     the rule. Export rule fields are those of `MatchReplaceRuleInput`, enum values as strings, no IDs. A non-`ADD` `FULL`
     matcher is stored with an empty value.

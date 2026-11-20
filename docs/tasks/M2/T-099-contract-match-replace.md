@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -527,7 +527,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 ### Review of `4df5713`
 
 - Verdict is `changes_requested`. Escalate the remaining framing mismatch to the lead under the review round limit.
-- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:535 — The tester treats Transfer-Encoding
+- [x] [major] web/src/lib/api/mocks/matchreplace.ts:535 — The tester treats Transfer-Encoding
   as effective on HTTP/1.0. Through the mock GraphQL client, an HTTP/1.0 request with
   Transfer-Encoding: chunked, no Content-Length, and trailing bytes accepts a header ADD
   draft and returns changed: true. The wire parser ignores Transfer-Encoding on HTTP/1.0
@@ -540,3 +540,15 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   and `make gen` left the working tree clean. The branch still has four whitespace-only
   additions in generated web SDL flagged by `git diff --check main...HEAD`.
   Browser E2E and Go integration were skipped for this contract, stub and mock change.
+  → Lead decision: won't fix in the mock. F-MR-1 now says the tester frames `raw` exactly as `internal/rawhttp`
+    (HTTP/1.0 `Transfer-Encoding` ignored); T-102 has the HTTP/1.0 regression and must reuse rawhttp, not a
+    second parser. The mock's `shortcut:` comment says its framing is approximate.
+
+### Lead decision: close the review loop (2026-11-20)
+
+- The mock is a dev aid for T-036/T-108 UI work, not a reference implementation. Ten rounds of mock-vs-`rawhttp`
+  framing parity are out of scope (Scope: "STRING/FULL header and body replacement only, with a `shortcut:`").
+- Next review covers only: schema docs vs F-MR-1, stubs/gen clean, `make check`, and mock behaviour the UI relies on
+  (CRUD, enable, move, reorder, import/export, error codes, the tester's happy path and size errors).
+  Wire-fidelity findings in the mock are not blocking: add them as T-102 acceptance criteria instead.
+- Known non-blocking: four whitespace-only lines in generated web SDL (`git diff --check`), produced by `make gen`.
