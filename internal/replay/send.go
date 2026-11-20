@@ -43,7 +43,10 @@ type Recorder interface {
 
 // SendDeps are the inputs to [NewSender]. Env and Rewriter may be nil (skipped).
 type SendDeps struct {
-	Env      Env
+	// Env returns the variables source bound to project, the send's project, so a
+	// project switch mid-send cannot interpolate another project's values, e.g.
+	// environment.New with Deps.Project returning project.
+	Env      func(project *store.DB) Env
 	Rewriter Rewriter
 	Capture  Recorder
 }
@@ -151,7 +154,7 @@ func (s *Sender) Send(ctx context.Context, id int64, in SendInput) (Entry, error
 	if err != nil {
 		return Entry{}, err
 	}
-	raw, err := s.prepare(ctx, sess)
+	raw, err := s.prepare(ctx, db, sess)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -200,10 +203,10 @@ func (s *Sender) setCancellable(f *flight, on bool) {
 
 // prepare applies interpolation, Match & Replace and the Content-Length rule,
 // then checks the result parses as an HTTP/1.x request head.
-func (s *Sender) prepare(ctx context.Context, sess Session) ([]byte, error) {
+func (s *Sender) prepare(ctx context.Context, db *store.DB, sess Session) ([]byte, error) {
 	raw := sess.Draft
 	if s.deps.Env != nil {
-		vars, err := s.deps.Env.Vars(ctx)
+		vars, err := s.deps.Env(db).Vars(ctx)
 		if err != nil {
 			return nil, err
 		}

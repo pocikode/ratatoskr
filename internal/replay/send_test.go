@@ -5,15 +5,18 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/pocikode/ratatoskr/internal/apperr"
+	"github.com/pocikode/ratatoskr/internal/environment"
 	"github.com/pocikode/ratatoskr/internal/events"
 	"github.com/pocikode/ratatoskr/internal/history"
 	"github.com/pocikode/ratatoskr/internal/replay"
+	"github.com/pocikode/ratatoskr/internal/secret"
 	"github.com/pocikode/ratatoskr/internal/store"
 	"github.com/pocikode/ratatoskr/internal/testutil"
 )
@@ -21,6 +24,11 @@ import (
 type fakeEnv map[string]string
 
 func (f fakeEnv) Vars(context.Context) (map[string]string, error) { return f, nil }
+
+// anyProject serves the same variables whatever the send's project.
+func anyProject(e replay.Env) func(*store.DB) replay.Env {
+	return func(*store.DB) replay.Env { return e }
+}
 
 type fakeRewriter struct {
 	mu      sync.Mutex
@@ -246,7 +254,10 @@ func TestSendPreparesBytes(t *testing.T) {
 			t.Parallel()
 			host, port, got := wire(t, len(tt.want))
 			rw := &fakeRewriter{}
-			deps := replay.SendDeps{Env: tt.env}
+			deps := replay.SendDeps{}
+			if tt.env != nil {
+				deps.Env = anyProject(tt.env)
+			}
 			if tt.rewriter {
 				deps.Rewriter = rw
 			}
@@ -421,7 +432,7 @@ func TestSendCancelOutsideNetworkPhase(t *testing.T) {
 			g := newGate()
 			deps := replay.SendDeps{}
 			if phase == "preparing" {
-				deps.Env = gatedEnv{g}
+				deps.Env = anyProject(gatedEnv{g})
 			}
 			rig := newSendRig(t, deps)
 			if phase == "storing" {
@@ -524,5 +535,79 @@ func TestSendProjectSwitch(t *testing.T) {
 	var draft []byte
 	if err := a.Reader().QueryRowContext(t.Context(), `SELECT draft FROM replay_sessions WHERE id = ?`, sa.ID).Scan(&draft); err != nil || string(draft) != "GET /a HTTP/1.1\r\n\r\n" {
 		t.Fatalf("project A draft = %q, %v", draft, err)
+	}
+}
+
+// switchingEnv opens another project the moment the variables are looked up.
+type switchingEnv struct {
+	replay.Env
+	switchNow func()
+}
+
+func (e switchingEnv) Vars(ctx context.Context) (map[string]string, error) {
+	e.switchNow()
+	return e.Env.Vars(ctx)
+}
+
+// A project switch during the environment lookup must not let the other
+// project's (secret) values reach project A's target.
+func TestSendProjectSwitchDuringEnvLookup(t *testing.T) {
+	t.Parallel()
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	inst, err := store.OpenInstance(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = inst.Close() })
+	box, _, err := secret.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envFor := func(db *store.DB) *environment.Service {
+		return environment.New(environment.Deps{Instance: inst, Project: func() *store.DB { return db }, Secrets: box})
+	}
+	a, b := openDB(t), openDB(t)
+	for db, v := range map[*store.DB]environment.Variable{a: {Name: "tok", Value: "from-a"}, b: {Name: "tok", Value: "SECRET-B", Secret: true}} {
+		svc := envFor(db)
+		e, err := svc.Create(t.Context(), "Env")
+		if err == nil {
+			_, err = svc.SetVariables(t.Context(), e.ID, []environment.Variable{v})
+		}
+		if err == nil {
+			_, err = svc.Select(t.Context(), &e.ID)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var current atomic.Pointer[store.DB]
+	current.Store(a)
+	svc := replay.New(current.Load)
+	c := history.New(history.Deps{DB: current.Load})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { c.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+
+	want := "GET /?t=from-a HTTP/1.1\r\n\r\n"
+	host, port, got := wire(t, len(want))
+	s := create(t, svc, replay.CreateInput{Connection: &replay.Connection{Host: host, Port: port}, Raw: []byte{}})
+	snd := replay.NewSender(svc, replay.SendDeps{Capture: c, Env: func(db *store.DB) replay.Env {
+		return switchingEnv{Env: envFor(db), switchNow: func() { current.Store(b) }}
+	}})
+	_, err = snd.Send(t.Context(), s.ID, replay.SendInput{Raw: []byte("GET /?t={{tok}} HTTP/1.1\r\n\r\n"), Connection: s.Connection})
+	if err == nil {
+		t.Fatal("send stored its record after its project was switched away")
+	}
+	if sent := string(<-got); sent != want {
+		t.Fatalf("target received %q, want %q", sent, want)
+	}
+	if n := countRows(t, b, "requests"); n != 0 {
+		t.Fatalf("project B got %d records", n)
 	}
 }
