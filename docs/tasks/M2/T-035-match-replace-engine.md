@@ -93,6 +93,8 @@ shape (T-105), with no storage and no API.
 2. Apply ordered rules to raw HTTP sections and preserve message framing.
 3. Verify tester limits, golden cases, and header-rule performance.
 
+Progress: Completed the chunked-body decoding and trailer extraction portion of step 2.
+
 ## Out-of-scope change needed (if any)
 
 - Resolved (lead, 2026-11-20; see Notes from lead, Chunked with Content-Length): F-MR-1 requires rejecting a body whose length differs from
@@ -131,10 +133,10 @@ shape (T-105), with no storage and no API.
 - Resolved (lead, 2026-11-20): "Should `Test` return an error for `BAD_INPUT`?" Yes, the engine owns every tester check; see Notes from lead.
 
 ## Handoff (implementer)
-- What changed: Added `rawhttp.SplitChunkedBody` to decode a complete chunked body and return its original trailer fields.
-- How to verify: `go test -race ./internal/rawhttp` covers multiple chunks, trailers, an empty body, truncation and trailing bytes.
-- Known limitations: The Match & Replace engine, tester and chunked body writer are still pending.
-- Follow-ups (proposed tasks):
+- What changed: Commit `c37e05d` added `rawhttp.SplitChunkedBody`. It uses the existing chunk parser, rejects trailing bytes, and returns the trailer fields as a slice of the input without the terminating blank line.
+- How to verify: `go test -race ./internal/rawhttp` passed and covers multiple chunks, trailers, an empty body, truncation and trailing bytes. `make check` passed after `cd web && bun install --frozen-lockfile` installed the missing dependencies. All 402 web tests passed.
+- Known limitations: The acceptance criteria remain open. The rule engine, offline tester, chunked body writer, golden tests and benchmark are pending. Status stays `in_progress`.
+- Follow-ups: Start with rule and HTTPQL condition validation for the offline tester. The live rewrite paths and ambiguous request framing behavior require a scope decision before implementation.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
