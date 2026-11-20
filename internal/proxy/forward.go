@@ -112,6 +112,19 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		Code: resp.Status(), RoundTrip: time.Since(entry.CreatedAt), CreatedAt: time.Now(),
 	}
 
+	if strings.EqualFold(x.sent.Method(), "CONNECT") && resp.Status()/100 == 2 {
+		// The origin turned the connection into a tunnel: the client gets the
+		// head only, then both connections close, unhooked (operator,
+		// 2026-11-20, T-105 review round 9).
+		_ = up.Close()
+		_, _ = c.conn.Write(resp.Head())
+		owner := c.editOwner(id, x.changed)
+		c.finish(id, answer, resp)
+		c.storeEdited(owner, x, id, &entry, answer)
+
+		return false
+	}
+
 	if c.s.hookResponse(id, req.Truncated()) {
 		return c.respondHooked(x, id, &entry, req, resp, up, answer)
 	}

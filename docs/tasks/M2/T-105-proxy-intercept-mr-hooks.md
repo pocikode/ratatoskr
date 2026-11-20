@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -85,6 +85,9 @@ without changing the streaming path for traffic that neither feature touches.
 - Lead: add to F-INT-1 (T-105 review round 7): bytes a client pipelines while its message is held are buffered up to
   the head limit (1 MiB default); beyond that the client is treated as disconnected (item leaves the queue, connection
   closes).
+- Lead: add to F-MR-1/F-INT-1 the operator's decision (2026-11-20, T-105 review round 9): when an edit makes the sent
+  request CONNECT and the origin answers 2xx, the client gets that head only and both connections close; the response
+  is not held or rewritten.
 
 ## Handoff (implementer)
 - What changed:
@@ -120,6 +123,8 @@ without changing the streaming path for traffic that neither feature touches.
 - Review round 8: 2 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green;
   nil-hook path untouched (only an extra `if` on `edits`), benchmark not rerun. Test helper `scripted.received` now
   returns connections in the order they ended.
+- Review round 9: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green;
+  nil-hook path gains one method compare per exchange, benchmark not rerun.
 - Review round 2: 3 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Known limitations:
   - A capture pause that starts between the `Paused` check and `NewPending` still buffers that one request (≤ cap);
@@ -240,7 +245,11 @@ The round 7 changes keep watching for disconnects past a full reader and replay 
 ### Round 9
 
 - Verdict: changes_requested
-- [ ] [major] internal/proxy/forward.go:209 — An edit can change the upstream method to CONNECT after client routing has finished. A successful upstream CONNECT changes the protocol at the end of the response head, but the raw HTTP response reader leaves that transition to the caller. The forwarding path can wait for a response body on an idle tunnel or treat the tunnel as reusable HTTP. Handle successful upstream CONNECT responses as a separate connection state and keep those connections out of the HTTP pool. Ask the lead to confirm the client-facing behavior when the original request was an ordinary HTTP request.
+- [x] [major] internal/proxy/forward.go:209 — An edit can change the upstream method to CONNECT after client routing has finished. A successful upstream CONNECT changes the protocol at the end of the response head, but the raw HTTP response reader leaves that transition to the caller. The forwarding path can wait for a response body on an idle tunnel or treat the tunnel as reusable HTTP. Handle successful upstream CONNECT responses as a separate connection state and keep those connections out of the HTTP pool. Ask the lead to confirm the client-facing behavior when the original request was an ordinary HTTP request.
+  - Fixed after asking the operator (2026-11-20: head only, then close): when the sent request is CONNECT (any case)
+    and the origin answers 2xx, the client gets the response head only, the upstream and the client connection close,
+    no response hook or hold runs; both records are stored with that head. Spec note requested under Out-of-scope.
+    Test `TestMethodEditToConnectClosesBoth` (streaming / hooked), mutation-checked (both time out without the fix).
 
 The round 8 changes isolate edited requests with incomplete or surplus body bytes from the shared upstream pool on the ordinary HTTP path. The hold watcher now counts the reader's buffered bytes toward the configured limit.
 

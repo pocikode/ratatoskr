@@ -813,6 +813,45 @@ func TestMethodEditToHeadClosesClient(t *testing.T) {
 	}
 }
 
+// A hook that turns a request into CONNECT: a 2xx answer opens a tunnel at the
+// origin, so the client gets the head only and both connections close.
+func TestMethodEditToConnectClosesBoth(t *testing.T) {
+	reply := "HTTP/1.1 200 Connection established\r\n\r\n"
+
+	for name, respActive := range map[string]bool{"streaming": false, "hooked": true} {
+		t.Run(name, func(t *testing.T) {
+			up := newScripted(t, func(req *rawhttp.Request) string {
+				if !strings.EqualFold(req.Method(), "CONNECT") {
+					return "HTTP/1.1 500 Not CONNECT\r\nContent-Length: 0\r\n\r\n"
+				}
+
+				return reply
+			})
+			toConnect := func(raw []byte) []byte {
+				return bytes.Replace(raw, []byte("GET http://"+up.addr+"/"), []byte("connect "+up.addr), 1)
+			}
+			rw := &fakeRewriter{active: map[string][2]bool{"proxy": {true, respActive}}, edit: toConnect}
+			h := newHookRig(t, nil, rw, rawhttp.Limits{})
+			h.addr = up.addr
+
+			_, br := h.send("GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\n")
+
+			if got := readAll(t, br); got != reply {
+				t.Fatalf("client got %q, want %q", got, reply)
+			}
+
+			if got := up.received(t, h.ctx, 1); got[0] != "connect "+up.addr+" HTTP/1.1\r\nHost: "+up.addr+"\r\n\r\n" {
+				t.Fatalf("upstream got %q", got[0])
+			}
+
+			recs := h.records(2, complete)
+			if got := h.raw(recs[1].ID, history.PartResponse); got != reply {
+				t.Fatalf("edited record response = %q, want %q", got, reply)
+			}
+		})
+	}
+}
+
 // Response rules see the request as the origin received it; a response-only
 // edit keeps the client's request bytes in both records.
 func TestResponseRulesSeeUpstreamRequest(t *testing.T) {
