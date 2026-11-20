@@ -3,7 +3,7 @@ id: T-107
 title: Replay session editor - connection bar, request editor, send/cancel, entry history, response; Send to Replay from History
 milestone: M2
 role: frontend
-status: in_progress
+status: in_review
 depends_on: [T-034, T-104, T-103]
 owner: "DeepSeek V4.1 Flash (opencode)"
 branch: task/T-107-replay-session-editor
@@ -40,9 +40,7 @@ to Replay with ⌘/Ctrl+R or the context menu.
 - [x] Entry navigation loads that entry's request into the editor and its response into the viewer; editing afterwards
       keeps the edit as the draft.
 - [x] `{{var}}` hover shows the selected environment's value (secret masked); the env selector changes the project selection.
-- [ ] From History, ⌘/Ctrl+R and the context-menu item create a session from the selected row and open its tab.
-      ⌘/Ctrl+R is done and tested; the **context-menu item** needs one id in `MENU_COMMANDS`
-      (`HttpHistoryPage.svelte`, T-038 — outside `paths`; see "Out-of-scope change needed").
+- [x] From History, ⌘/Ctrl+R and the context-menu item create a session from the selected row and open its tab.
 - [x] Component tests against the mock; `make check` green.
 
 ## Notes from lead
@@ -53,10 +51,6 @@ to Replay with ⌘/Ctrl+R or the context menu.
   context menu lists it; no other changes there.
 
 ## Plan (implementer, ≤15 lines)
-> Question for lead: the History context menu is built from `MENU_COMMANDS` in
-> `HttpHistoryPage.svelte` (T-038, outside `paths`). Widen `paths` by that file (plus its test) so I can add the one
-> `'history.sendToReplay'` id, or have T-038's owner add it. Everything else is implemented; `make check` is green.
-
 1. `session/session.graphql`: `ReplaySessionDetail` (connection+options+draft+entries with `...ReplayEntryMessage`), `UpdateReplaySession`, `SendReplaySession`, `CancelReplaySend`; `bun run codegen`.
 2. `session/session.svelte.ts`: `SessionEditorState` — load, `shown` bytes, 1 s throttle save (`updateReplaySession`, `flush()` on send/entry switch/destroy), `saveSettings`, `send`/`cancel`, entries newest-first, `activeEntryId`.
 3. `session/ConnectionBar.svelte`: scheme/host/port/SNI, Apply M&R, env selector (shared store `select`), ⚙ options panel (redirects, Content-Length, timeout).
@@ -66,15 +60,7 @@ to Replay with ⌘/Ctrl+R or the context menu.
 7. Tests: `session/SessionEditor.test.ts` (autosave timing with fake timers, send/cancel, entry nav, env hover + selector), `http-history/commands.test.ts` (command + ⌘R creates a session and routes).
 
 ## Out-of-scope change needed (if any)
-- **Context-menu item for `history.sendToReplay`** — the History row context menu is built from
-  `MENU_COMMANDS` in `web/src/pages/http-history/HttpHistoryPage.svelte` (owned by T-038, not in this task's
-  `paths`), not from `http-history/commands.ts`. The command is registered and works from the palette and from
-  Ctrl/⌘+R; it only needs one id added to that list:
-  `'history.sendToReplay'` as the first entry of `MENU_COMMANDS` (after the import-free ids, i.e. before
-  `'history.copy.url'`). No other change is needed — `openMenu` already renders every listed id through the registry.
-- **Question for lead:** either widen this task's `paths` with `web/src/pages/http-history/HttpHistoryPage.svelte`
-  (and `HttpHistoryPage.test.ts` if a test is wanted) so I can add that one line and a test, or have the owner of
-  T-038 add it. Everything else of T-107 is implemented and `make check` is green.
+- None. The History context-menu id landed with the lead's widened `paths` (`HttpHistoryPage.svelte`).
 
 ## Handoff (implementer)
 - What changed:
@@ -95,14 +81,15 @@ to Replay with ⌘/Ctrl+R or the context menu.
     entry shows `role="alert"` "Send failed: <error>" instead of a response.
   - `http-history/commands.ts`: `history.sendToReplay` — `openInReplay(firstSelectedId, state.client)`, so the
     existing Ctrl/⌘+R binding now runs it; a failure lands in the page's message line.
+  - `http-history/HttpHistoryPage.svelte`: `'history.sendToReplay'` added as the first `MENU_COMMANDS` id, so the
+    row context menu offers it (lead widened `paths` for this one line).
 - How to verify:
-  - `make check` (green here: 438 web unit tests, Go suite + lint).
+  - `make check` (green here: 439 web unit tests, Go suite + lint).
   - `cd web && bun run dev`, open `#/replay` → a session: edit the request, wait ≥1 s, reload the tab — the edit is
     there; Send shows `Sending…`, then the response; Cancel on a slow target yields a `cancelled` entry banner.
-  - History: select a row, press Ctrl/⌘+R → a Replay tab opens on a copy of it.
+  - History: select a row, press Ctrl/⌘+R or pick "Send to Replay" from its context menu → a Replay tab opens on a
+    copy of it.
 - Known limitations:
-  - The History **context-menu** item is missing: its id list lives in `HttpHistoryPage.svelte` (T-038), outside
-    this task's `paths` — see "Out-of-scope change needed". Ctrl/⌘+R and the palette work.
   - Only the newest 100 entries are loaded (`entries(first: 100)`); older ones need paging (not in M2's AC).
   - Entry navigation shows the entry's request *as stored*; a request body past the 4 MiB display cap makes the
     editor read-only for that entry (notice shown) rather than silently dropping bytes.
@@ -112,10 +99,9 @@ to Replay with ⌘/Ctrl+R or the context menu.
   - No Playwright spec: `web/tests/e2e/**` is outside `paths` (M2 E2E is T-039).
   - Closing a tab mid-send leaves the send running server-side; the entry is not shown until the session is
     reopened.
-- Follow-ups (proposed tasks): add `'history.sendToReplay'` to `MENU_COMMANDS` (owner of T-038 or a widened
-  path); pass the shell's client into `SessionEditor` (or a shared `replayClient` context) so `?mock=replay` covers
-  the editor; entry paging / "load older" once sessions grow past 100 sends; E2E in T-039 for send, cancel and
-  Send-to-Replay.
+- Follow-ups (proposed tasks): pass the shell's client into `SessionEditor` (or a shared `replayClient` context) so
+  `?mock=replay` covers the editor; entry paging / "load older" once sessions grow past 100 sends; E2E in T-039 for
+  send, cancel and Send-to-Replay.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested

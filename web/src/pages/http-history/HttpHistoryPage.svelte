@@ -40,6 +40,7 @@
   const history = new HistoryState(untrack(() => client) ?? getApi().client);
 
   const MENU_COMMANDS = [
+    'history.sendToReplay',
     'history.copy.url',
     'history.copy.curl',
     ...COLORS.map((color) => `history.color.${color.toLowerCase()}`),
