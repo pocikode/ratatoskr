@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: blocked
+status: in_progress
 depends_on: [T-099]
 owner: "codex"
 branch: task/T-035-match-replace-engine
@@ -73,6 +73,10 @@ shape (T-105), with no storage and no API.
   the allowlist; `Set` skips such a rule at warn like a failed expansion. The `query.Message` adapter can return zero values
   for the rejected methods, since they are never reached. Tests: `req.tls.eq:false` and `source:proxy` rejected with span in
   `Validate` and `Test`; a preset containing `row.id` skipped by `Set`; `req.host` from `Host` and from an absolute-form target.
+- Overflowing Content-Length (lead, 2026-11-20, answers blocked Q4; F-MR-1 tester): the wire parser wins. A
+  `Content-Length` that `rawhttp` rejects (over 2^63−1) is `BAD_INPUT` in `Test`, even on an empty response; the
+  empty-body exception covers only lengths the parser accepts. No parser change; `read.go` stays out of scope. Add a
+  `Test` case: empty response with `Content-Length: 9223372036854775808` → `BAD_INPUT`, nil output.
 
 ## Plan (implementer, ≤15 lines)
 
@@ -82,7 +86,7 @@ shape (T-105), with no storage and no API.
 
 ## Out-of-scope change needed (if any)
 
-- Open: F-MR-1 says an empty tester response may declare any `Content-Length`,
+- Resolved (lead, 2026-11-20; see Notes from lead, Overflowing Content-Length): F-MR-1 says an empty tester response may declare any `Content-Length`,
   and also says the tester follows `rawhttp` framing. `rawhttp` rejects decimal
   lengths greater than `math.MaxInt64` on ordinary responses before the tester
   can apply the empty-body exception. Should the tester accept those empty

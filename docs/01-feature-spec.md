@@ -318,7 +318,8 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester takes `MatchReplaceTestRuleInput` (a rule without name, enabled and sources, so a tester request stays
     under the 32 MiB API cap whatever the draft name), rejects
     a section for the other message kind, a `Content-Length` that is not decimal or disagrees with another (exact decimal values, leading zeroes ignored), and a body
-    whose length differs from `Content-Length` (a response with no body may declare any length, as for `HEAD`; body
+    whose length differs from `Content-Length` (a response with no body may declare any length the wire parser accepts, as for `HEAD`; a value over 2^63−1, which
+    `internal/rawhttp` rejects as overflowing, is `BAD_INPUT` even with no body (lead, 2026-11-20, T-035); body
     rules leave an empty response that declares a nonzero length unchanged, since it may answer `HEAD`, but fill one
     with `Content-Length: 0`), and a request with bytes after the head but neither `Content-Length` nor
     `Transfer-Encoding` (such a request has no body, so those bytes are not part of it; a header-only request stays
