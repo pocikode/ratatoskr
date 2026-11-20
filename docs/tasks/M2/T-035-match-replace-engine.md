@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -237,8 +237,8 @@ shape (T-105), with no storage and no API.
 
 ## Review (reviewer)
 
-- Verdict: changes_requested
-- Findings:
+- Verdict: changes_requested (round 3)
+- Round 2 findings:
   - [x] [major] internal/matchreplace/message.go:104 — An origin-form target with a URL in its query is mistaken for absolute-form. The `next` parameter in `/login?next=https://example.invalid/home` disappears from query matching, and the parsed path is also wrong → identify the target form from its prefix before splitting path and query, and add a golden for updating this parameter.
     Fixed: `splitTarget` treats the target as absolute-form only when `scheme://` comes before any `/?#`. Goldens `req-query-value-url-in-origin-form` (updates `next`) and `req-path-url-in-origin-form-query`.
   - [x] [major] internal/matchreplace/rule.go:196 — The atomic snapshot retains the caller's `Sources` backing array. Reusing that array after `Set` changes live rule selection without a reload and can race with a hook → copy the slice before publishing and test mutation after `Set`.
@@ -253,3 +253,13 @@ shape (T-105), with no storage and no API.
     Settled by the lead (Notes from lead, "Review round 2", 2026-11-20): lead commits, owned by the lead, merge with T-035.
 
 - Checks: `make check` and `make test-int` passed. Two temporary overlay regressions failed as expected on this branch: `TestReviewQueryURL` reported `changed=false err=<nil>`, and `TestReviewRuleSnapshot` returned the original request after the caller changed its sources slice. The standalone benchmark used `go test ./internal/matchreplace -run '^$' -bench HeaderRules -benchmem -count=3` and reported 3081 allocs/op.
+
+### Round 3
+
+- [ ] [major] internal/matchreplace/apply.go:274 — The regex replacer expands a whole match before checking the cap. A capture-heavy replacement can allocate far beyond the limit in a single expansion → enforce the remaining budget before appending expansion bytes and cover an oversized single-match expansion.
+- [ ] [major] internal/matchreplace/apply.go:276 — The budget check counts the unprocessed suffix as final output. An early match that grows can reject a rewrite whose later matches shrink the result below the cap → count only output already determined, and check the unchanged suffix when appending it. Add a regression with growth followed by shrinkage.
+- [ ] [minor] internal/rawhttp/builder.go:214 — The builder serializes a status below 100 without zero padding. The engine accepts the three-digit replacement `099`, but the builder emits `99` and re-parsing drops the edit → preserve the validated three-digit token when serializing the status and add a regression.
+
+`make check`, `make test-int`, and `git diff --check main...HEAD` passed. After the suites finished, the standalone 20-rule benchmark measured 69.3–74.7 µs/op and 360 allocs/op over three runs on Apple M4, within the 100 µs/op target.
+
+Two temporary overlay regressions failed. `TestReviewFinalReplacementBudget` reported `out="" err=matchreplace: result over the output cap` for a two-byte final result under a five-byte limit. `TestReviewThreeDigitStatus` reported `changed=false err=<nil>` and returned the original status. The single-match allocation issue was assessed by code inspection.
