@@ -1,0 +1,75 @@
+# Intercept operations (T-032, F-INT-1), against internal/api/graphql/schema/intercept.graphqls.
+
+fragment InterceptSettingsFields on InterceptSettings {
+  queuing
+  requests
+  responses
+  query
+  scopeId
+  dropStatusCode
+}
+
+fragment InterceptItemFields on InterceptItem {
+  id
+  kind
+  raw
+  heldAt
+  request {
+    id
+    method
+    host
+    port
+    tls
+    path
+    query
+  }
+}
+
+query InterceptSettings {
+  interceptSettings {
+    ...InterceptSettingsFields
+  }
+}
+
+query InterceptQueue {
+  interceptQueue {
+    ...InterceptItemFields
+  }
+}
+
+mutation UpdateInterceptSettings($input: InterceptSettingsInput!) {
+  updateInterceptSettings(input: $input) {
+    ...InterceptSettingsFields
+  }
+}
+
+mutation ForwardInterceptItem($id: ID!, $raw: Bytes) {
+  forwardInterceptItem(id: $id, raw: $raw)
+}
+
+mutation DropInterceptItem($id: ID!) {
+  dropInterceptItem(id: $id)
+}
+
+mutation ForwardAllInterceptItems($kind: InterceptItemKind) {
+  forwardAllInterceptItems(kind: $kind)
+}
+
+mutation DropAllInterceptItems($kind: InterceptItemKind) {
+  dropAllInterceptItems(kind: $kind)
+}
+
+subscription InterceptQueueChanged {
+  interceptQueueChanged {
+    kind
+    item {
+      ...InterceptItemFields
+    }
+  }
+}
+
+subscription InterceptSettingsChanged {
+  interceptSettingsChanged {
+    ...InterceptSettingsFields
+  }
+}

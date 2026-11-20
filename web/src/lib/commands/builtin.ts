@@ -1,5 +1,6 @@
 import { routes } from '../router/routes';
 import type { Router } from '../router/router.svelte';
+import { intercept as defaultIntercept, type InterceptStore } from '../stores/intercept.svelte';
 import type { ThemeState } from '../stores/theme.svelte';
 import type { UiState } from '../stores/ui.svelte';
 import { CommandRegistry } from './registry';
@@ -8,11 +9,34 @@ interface Deps {
   router: Pick<Router, 'navigate'>;
   ui: Pick<UiState, 'toggleSidebar' | 'openPalette'>;
   theme: Pick<ThemeState, 'set' | 'toggle'>;
+  intercept?: Pick<InterceptStore, 'toggleQueuing' | 'update' | 'settings'>;
 }
 
-/** Registers the shell's own commands: go-to-page, palette, sidebar and theme. */
-export function registerBuiltins(registry: CommandRegistry, { router, ui, theme }: Deps) {
+/** Registers the shell's own commands: go-to-page, palette, sidebar, theme and the intercept toggles. */
+export function registerBuiltins(
+  registry: CommandRegistry,
+  { router, ui, theme, intercept = defaultIntercept }: Deps,
+) {
   registry.register(
+    {
+      id: 'intercept.toggle',
+      title: 'Toggle intercept (Forwarding / Queuing)',
+      icon: 'circle-pause',
+      group: 'Intercept',
+      run: () => void intercept.toggleQueuing(),
+    },
+    {
+      id: 'intercept.toggleRequests',
+      title: 'Intercept: hold requests',
+      group: 'Intercept',
+      run: () => void intercept.update({ requests: !intercept.settings?.requests }),
+    },
+    {
+      id: 'intercept.toggleResponses',
+      title: 'Intercept: hold responses',
+      group: 'Intercept',
+      run: () => void intercept.update({ responses: !intercept.settings?.responses }),
+    },
     ...routes.map((r) => ({
       id: `nav.goto.${r.id}`,
       title: `Go to ${r.title}`,

@@ -4,6 +4,10 @@
   import { ui } from '$lib/stores/ui.svelte';
   import { iconFor } from '$lib/utils/icons';
   import { registry } from '$lib/commands';
+  import { intercept, type InterceptStore } from '$lib/stores/intercept.svelte';
+
+  let { store = intercept }: { store?: InterceptStore } = $props();
+  $effect(() => store.start());
 </script>
 
 <nav
@@ -33,7 +37,15 @@
                   {active ? 'bg-accent-soft text-accent' : ''}"
               >
                 {#if Icon}<Icon size={16} aria-hidden="true" />{/if}
-                {#if !ui.sidebarCollapsed}<span class="truncate">{r.title}</span>{/if}
+                {#if !ui.sidebarCollapsed}<span class="flex-1 truncate">{r.title}</span>{/if}
+                {#if r.id === 'intercept' && store.count > 0}
+                  <span
+                    class="rounded-full bg-warn px-1.5 text-xs font-semibold text-black"
+                    role="status"
+                    aria-label="{store.count} held {store.count === 1 ? 'item' : 'items'}"
+                    >{store.count}</span
+                  >
+                {/if}
               </a>
             </li>
           {/each}

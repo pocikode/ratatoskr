@@ -1,10 +1,15 @@
 <script lang="ts">
   import { DropdownMenu } from 'bits-ui';
   import { registry } from '$lib/commands';
+  import { intercept, type InterceptStore } from '$lib/stores/intercept.svelte';
   import { theme } from '$lib/stores/theme.svelte';
   import ProjectSwitcher from './ProjectSwitcher.svelte';
   import { iconFor } from '$lib/utils/icons';
   import logo from '../../assets/logo.svg';
+
+  let { store = intercept }: { store?: InterceptStore } = $props();
+  $effect(() => store.start());
+  const queuing = $derived(store.settings?.queuing ?? false);
 
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
   const Search = iconFor('search')!;
@@ -37,6 +42,52 @@
   </button>
 
   <div class="flex-1"></div>
+
+  <div class="flex items-center">
+    <button
+      type="button"
+      class="rounded-l-token border border-line px-2 py-1 font-medium hover:bg-hover
+        {queuing ? 'bg-warn/20 text-warn' : 'bg-subtle text-muted'}"
+      aria-pressed={queuing}
+      aria-label="Intercept: {queuing ? 'Queuing' : 'Forwarding'}"
+      title="Toggle intercept ({isMac ? '⌘I' : 'Ctrl I'})"
+      onclick={() => registry.run('intercept.toggle')}
+    >
+      {queuing ? 'Queuing ‖' : 'Forwarding ▶'}
+    </button>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger
+        class="rounded-r-token border border-l-0 border-line px-1.5 py-1 hover:bg-hover"
+        aria-label="Intercept options"
+      >
+        <span aria-hidden="true">▾</span>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="end"
+          sideOffset={4}
+          class="z-50 min-w-40 rounded-token border border-line bg-elevated p-1 shadow-lg"
+        >
+          <DropdownMenu.CheckboxItem
+            checked={store.settings?.requests ?? false}
+            class="flex cursor-default items-center justify-between gap-3 rounded-token px-2 py-1 outline-none data-highlighted:bg-hover"
+            onSelect={() => registry.run('intercept.toggleRequests')}
+          >
+            Requests
+            {#if store.settings?.requests}<span aria-hidden="true">✓</span>{/if}
+          </DropdownMenu.CheckboxItem>
+          <DropdownMenu.CheckboxItem
+            checked={store.settings?.responses ?? false}
+            class="flex cursor-default items-center justify-between gap-3 rounded-token px-2 py-1 outline-none data-highlighted:bg-hover"
+            onSelect={() => registry.run('intercept.toggleResponses')}
+          >
+            Responses
+            {#if store.settings?.responses}<span aria-hidden="true">✓</span>{/if}
+          </DropdownMenu.CheckboxItem>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  </div>
 
   <DropdownMenu.Root>
     <DropdownMenu.Trigger
