@@ -3,7 +3,7 @@ id: T-110
 title: Contract - ReplaySession.requestTarget for the collections tree
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: claude-sonnet-5-5
 branch: task/T-110-contract-replay-request-target
@@ -50,13 +50,14 @@ The Replay tree can search by path without downloading every draft (T-034 review
 - What changed: `ReplaySession.requestTarget: String!` (schema + docs), `gqlgen.yml` resolver flag, stub in `stubs_replay.go` (ErrNotImplemented), mock + test; `make gen`.
 - (gqlgen.yml added to paths: needed for the resolver stub.)
 - How to verify: `make check`; `bun run test` in web (replay.test.ts "requestTarget").
+- Review round 1: target with an ASCII control byte (0x00-0x1F, 0x7F) → `""` (rule added to the schema description, so T-033 must match); leading U+FEFF kept (`ignoreBOM`); decode at most 8192 bytes (2048 code points max) before cutting. Tests cover tab, DEL, BOM, 3000×`€` → 2048, and a 4-byte char at position 2048.
 - Known limitations: backend returns ErrNotImplemented until T-033.
 - Follow-ups (proposed tasks): T-033 implements; T-111 switches the UI query.
 
 ## Review (reviewer)
 - Verdict: changes_requested
 - Findings:
-  - [ ] [major] web/src/lib/api/mocks/replay.ts:119 — The mock returns a target for a malformed first line with an embedded ASCII tab, such as `GET /a\tb HTTP/1.1`. The target character class excludes spaces and line endings but accepts tabs and other ASCII control bytes → reject ASCII controls for this field and add a malformed-line test.
-  - [ ] [minor] web/src/lib/api/mocks/replay.ts:133 — Decoding the captured target on its own strips an initial U+FEFF even though it is valid UTF-8 within the draft → preserve U+FEFF when decoding the target and cover it in the mock test.
-  - [ ] [minor] web/src/lib/api/mocks/replay.ts:133 — The spread creates an array containing every decoded code point before applying the 2048-character limit. A target near the 16 MiB draft cap can cause large temporary allocations on a tree fetch → collect at most 2048 code points and test the boundary with a multibyte target.
+  - [x] [major] web/src/lib/api/mocks/replay.ts:119 — The mock returns a target for a malformed first line with an embedded ASCII tab, such as `GET /a\tb HTTP/1.1`. The target character class excludes spaces and line endings but accepts tabs and other ASCII control bytes → reject ASCII controls for this field and add a malformed-line test.
+  - [x] [minor] web/src/lib/api/mocks/replay.ts:133 — Decoding the captured target on its own strips an initial U+FEFF even though it is valid UTF-8 within the draft → preserve U+FEFF when decoding the target and cover it in the mock test.
+  - [x] [minor] web/src/lib/api/mocks/replay.ts:133 — The spread creates an array containing every decoded code point before applying the 2048-character limit. A target near the 16 MiB draft cap can cause large temporary allocations on a tree fetch → collect at most 2048 code points and test the boundary with a multibyte target.
 - Verification: `make check` passed (403 web tests). `make gen` in a temporary checkout reproduced all tracked files byte for byte.

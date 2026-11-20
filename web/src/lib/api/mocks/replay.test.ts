@@ -33,6 +33,13 @@ describe('replay mock', () => {
         .requestTarget,
     ).toBe('/a?b=1');
     expect((await make('not http')).data!.createReplaySession.requestTarget).toBe('');
+    const target = async (t: string) =>
+      (await make(`GET ${t} HTTP/1.1\r\n\r\n`)).data!.createReplaySession.requestTarget;
+    expect(await target('/a\tb')).toBe('');
+    expect(await target('/a\x7fb')).toBe('');
+    expect(await target('\xef\xbb\xbf/x')).toBe('﻿/x');
+    expect(await target('\xe2\x82\xac'.repeat(3000))).toBe('€'.repeat(2048));
+    expect(await target('a'.repeat(2047) + '\xf0\x9f\x98\x80b')).toBe('a'.repeat(2047) + '😀');
     expect(
       (await q(`{ replaySession(id: "rs3") { requestTarget } }`)).data!.replaySession.requestTarget,
     ).toBe('/api/v1/users');
