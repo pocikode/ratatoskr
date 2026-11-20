@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_progress
+status: blocked
 depends_on: [T-099]
 owner: "codex"
 branch: task/T-035-match-replace-engine
@@ -60,6 +60,16 @@ shape (T-105), with no storage and no API.
 3. Verify tester limits, golden cases, and header-rule performance.
 
 ## Out-of-scope change needed (if any)
+
+- Open: F-MR-1 requires changed chunked bodies to retain chunked framing and
+  trailers. The lead note requires edits through `rawhttp.Builder`, but its only
+  body setter always removes Transfer-Encoding and sets Content-Length. May
+  T-035 extend `internal/rawhttp/builder.go` and its tests to support explicitly
+  framed replacement bodies, or may the engine assemble those wire bytes itself?
+- Open: HTTPQL permits `preset:` clauses and requires caller-side expansion.
+  T-035 has no storage, and the tester has no preset input. Should the engine
+  accept a preset resolver, or reject preset clauses with a span-bearing
+  `BAD_QUERY` until a later task wires preset resolution?
 
 - Resolved (lead, 2026-11-20): "Should `Test` return an error for `BAD_INPUT`?" Yes, the engine owns every tester check; see Notes from lead.
 
