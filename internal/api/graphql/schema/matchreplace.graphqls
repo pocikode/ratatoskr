@@ -353,7 +353,8 @@ extend type Mutation {
   traffic.
 
   Errors: `BAD_INPUT` for an invalid rule, a rule section for the other `kind`,
-  `raw` over 12 MiB (so the request fits the 32 MiB API cap; larger messages
+  `raw` over 12 MiB (so the request fits the 32 MiB API cap when `raw` is sent
+  as unwrapped base64 in GraphQL variables, with no line breaks; larger messages
   cannot be tested), `raw` that is not an HTTP/1.x message of `kind` (including
 a `Content-Length` that is not decimal or disagrees with another (exact decimal
 values, leading zeroes ignored), or a body
@@ -372,7 +373,7 @@ fill), or an
     rule: MatchReplaceTestRuleInput!
     "Whether `raw` is a request or a response."
     kind: MatchReplaceMessageKind!
-    "The message bytes, as pasted or picked from HTTP History; at most 12 MiB."
+    "The message bytes, as pasted or picked from HTTP History; at most 12 MiB. Send unwrapped base64 (no line breaks): wrapped base64 can push the request past the 32 MiB API cap."
     raw: Bytes!
   ): MatchReplaceTestResult!
 }
