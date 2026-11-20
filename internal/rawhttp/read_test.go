@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -407,4 +409,82 @@ func TestConnectResponseFraming(t *testing.T) {
 			}
 		})
 	}
+}
+
+// sameParse checks that ParseRequest/ParseResponse over data give what
+// ReadRequest/ReadResponse give over a reader of data: same error text, same
+// head view, same head end, same body bytes.
+func sameParse(t *testing.T, data []byte, resp bool, limits Limits) {
+	t.Helper()
+	src := bytes.NewReader(data)
+	br := bufio.NewReader(src)
+	var read, parsed *Message
+	var readErr, parseErr error
+	var n int
+	var extra [2][]string
+	if resp {
+		r, err := ReadResponse(br, "", limits)
+		p, pn, perr := ParseResponse(data, "", limits)
+		readErr, parseErr, n = err, perr, pn
+		if err == nil && perr == nil {
+			read, parsed = &r.Message, &p.Message
+			extra = [2][]string{{r.Version(), r.Reason(), strconv.Itoa(r.Status())}, {p.Version(), p.Reason(), strconv.Itoa(p.Status())}}
+		}
+	} else {
+		r, err := ReadRequest(br, limits)
+		p, pn, perr := ParseRequest(data, limits)
+		readErr, parseErr, n = err, perr, pn
+		if err == nil && perr == nil {
+			read, parsed = &r.Message, &p.Message
+			extra = [2][]string{{r.Method(), r.Target(), r.Version()}, {p.Method(), p.Target(), p.Version()}}
+		}
+	}
+	if fmt.Sprint(readErr) != fmt.Sprint(parseErr) {
+		t.Fatalf("%q: read error %v, parse error %v", data, readErr, parseErr)
+	}
+	if readErr != nil {
+		return
+	}
+	if headEnd := len(data) - src.Len() - br.Buffered(); n != headEnd {
+		t.Errorf("%q: head ends at %d, Parse says %d", data, headEnd, n)
+	}
+	if !bytes.Equal(read.Head(), parsed.Head()) || !slices.Equal(read.headers, parsed.headers) ||
+		!slices.Equal(read.Warnings(), parsed.Warnings()) || !slices.Equal(extra[0], extra[1]) ||
+		read.Framing() != parsed.Framing() || read.ContentLength() != parsed.ContentLength() || read.Close() != parsed.Close() {
+		t.Fatalf("%q: views differ\nread  %q %+v %v %v\nparse %q %+v %v %v", data,
+			read.Head(), read.headers, read.Warnings(), extra[0], parsed.Head(), parsed.headers, parsed.Warnings(), extra[1])
+	}
+	rb, rerr := io.ReadAll(read.Body())
+	pb, perr := io.ReadAll(parsed.Body())
+	if !bytes.Equal(rb, pb) || fmt.Sprint(rerr) != fmt.Sprint(perr) {
+		t.Errorf("%q: bodies differ: %q (%v) vs %q (%v)", data, rb, rerr, pb, perr)
+	}
+}
+
+func TestParseMatchesRead(t *testing.T) {
+	t.Parallel()
+	cases := []string{
+		"", "\r\n", "\r\n\n", "GET", "GET /", "GET / HTTP/1.1\r\n", "GET / HTTP/1.1\r\nHost: a\r\n",
+		"GET / HTTP/1.1\r\nHost: a\r\n\r\n", "\r\n\r\nGET / HTTP/1.1\r\nHost: a\r\n\r\nrest",
+		"GET / HTTP/1.1\nX: a\n b\n\tc\n\n", "GET / HTTP/1.1\r\n fold\r\nX : 1\r\nbad\r\n:x\r\n\r\n",
+		"POST / HTTP/1.1\r\nContent-Length: 3\r\n\r\nabcdef", "POST / HTTP/1.1\r\nContent-Length: 9\r\n\r\nabc",
+		"POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3;x\r\nabc\r\n0\r\nT: 1\r\n\r\nGET",
+		"POST / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 2\r\n\r\n", "HTTP/1.1 200 OK\r\n\r\nclose-delimited",
+		"HTTP/1.1 204 No Content\r\nContent-Length: 5\r\n\r\n", "HTTP/1.0 2000 X\r\n\r\n", "HTTP/1.1 200\r\nX:\r\n\r\n",
+	}
+	for _, c := range cases {
+		for _, resp := range []bool{false, true} {
+			sameParse(t, []byte(c), resp, DefaultLimits)
+			sameParse(t, []byte(c), resp, Limits{MaxHeadBytes: 20, MaxBodyBytes: -1})
+		}
+	}
+}
+
+func FuzzParseMatchesRead(f *testing.F) {
+	f.Add([]byte("GET / HTTP/1.1\r\nHost: a\r\n\r\n"), false, uint16(0))
+	f.Add([]byte("\r\nPOST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n"), false, uint16(30))
+	f.Add([]byte("HTTP/1.1 200 OK\r\nX: a\r\n b\r\nContent-Length: 2\r\n\r\nhi"), true, uint16(0))
+	f.Fuzz(func(t *testing.T, data []byte, resp bool, head uint16) {
+		sameParse(t, data, resp, Limits{MaxHeadBytes: int(head), MaxBodyBytes: -1})
+	})
 }
