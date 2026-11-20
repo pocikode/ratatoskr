@@ -139,5 +139,13 @@ Progress: Completed the chunked-body decoding and trailer extraction portion of 
 - Follow-ups: Start with rule and HTTPQL condition validation for the offline tester. The live rewrite paths and ambiguous request framing behavior require a scope decision before implementation.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
 - Findings:
+  - [ ] [blocker] internal/matchreplace/ — package does not exist. Rule type, Validate/Compile, Engine (`Set`/`Active`/`Request`/`Response`), `Test`, body codecs and framing fix are all missing → implement per Scope; nearly every AC is unmet.
+  - [ ] [blocker] internal/matchreplace/testdata/*.txtar — no golden tests (section × operation × matcher, regex `$1`/`${name}`/`$$`, presets, condition-field rejection, framing/Content-Length cases from lead notes) → add.
+  - [ ] [blocker] (benchmark) — no 20-rule/2 KiB benchmark, none recorded in Handoff → add and report.
+  - [ ] [major] internal/rawhttp/builder.go — `Builder.SetChunkedBody(payload, trailer)` (required by lead note) and its builder_test.go cases (trailers, empty payload) are absent → add.
+  - [ ] [major] docs/01-feature-spec.md, docs/tasks/M2/T-102-*.md, docs/tasks/M2/T-109-*.md — outside the task `paths`. They are lead-directed spec/task updates, but they sit in this branch under the implementer's commits → confirm the lead owns them (or split them out) before merge.
+  - [ ] [minor] internal/rawhttp/chunked.go:28 — `SplitChunkedBody` slices `wire[end-c.trailerBytes:end]` and relies on `c.line` being the unread remainder. This only holds if the trailer lines are contiguous and the final blank line is the last thing read. Add a test with bare-LF trailers and a chunk extension. Also bound `io.ReadAll` (the caller caps at 64 MiB), and doc the aliasing of the result.
+  - [ ] [minor] docs/tasks/M2/T-035-*.md — status is `in_progress` with a partial handoff. Correct for now, but set `in_review` only once the ACs are met.
+- Checks: `go test -race ./internal/rawhttp` passes. `make check` was not re-run, since the diff holds only the rawhttp splitter and docs. The delivered scope is about 10% of the task (only `SplitChunkedBody`, which is correct for the tested cases).
