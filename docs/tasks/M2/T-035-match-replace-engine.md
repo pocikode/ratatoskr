@@ -3,9 +3,9 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: blocked
+status: todo
 depends_on: [T-099]
-owner: "codex"
+owner: ""
 branch: task/T-035-match-replace-engine
 paths:
   - internal/matchreplace/**
@@ -103,6 +103,12 @@ shape (T-105), with no storage and no API.
   chunked + `Content-Length: 999` accepted; same with `Content-Length: abc` → `BAD_INPUT`; HTTP/1.0 chunked +
   mismatched length → `BAD_INPUT`; `Transfer-Encoding: gzip` request → `BAD_INPUT`.
 
+- Reassignment (lead + operator, 2026-11-20, answers the second Q7 block): the framing contract in F-MR-1 "Invalid
+  results" is final and will not be revisited. It is a product decision for an authorized-testing tool (ADR-0003), and
+  the engine needs no smuggling-specific code: it only must not add a framing-safety check. The task is reassigned
+  (owner cleared, status `todo`). Next implementer: continue from the merged rawhttp chunked work (`SplitChunkedBody`,
+  `SetChunkedBody`, added in 47f3f3e after the review; re-check the open Review findings) and deliver the rest of Scope.
+
 ## Plan (implementer, ≤15 lines)
 
 1. Compile and validate rule definitions and HTTPQL conditions.
@@ -155,7 +161,7 @@ Progress: Completed the chunked-body decoding, trailer extraction and serializat
 ## Handoff (implementer)
 - Completed: `rawhttp.SplitChunkedBody` and `Builder.SetChunkedBody` preserve trailer fields when decoding and rewriting chunked bodies. Tests cover populated and empty payloads, chunk extensions, and bare-LF trailers.
 - Verification: `make check` passed on the current branch, including Go race tests and all 402 web tests.
-- Blocker: The lead confirmed that the live rewrite contract requires forwarding ambiguously framed requests to support HTTP request smuggling tests. That requirement blocks completion of T-035.
+- Former blocker (resolved by reassignment, see Notes from lead): The lead confirmed that the live rewrite contract requires forwarding ambiguously framed requests to support HTTP request smuggling tests. That requirement blocks completion of T-035.
 - Pending: The rule engine, offline tester, golden fixtures, and benchmark remain open. For implementation to resume, revise the live contract to reject ambiguous framing or split out the offline-only tester.
 
 ## Review (reviewer)
