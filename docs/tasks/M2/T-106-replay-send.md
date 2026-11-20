@@ -13,6 +13,7 @@ paths:
   - internal/api/graphql/resolvers/stubs_replay_send.go
   - internal/history/capture.go
   - internal/history/capture_test.go
+  - internal/history/capture_internal_test.go
 spec:
   - docs/01-feature-spec.md#F-REP-2 (M2 contract: steps, entries, failures)
   - docs/01-feature-spec.md#F-ENV-1 (interpolation)
