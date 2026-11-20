@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -440,3 +440,17 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - Fixed: the mock strips only space/tab around `Content-Length`; tests cover `0xA0` (rejected) and space/tab
   (accepted). Schema and F-MR-1 now say body rules skip an empty response declaring a nonzero length and fill one
   with `Content-Length: 0`. `make gen` regenerated; `make check` green (43 files, 353 tests).
+
+### Review of `24c019a`
+
+- Verdict is `changes_requested`. Escalate the remaining finding to the lead under the review round limit.
+- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:210 — The tester enforces the 16 MiB cap on a
+  running total that still includes the original lengths of later headers. Through the generated
+  GraphQL schema, a FULL header replacement with a 1 MiB term rejects a 3,145,866-byte response
+  with 14 short headers followed by one 3 MiB header. Moving the long header first succeeds and
+  produces 15,728,689 bytes. Sum all header deltas, check the final size once before allocating
+  replacement text, and cover a response with both expanding and shrinking headers.
+- Verification assumed one desktop user within the documented tester limits. Both prior fixes
+  passed `make check` (43 web test files, 353 tests). `make gen` left the working tree clean.
+  `git diff --check main...HEAD` still reports four whitespace-only lines in the generated web SDL.
+  Browser E2E and Go integration were skipped for this contract, stub and mock change.
