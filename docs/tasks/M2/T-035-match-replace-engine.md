@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_progress
+status: blocked
 depends_on: [T-099]
 owner: "codex"
 branch: task/T-035-match-replace-engine
@@ -85,6 +85,13 @@ shape (T-105), with no storage and no API.
 3. Verify tester limits, golden cases, and header-rule performance.
 
 ## Out-of-scope change needed (if any)
+
+- Tester framing decision needed: F-MR-1 requires rejecting a body whose length differs from
+  `Content-Length`. For a valid HTTP/1.1 chunked message with a valid decimal `Content-Length`,
+  `rawhttp` uses chunked framing and ignores the declared length, and the T-099 mock skips
+  the length comparison whenever a Transfer-Encoding header is present. Should the tester
+  validate the decimal length fields and then follow chunked framing alone, reject the
+  combination, or compare the declared length to the chunked wire bytes or decoded payload?
 
 - Resolved (lead, 2026-11-20; see Notes from lead, Overflowing Content-Length): F-MR-1 says an empty tester response may declare any `Content-Length`,
   and also says the tester follows `rawhttp` framing. `rawhttp` rejects decimal
