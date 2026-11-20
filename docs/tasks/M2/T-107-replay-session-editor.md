@@ -3,7 +3,7 @@ id: T-107
 title: Replay session editor - connection bar, request editor, send/cancel, entry history, response; Send to Replay from History
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-034, T-104, T-103]
 owner: "DeepSeek V4.1 Flash (opencode)"
 branch: task/T-107-replay-session-editor
