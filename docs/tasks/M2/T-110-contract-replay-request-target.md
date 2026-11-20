@@ -3,13 +3,14 @@ id: T-110
 title: Contract - ReplaySession.requestTarget for the collections tree
 milestone: M2
 role: lead
-status: todo
+status: in_progress
 depends_on: [T-098]
-owner: ""
+owner: claude-sonnet-5-5
 branch: task/T-110-contract-replay-request-target
 paths:
   - internal/api/graphql/schema/replay.graphqls
   - internal/api/graphql/resolvers/stubs_replay.go
+  - gqlgen.yml
   - internal/api/graphql/generated/**
   - web/src/lib/api/generated/**
   - web/src/lib/api/mocks/replay.ts
@@ -38,6 +39,10 @@ The Replay tree can search by path without downloading every draft (T-034 review
 - Contract tasks run in sequence (shared generated files): land before T-033 starts.
 
 ## Plan (implementer, ≤15 lines)
+1. Schema field `requestTarget` with the rule; gqlgen.yml `resolver: true` for it (stub like Collection).
+2. Stub in resolvers/stubs_replay.go returns ErrNotImplemented.
+3. Mock computes it from the draft (REQUEST_LINE regex, UTF-8 replace, 2048 chars) + mock test.
+4. make gen, make check.
 
 ## Out-of-scope change needed (if any)
 
