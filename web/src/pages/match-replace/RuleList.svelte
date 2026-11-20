@@ -1,6 +1,7 @@
 <script lang="ts">
   // Collections tree (docs/02 §3.6): rules with an enable checkbox, drag to reorder or move
   // across collections, ↑/↓ buttons as the keyboard path, context menu from the command registry.
+  import type { CommandContext } from '$lib/commands/registry';
   import ContextMenu from '$lib/components/ContextMenu/ContextMenu.svelte';
   import type { MatchReplaceState } from './matchreplace.svelte';
 
@@ -158,7 +159,10 @@
                 checked={rule.enabled}
                 onchange={(event) => void mr.setEnabled(rule.id, event.currentTarget.checked)}
               />
-              <ContextMenu ids={['mr.rule.new', 'mr.rule.delete']}>
+              <ContextMenu
+                ids={['mr.rule.new', 'mr.rule.delete']}
+                context={{ page: 'match-replace', mrRule: rule.id } as CommandContext}
+              >
                 <button
                   type="button"
                   aria-current={mr.draft?.id === rule.id ? 'true' : undefined}
@@ -166,7 +170,6 @@
                     ? ''
                     : 'text-muted line-through'}"
                   onclick={() => open(rule.id)}
-                  oncontextmenu={() => (mr.menuRule = rule.id)}
                 >
                   {rule.name}
                 </button>

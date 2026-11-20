@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CombinedError } from '@urql/core';
 import { createMockClient } from '$lib/api/mocks/exchange';
 import { ExportMatchReplaceDocument } from '$lib/api/generated/graphql';
+import { registry } from '$lib/commands';
 import MatchReplacePage from './MatchReplacePage.svelte';
 
 beforeEach(() => localStorage.clear());
@@ -156,7 +157,10 @@ describe('MatchReplacePage', () => {
     await userEvent.type(within(editor()).getByLabelText('Name'), '?');
     release();
 
-    await waitFor(() => expect(within(editor()).getByLabelText('Name')).toHaveValue('Force 200?'));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Add debug header' })).not.toBeInTheDocument(),
+    );
+    expect(within(editor()).getByLabelText('Name')).toHaveValue('Force 200?');
   });
 
   it('toggles enabled and deletes a rule', async () => {
@@ -296,6 +300,39 @@ describe('MatchReplacePage', () => {
     expect(confirm).toHaveBeenCalledWith('Delete rule "Force 200"?');
     expect(screen.getByRole('button', { name: 'Add debug header' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Force 200' })).toBeInTheDocument();
+  });
+
+  it('keeps the saved values of an updated rule when the refresh fails', async () => {
+    const client = page();
+    await userEvent.click(await rule('Add debug header'));
+    await userEvent.type(within(editor()).getByLabelText('Name'), '!');
+    const realQuery = client.query.bind(client);
+    vi.spyOn(client, 'query').mockImplementation(((doc: unknown, vars: unknown, o: unknown) =>
+      JSON.stringify(doc).includes('matchReplaceCollections')
+        ? { toPromise: async () => ({ error: new Error('refresh failed') }) }
+        : realQuery(doc as never, vars as never, o as never)) as never);
+
+    await userEvent.click(within(editor()).getByRole('button', { name: 'Save' }));
+
+    await screen.findByRole('button', { name: 'Add debug header!' });
+    expect(within(editor()).getByLabelText('Name')).toHaveValue('Add debug header!');
+  });
+
+  it('palette delete targets the open rule after a row menu was dismissed', async () => {
+    page();
+    await rule('Add debug header');
+    await userEvent.pointer({
+      keys: '[MouseRight]',
+      target: screen.getByRole('button', { name: 'Force 200' }),
+    });
+    await screen.findByRole('menuitem', { name: 'Delete Match & Replace rule' });
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: 'Add debug header' }));
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    await registry.run('mr.rule.delete');
+
+    expect(confirm).toHaveBeenCalledWith('Delete rule "Add debug header"?');
   });
 
   it('keeps edits of the next rule when a slow save finishes', async () => {

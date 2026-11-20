@@ -4,6 +4,7 @@
   import { untrack } from 'svelte';
   import { getApi } from '$lib/api/client';
   import { registry } from '$lib/commands';
+  import type { CommandContext } from '$lib/commands/registry';
   import SplitPane from '$lib/components/SplitPane/SplitPane.svelte';
   import { MatchReplaceState } from './matchreplace.svelte';
   import RuleEditor from './RuleEditor.svelte';
@@ -69,12 +70,7 @@
     URL.revokeObjectURL(url);
   }
 
-  // A right-click outside any rule row drops the row target; rows set theirs after this (bubble).
-  $effect(() => {
-    const clear = () => (mr.menuRule = null);
-    window.addEventListener('contextmenu', clear, true);
-    return () => window.removeEventListener('contextmenu', clear, true);
-  });
+  const ruleOf = (ctx: CommandContext) => (ctx as { mrRule?: string }).mrRule;
 
   // The context menu of a rule row runs these through the registry (docs/06 §5).
   $effect(() =>
@@ -89,12 +85,9 @@
         id: 'mr.rule.delete',
         title: 'Delete Match & Replace rule',
         group: 'Match & Replace',
-        when: () => (mr.menuRule ?? mr.draft?.id) != null,
-        run: () => {
-          const id = mr.menuRule;
-          mr.menuRule = null;
-          return remove(id);
-        },
+        when: (ctx) => (ruleOf(ctx) ?? mr.draft?.id) != null,
+        // Row menus carry their row id; the palette has none and acts on the open rule.
+        run: (ctx) => remove(ruleOf(ctx)),
       },
     ),
   );

@@ -3,7 +3,7 @@ id: T-036
 title: Match & Replace page - collections, rule list, rule editor, import/export
 milestone: M2
 role: frontend
-status: changes_requested
+status: in_review
 depends_on: [T-099]
 owner: claude-sonnet-5.5
 branch: task/T-036-match-replace-page
@@ -103,8 +103,9 @@ Shortcuts: `window.prompt/confirm` for rename, new collection and unsaved-edit g
 - Verdict: changes_requested (reviewed `e4e23c5` against `69a3e46`).
 - Verification: `make check` passed, including 422 web tests. `git diff --check main...HEAD` passed. Browser E2E was not run and remains tracked under Out-of-scope. The integration target was not run because the diff changes no proxy, store or raw HTTP files.
 - The rework prevents a second create during refresh, renders condition validation, updates the draft baseline after a move, and checks the exact export payload.
-- [ ] [major] web/src/pages/match-replace/matchreplace.svelte.ts:237 — Updating an existing rule can succeed while the subsequent list refresh fails. The old rule still exists in the cached list, so the existence check passes and `select` silently replaces the saved values with the old values → Reconcile the list and clean draft from the mutation result. Test an existing-rule update followed by a failed refresh.
-- [ ] [major] web/src/pages/match-replace/MatchReplaceShell.svelte:88 — Dismissing a row menu leaves its ID in `mr.menuRule`. After selecting a different rule, running Delete from the command palette still targets the dismissed menu's rule → Pass the row ID in the menu's command context and use the active draft for palette invocations. Cover dismissing the row menu before running the palette command.
+- [x] [major] web/src/pages/match-replace/matchreplace.svelte.ts:237 — Updating an existing rule can succeed while the subsequent list refresh fails. The old rule still exists in the cached list, so the existence check passes and `select` silently replaces the saved values with the old values → Reconcile the list and clean draft from the mutation result. Test an existing-rule update followed by a failed refresh.
+- [x] [major] web/src/pages/match-replace/MatchReplaceShell.svelte:88 — Dismissing a row menu leaves its ID in `mr.menuRule`. After selecting a different rule, running Delete from the command palette still targets the dismissed menu's rule → Pass the row ID in the menu's command context and use the active draft for palette invocations. Cover dismissing the row menu before running the palette command.
 - [ ] [major] web/src/lib/api/generated/graphql.ts:55 — Round 2's path finding remains open for this file and `web/src/lib/api/generated/gql.ts` → Have the lead authorize the generated paths for codegen output.
-- [ ] [minor] web/src/pages/match-replace/MatchReplacePage.test.ts:159 — The delete race test can assert the new draft before the deferred refresh has applied, allowing it to pass even if the old delete clears the draft afterward → First wait for the deleted row to disappear, then assert that the new draft remains.
+- [x] [minor] web/src/pages/match-replace/MatchReplacePage.test.ts:159 — The delete race test can assert the new draft before the deferred refresh has applied, allowing it to pass even if the old delete clears the draft afterward → First wait for the deleted row to disappear, then assert that the new draft remains.
+- Rework round 3: update result is patched into the list before the refresh (failed refresh keeps saved values); `menuRule` state removed, row id travels in the menu's command context and palette runs use the open rule; delete-race test waits for the row to vanish first. Tests added for each. The generated-paths item stays unticked: lead authorization required.
 - Lead escalation: Round 3 reached the review limit in docs/07 §7. The lead owns the pending decision on generated paths and coordination of the remaining fixes.

@@ -82,8 +82,6 @@ export class MatchReplaceState {
   message = $state<string | null>(null);
   notice = $state<string | null>(null);
   busy = $state(false);
-  /** Row the context menu was opened on; its commands act on this rule, not the open one. */
-  menuRule = $state<string | null>(null);
 
   constructor(client: Client) {
     this.client = client;
@@ -234,6 +232,7 @@ export class MatchReplaceState {
         input: JSON.parse(sent),
       });
     }
+    this.patchRule(saved.id, saved); // an existing rule: so a failed refresh cannot revive old values
     await this.load();
     // Unedited since sending: adopt the server's copy. Edited meanwhile: keep the edits.
     if (this.draft === d && JSON.stringify(d.input) === sent && this.ruleById(saved.id))
