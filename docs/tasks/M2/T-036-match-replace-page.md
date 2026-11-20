@@ -3,7 +3,7 @@ id: T-036
 title: Match & Replace page - collections, rule list, rule editor, import/export
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-099]
 owner: claude-sonnet-5.5
 branch: task/T-036-match-replace-page
@@ -79,3 +79,15 @@ Shortcuts: `window.prompt/confirm` for rename, new collection and unsaved-edit g
   - [x] [major] web/src/lib/api/generated/graphql.ts:509 — This file and `web/src/lib/api/generated/gql.ts` are outside the task's declared paths. The handoff identifies both as codegen output → Have the lead authorize the generated paths in the task before resubmitting.
   - [x] [minor] web/src/pages/match-replace/MatchReplacePage.test.ts:123 — The successful drop test checks membership after dropping onto the only rule in the destination. An implementation that always appends would pass. The export test checks the version alone → Assert the move variables and resulting order, and verify the download filename and full mock payload.
   - [x] [minor] docs/tasks/M2/T-036-match-replace-page.md:65 — The handoff records no browser test for the user-visible page → Get the browser fixture path authorized and cover the workflow against the dev mock, or record the browser coverage dependency explicitly with the lead.
+
+### Round 2
+
+- Verdict: changes_requested (reviewed `b64cdc2`).
+- Verification: `make check` passed, including 419 web tests. No proxy, store or raw HTTP files changed. Browser E2E was not run.
+- The rework covers project switching, successful saves that finish after a rule switch, row-bound context-menu deletion, and rollback when a different rule's toggle succeeds. The browser fixture dependency is recorded in the handoff.
+- [ ] [major] web/src/lib/api/generated/graphql.ts:55 — This file and `web/src/lib/api/generated/gql.ts` still fall outside the declared paths. The handoff requests authorization → Have the lead add the generated paths before resubmitting.
+- [ ] [major] web/src/pages/match-replace/matchreplace.svelte.ts:210 — Save becomes available before the refresh completes and before a new draft adopts its saved ID. A second save during a slow refresh creates a duplicate. If the refresh fails, the successful create can disappear from the editor because selection uses the stale list → Reconcile the draft with the mutation result and guard duplicate submits through reconciliation. Test delayed and failed refreshes after a successful create.
+- [ ] [major] web/src/pages/match-replace/matchreplace.svelte.ts:240 — Delete records whether the open draft belongs to the deleted rule before awaiting a refresh. If the user opens and edits another rule during that refresh, the old delete clears the new draft. Collection deletion has the same race at line 330 → Check the current draft against the deleted entity at completion and cover a switch during the refresh.
+- [ ] [major] web/src/pages/match-replace/RuleEditor.svelte:50 — The form renders only the QueryBar's span error for Condition. A condition over 64 KiB returns `BAD_INPUT` and sets `mr.errors.condition`, which the form never renders → Show the condition's field error and cover this case alongside the existing `BAD_QUERY` test.
+- [ ] [minor] web/src/pages/match-replace/matchreplace.svelte.ts:304 — Moving the open rule updates its draft collection ID but leaves the old ID in the baseline. A clean draft then prompts the user to discard changes → Update the baseline collection ID while preserving any actual edits.
+- [ ] [minor] web/src/pages/match-replace/MatchReplacePage.test.ts:177 — Export assertions cover the filename, version, and collection names. Omitting rule fields could still pass those assertions and the subsequent import count check → Compare the downloaded text with the mock's export response.
