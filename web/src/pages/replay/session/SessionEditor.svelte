@@ -56,7 +56,9 @@
   const responseText = $derived(response ? messageText(response) : '');
   const size = (bytes: string) => {
     const n = Number(bytes);
-    return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   };
 </script>
 

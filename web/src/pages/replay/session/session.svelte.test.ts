@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Client, cacheExchange } from '@urql/core';
 import {
   CancelReplaySendDocument,
   CreateReplaySessionDocument,
   SendReplaySessionDocument,
   UpdateReplaySessionDraftDocument,
 } from '$lib/api/generated/graphql';
-import { createMockClient } from '$lib/api/mocks/exchange';
+import { createMockClient, mockHistoryExchange } from '$lib/api/mocks/exchange';
 import { SessionEditorState, toBase64 } from './session.svelte';
 
 const enc = (text: string) => new TextEncoder().encode(text);
@@ -115,5 +116,48 @@ describe('SessionEditorState', () => {
     expect(ops).toEqual(['update']);
     // The response pane keeps the entry that was open.
     expect(state.viewed?.id).toBe(state.entries[1]!.id);
+  });
+
+  it('mirrors an emptied draft instead of keeping the old bytes', async () => {
+    const { client } = recorder();
+    const state = new SessionEditorState(client, 'rs3');
+    await state.load();
+    expect(atob(state.session!.draft)).not.toBe('');
+
+    state.edit(new Uint8Array());
+    await state.flush();
+
+    expect(state.session!.draft).toBe('');
+  });
+
+  it('sends inputs without the __typename the cache adds to loaded objects', async () => {
+    // Same exchange chain as the real client (docs/06 §4): the cache adds `__typename` to every
+    // selection set, and the server rejects it inside an input type.
+    const client = new Client({
+      url: '/mock',
+      exchanges: [cacheExchange, mockHistoryExchange({ count: 5, liveIntervalMs: 0 })],
+    });
+    let sent: { connection: object; options: object } | undefined;
+    const real = client.mutation.bind(client);
+    client.mutation = ((query, vars, ctx) => {
+      if (query === SendReplaySessionDocument)
+        sent = (vars as { input: { connection: object; options: object } }).input;
+      return real(query, vars, ctx);
+    }) as typeof client.mutation;
+
+    const state = new SessionEditorState(client, 'rs3');
+    await state.load();
+    // The regression setup: the loaded objects do carry the extra field.
+    expect(state.session!.connection).toHaveProperty('__typename');
+
+    await state.send();
+
+    expect(sent!.connection).toEqual({ host: 'api.example.com', port: 443, tls: true, sni: null });
+    expect(sent!.options).toEqual({
+      followRedirects: false,
+      updateContentLength: true,
+      timeoutMs: 60000,
+      applyMatchReplace: false,
+    });
   });
 });

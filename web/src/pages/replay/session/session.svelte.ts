@@ -48,6 +48,21 @@ export function requestBytes(entry: Entry): Uint8Array {
 export const messageText = (m: { head: string; body: string }): string =>
   new TextDecoder().decode(bytesOf(m.head)) + new TextDecoder().decode(bytesOf(m.body));
 
+/** The stored objects carry `__typename` (urql's cacheExchange adds it), which inputs reject. */
+export const connectionInput = (c: Connection): ReplayConnectionInput => ({
+  host: c.host,
+  port: c.port,
+  tls: c.tls,
+  sni: c.sni,
+});
+
+export const optionsInput = (o: Options): ReplayOptionsInput => ({
+  followRedirects: o.followRedirects,
+  updateContentLength: o.updateContentLength,
+  timeoutMs: o.timeoutMs,
+  applyMatchReplace: o.applyMatchReplace,
+});
+
 function message(e: unknown): string {
   const err = e as { graphQLErrors?: { message: string }[]; message?: string } | undefined;
   return err?.graphQLErrors?.[0]?.message ?? err?.message ?? 'Request failed';
@@ -172,7 +187,7 @@ export class SessionEditorState {
           applyMatchReplace: options.applyMatchReplace ?? s.options.applyMatchReplace,
         },
       }),
-      ...(input.draft && { draft: input.draft }),
+      ...(input.draft != null && { draft: input.draft }),
     };
   }
 
@@ -186,7 +201,11 @@ export class SessionEditorState {
       const r = await this.client
         .mutation(SendReplaySessionDocument, {
           id: this.sessionId,
-          input: { raw, connection: this.connection, options: this.options },
+          input: {
+            raw,
+            connection: connectionInput(this.connection),
+            options: optionsInput(this.options),
+          },
         })
         .toPromise();
       if (r.error || !r.data) {
@@ -226,7 +245,7 @@ export class SessionEditorState {
     if (next) void this.selectEntry(next.id);
   }
 
-  /** The tab is going away: save what is pending. */
+  /** The tab is going away: save what is pending. A failed save has no UI left to show it in. */
   dispose(): void {
     void this.flush();
   }
