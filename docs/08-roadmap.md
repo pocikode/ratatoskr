@@ -85,6 +85,7 @@ Only T-109 edits `internal/app`; backend tasks are tested through their own pack
 | T-038 | Original/Modified viewer toggle + edited markers in history | F | T-030 |
 | T-039 | E2E for M2 | Q | T-109, T-032, T-107, T-108, T-038 |
 | T-112 | CI green: race-aware matchreplace time bound, deterministic proxy 502 test | Q | — |
+| T-113 | Replay: `ReplaySession.sending`, cancel in-flight sends on session/collection delete | B | T-106 |
 
 ## M3 — Automate, Files, Search, Findings, Exports, Tasks
 
