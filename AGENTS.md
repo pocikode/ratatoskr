@@ -8,8 +8,8 @@ These rules apply to every AI agent (Claude Code, OpenCode, Codex, any model). T
 1. This file (always).
 2. Your task file `docs/tasks/*/T-###-*.md` — it lists your role, allowed `paths`, dependencies and the spec sections to read.
 3. Only the spec sections your task links. Doc map: `docs/00-overview.md §6`.
-Do not start coding without a task file. If you were asked to do something with no task file, ask the operator for one or
-(lead role only) create it from `docs/tasks/TEMPLATE.md`.
+   Do not start coding without a task file. If you were asked to do something with no task file, ask the operator for one or
+   (lead role only) create it from `docs/tasks/TEMPLATE.md`.
 
 ## Hard rules (violations = automatic `changes_requested`)
 1. **Stay in your lane.** Modify only files matching your task's `paths`. Need more? Write it under "Out-of-scope change needed" in the task file and stop.
@@ -24,6 +24,14 @@ Do not start coding without a task file. If you were asked to do something with 
 10. Don't touch `main` directly. Work in your task branch/worktree. Conventional Commits with task scope: `feat(T-014): …`.
 11. **This repo is a GitHub fork of `dstotijn/hetty`.** Never open PRs, issues or pushes against the upstream repo. Always target our repo explicitly:
     `gh pr create --repo OWNER/ratatoskr --base main …`. If `gh` would default to `dstotijn/hetty`, stop and tell the operator.
+
+## Autonomous mode (when started by the orchestrator)
+If you were started by the lead via Herdr (`docs/09-orchestration.md`), nobody is watching your terminal:
+- Never ask questions in the terminal and never wait for a reply.
+- Product/scope question → write `Question for lead:` under `## Plan` in the task file, set `status: blocked`, commit, stop.
+- Technical detail inside your `paths` → pick the simplest option that meets the spec and note it in Handoff.
+- A command or permission is refused → set `status: blocked` with the exact command, stop.
+- End every turn with the task file updated: the orchestrator reads the file, not your screen.
 
 ## Tech quick reference
 - Go: `go 1.27`, `CGO_ENABLED=0`, modern idioms required — see `docs/05-go-conventions.md` (generic methods, `encoding/json/v2`, iterators, `errors.AsType`, `new(expr)`, `sync.WaitGroup.Go`, `os.Root`, `testing/synctest`, `slog`).
