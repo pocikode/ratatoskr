@@ -100,6 +100,26 @@ func TestBuilderSetChunkedBody(t *testing.T) {
 	}
 }
 
+func TestBuilderSetHeadersAndHead(t *testing.T) {
+	t.Parallel()
+	req := request(t, "POST / HTTP/1.1\r\nHost:  a\r\nX-Old: 1\r\nContent-Length: 2\r\n\r\nhi")
+	var hs []Header
+	for _, h := range req.Headers() {
+		if h.Name != "X-Old" {
+			hs = append(hs, h)
+		}
+	}
+	hs = append(hs, Header{Name: "X-New", Value: "2"}, Header{Raw: "X-Raw:3\r\n"})
+	b := req.Builder().SetHeaders(hs)
+	const head = "POST / HTTP/1.1\r\nHost:  a\r\nContent-Length: 2\r\nX-New: 2\r\nX-Raw:3\r\n\r\n"
+	if got := b.Head(); string(got) != head {
+		t.Errorf("Head() = %q, want %q", got, head)
+	}
+	if got := b.Bytes(); string(got) != head+"hi" {
+		t.Errorf("Bytes() = %q, want %q", got, head+"hi")
+	}
+}
+
 func TestBuilderStatusLine(t *testing.T) {
 	t.Parallel()
 	res := response(t, "", "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi")

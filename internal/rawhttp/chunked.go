@@ -13,20 +13,30 @@ import (
 // maxChunkLine bounds a chunk-size line or a trailer field.
 const maxChunkLine = 8 << 10
 
-// SplitChunkedBody decodes one complete wire body and returns its trailer
-// fields as a slice that aliases wire, excluding the final blank line.
+// SplitChunkedBody decodes one complete wire chunked body (as [Message.Body]
+// returns it, chunk lines and trailers included) into its payload and trailer
+// section. The payload is a new slice never longer than wire. The trailer
+// aliases wire and must not be modified: the trailer fields with their line
+// endings, excluding the final blank line. Bytes after the final blank line
+// are an [ErrFraming] error.
 func SplitChunkedBody(wire []byte) (payload, trailer []byte, err error) {
 	src := bytes.NewReader(wire)
 	c := &chunkedReader{br: bufio.NewReader(src)}
-	payload, err = io.ReadAll(c)
-	if err != nil {
+	// Decoding only drops framing, so the payload fits in len(wire) bytes.
+	buf := bytes.NewBuffer(make([]byte, 0, len(wire)))
+	if _, err = buf.ReadFrom(io.LimitReader(c, int64(len(wire)))); err != nil {
 		return nil, nil, err
 	}
 	if src.Len()+c.br.Buffered() != 0 {
 		return nil, nil, fmt.Errorf("rawhttp: %w: bytes after chunked body", ErrFraming)
 	}
+	if c.state != stateChunkDone {
+		return nil, nil, io.ErrUnexpectedEOF
+	}
+	// The final blank line was the last line read (nothing follows it), so
+	// the trailer lines sit right before it.
 	end := len(wire) - len(c.line)
-	return payload, wire[end-c.trailerBytes : end], nil
+	return buf.Bytes(), wire[end-c.trailerBytes : end], nil
 }
 
 // chunkedReader reads a chunked body (RFC 9112 §7.1) leniently: bare LF line

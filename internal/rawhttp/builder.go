@@ -89,6 +89,14 @@ func (b *Builder) DelHeader(name string) *Builder {
 	return b
 }
 
+// SetHeaders replaces the whole header block with hs, in order. A field with a
+// non-empty Raw is written as Raw (terminator included); others are serialized
+// from Name and Value. The builder keeps hs; the caller must not modify it.
+func (b *Builder) SetHeaders(hs []Header) *Builder {
+	b.headers, b.headersSet = hs, true
+	return b
+}
+
 // SetBody replaces the body and re-frames it with Content-Length, dropping any
 // Transfer-Encoding field. Without SetBody the original body is streamed as
 // received.
@@ -134,6 +142,10 @@ func (b *Builder) WriteTo(w io.Writer) (int64, error) {
 	body, err := io.Copy(w, b.m.Body())
 	return int64(len(head)) + body, err
 }
+
+// Head returns the re-serialized head, final empty line included, without
+// reading the body.
+func (b *Builder) Head() []byte { return b.head() }
 
 // Bytes returns the re-serialized message.
 func (b *Builder) Bytes() []byte {
