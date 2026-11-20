@@ -537,6 +537,17 @@ export function createMatchReplaceMock(schema: GraphQLSchema) {
           Number(lens[0]) !== bodyLen
         )
           throw fail('BAD_INPUT', 'raw body length does not match Content-Length');
+        // An unframed request has no body (internal/rawhttp FramingNone): trailing bytes are a second message.
+        if (
+          kind === 'REQUEST' &&
+          !lens.length &&
+          !fields.some((h) => /^transfer-encoding:/i.test(h)) &&
+          bodyLen > 0
+        )
+          throw fail(
+            'BAD_INPUT',
+            'raw request has a body but no Content-Length or Transfer-Encoding',
+          );
         const out = applyRule(draft, text);
         return { output: btoa(out), conditionMatched: true, changed: out !== text };
       },

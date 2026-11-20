@@ -353,6 +353,8 @@ describe('match & replace mock', () => {
       'POST / HTTP/1.1\r\nContent-Length: 4\r\n\r\na',
       'POST / HTTP/1.1\r\nContent-Length: 1\r\n\r\nab',
       'POST / HTTP/1.1\r\nContent-Length: x\r\n\r\na',
+      // No framing headers: a request has no body, so trailing bytes are outside the message.
+      'POST / HTTP/1.1\r\nHost: a.test\r\n\r\na',
     ])
       expect(code(await tester(m, { r: reqBB, k: 'REQUEST', raw: btoa(partial) }))).toBe(
         'BAD_INPUT',

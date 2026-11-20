@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -88,7 +88,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - How to verify: `make gen` (no diff), `make check`; `cd web && bunx --bun vitest run src/lib/api/mocks/matchreplace.test.ts`.
 - Known limitations: mock tester only does STRING/FULL `UPDATE_RAW` on headers/bodies plus header `ADD`, and treats
   every condition as matched, and leaves chunked, content-coded and bodyless (1xx/204/304) response bodies unchanged (`shortcut:` comment);
-  the tester rejects a body whose length differs from `Content-Length` (also in the contract); mock HTTPQL check only flags unterminated strings; mock regex check
+  the tester rejects a body whose length differs from `Content-Length`, and trailing bytes on an unframed request (also in the contract); mock HTTPQL check only flags unterminated strings; mock regex check
   is JS `RegExp` plus a look-around/backref reject, not RE2.
 - Follow-ups (proposed tasks): none; T-035/T-102/T-036/T-108 can start.
 
@@ -506,7 +506,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 - Verdict is `changes_requested`. The schema, F-MR-1 size budget and T-108 now agree that
   the UI sends unwrapped base64 in GraphQL variables. Escalate the remaining finding
   to the lead under the review round limit.
-- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:533 — The tester treats trailing
+- [x] [major] web/src/lib/api/mocks/matchreplace.ts:533 — The tester treats trailing
   bytes as a request body when neither Content-Length nor Transfer-Encoding is present.
   Through the generated schema, a POST with no framing headers and one byte after the
   header terminator matched a STRING body draft and returned a newly framed two-byte body.
@@ -514,6 +514,10 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   so those bytes are outside the single input message. Reject trailing bytes in
   this case with BAD_INPUT before applying the draft. Keep the existing behavior
   for a header-only request when a FULL draft adds a body.
+  → Fixed: the mock rejects a request with bytes after the head and neither `Content-Length` nor
+    `Transfer-Encoding` (`BAD_INPUT`, matching rawhttp `FramingNone`); test added, the header-only FULL case
+    still passes. F-MR-1 tester rules and the `testMatchReplace` error text state the rule; T-102 gained an
+    acceptance criterion for it. `make gen` regenerated, `make check` green.
 - Verification assumed one desktop user within the documented project and tester limits.
   `make check` passed (43 Vitest files, 353 tests) and `make gen` left the working tree
   clean before this review note. All changed files are within the task paths.

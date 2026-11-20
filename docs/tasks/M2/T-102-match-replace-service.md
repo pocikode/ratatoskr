@@ -37,6 +37,8 @@ Rules and collections persist per project, the engine always runs the current en
 - [ ] After `updateMatchReplaceRule`/`setMatchReplaceRuleEnabled` the engine's next `Request` call uses the new list (test);
       `Reload` after a project switch loads that project's rules.
 - [ ] `testMatchReplace` resolver returns output/conditionMatched/changed for a draft rule without saving it.
+- [ ] `testMatchReplace` rejects a request with bytes after the head and neither `Content-Length` nor
+      `Transfer-Encoding` (`BAD_INPUT`, rawhttp `FramingNone`); a header-only request with a `FULL` body rule still gains a body (test).
 - [ ] Tester output over 16 MiB is `BAD_INPUT`, detected while producing replacement bytes (before allocating or
       base64-encoding the full result); test with a small input whose replacement crosses the cap (F-MR-1 size budget).
 - [ ] `make check` green.
