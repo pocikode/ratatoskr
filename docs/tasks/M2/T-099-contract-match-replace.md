@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -500,3 +500,22 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   the documented project and tester limits. `git diff --check main...HEAD` flagged
   four whitespace-only lines in the generated web schema. Full checks, generation,
   browser E2E and Go integration were not rerun.
+
+### Review of `0f9298a`
+
+- Verdict is `changes_requested`. The schema, F-MR-1 size budget and T-108 now agree that
+  the UI sends unwrapped base64 in GraphQL variables. Escalate the remaining finding
+  to the lead under the review round limit.
+- [ ] [major] web/src/lib/api/mocks/matchreplace.ts:533 — The tester treats trailing
+  bytes as a request body when neither Content-Length nor Transfer-Encoding is present.
+  Through the generated schema, a POST with no framing headers and one byte after the
+  header terminator matched a STRING body draft and returned a newly framed two-byte body.
+  The wire parser selects FramingNone for that request (internal/rawhttp/read.go:375),
+  so those bytes are outside the single input message. Reject trailing bytes in
+  this case with BAD_INPUT before applying the draft. Keep the existing behavior
+  for a header-only request when a FULL draft adds a body.
+- Verification assumed one desktop user within the documented project and tester limits.
+  `make check` passed (43 Vitest files, 353 tests) and `make gen` left the working tree
+  clean before this review note. All changed files are within the task paths.
+  `git diff --check main...HEAD` flags four whitespace-only lines in generated web SDL.
+  Browser E2E and Go integration were skipped for this contract, stub and mock change.
