@@ -155,13 +155,9 @@ func TestOriginFormForeignHostIsMisdirected(t *testing.T) {
 func TestUpstreamErrorIs502AndRecorded(t *testing.T) {
 	t.Parallel()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	dead := ln.Addr().String()
-	_ = ln.Close() // nothing listens there now
+	// A privileged port no unprivileged test process can listen on and the kernel
+	// never hands out for ":0", so no parallel test can take it over.
+	dead := "127.0.0.1:1"
 
 	r := startProxy(t)
 
