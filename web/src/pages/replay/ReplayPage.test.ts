@@ -26,6 +26,35 @@ const page = (projectId = 'p1') =>
   render(ReplayPage, { client: createMockClient({ count: 5, liveIntervalMs: 0 }), projectId });
 const tree = () => screen.findByRole('tree', { name: 'Sessions' });
 
+/**
+ * Mock client whose collection loads from the `gateFrom`-th on wait for `release()`;
+ * `hide` drops that session from the first load (e.g. created elsewhere a moment ago).
+ */
+function gatedClient(gateFrom: number, hide?: string) {
+  const client = createMockClient({ count: 5, liveIntervalMs: 0 });
+  const real = client.query.bind(client);
+  let calls = 0;
+  let release = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  client.query = ((query, vars, ctx) => {
+    if (query !== ReplayCollectionsDocument) return real(query, vars, ctx);
+    const n = ++calls;
+    return {
+      toPromise: async () => {
+        const r = await real(query, vars, ctx).toPromise();
+        if (n >= gateFrom) await gate;
+        if (n > 1 || !hide) return r;
+        const cols = (r.data as ReplayCollectionsQuery).replayCollections.map((c) => ({
+          ...c,
+          sessions: c.sessions.filter((s) => s.id !== hide),
+        }));
+        return { ...r, data: { replayCollections: cols } };
+      },
+    };
+  }) as typeof client.query;
+  return { client, calls: () => calls, release: () => release() };
+}
+
 describe('ReplayPage', () => {
   it('lists collections and sessions and filters by name, host or path', async () => {
     page();
@@ -102,33 +131,10 @@ describe('ReplayPage', () => {
     localStorage.setItem('replay.tabs.p1', JSON.stringify({ open: ['rs7'], active: 'rs7' }));
     window.location.hash = '#/replay/session/rs3';
     await waitFor(() => expect(router.location.params).toEqual(['session', 'rs3']));
-    const client = createMockClient({ count: 5, liveIntervalMs: 0 });
-    const real = client.query.bind(client);
-    let calls = 0;
-    let release = () => {};
-    const gate = new Promise<void>((r) => (release = r));
-    client.query = ((query, vars, ctx) => {
-      if (query !== ReplayCollectionsDocument) return real(query, vars, ctx);
-      const n = ++calls;
-      return {
-        toPromise: async () => {
-          const r = await real(query, vars, ctx).toPromise();
-          if (n > 1) {
-            await gate;
-            return r;
-          }
-          // First load: rs3 does not exist yet (e.g. created elsewhere a moment ago).
-          const cols = (r.data as ReplayCollectionsQuery).replayCollections.map((c) => ({
-            ...c,
-            sessions: c.sessions.filter((s) => s.id !== 'rs3'),
-          }));
-          return { ...r, data: { replayCollections: cols } };
-        },
-      };
-    }) as typeof client.query;
+    const { client, calls, release } = gatedClient(2, 'rs3');
     render(ReplayPage, { client, projectId: 'p1' });
     await tree();
-    await waitFor(() => expect(calls).toBe(2));
+    await waitFor(() => expect(calls()).toBe(2));
     await new Promise((r) => setTimeout(r, 20));
     release();
     expect(await screen.findByRole('tab', { name: 'GET /api/v1/users' })).toHaveAttribute(
@@ -136,6 +142,37 @@ describe('ReplayPage', () => {
       'true',
     );
     expect(window.location.hash).toBe('#/replay/session/rs3');
+  });
+
+  it('drops a pending deep link when the route goes back to bare Replay', async () => {
+    const { client, calls, release } = gatedClient(2, 'rs3');
+    render(ReplayPage, { client, projectId: 'p1' });
+    await tree();
+    window.location.hash = '#/replay/session/rs3';
+    await waitFor(() => expect(calls()).toBe(2));
+    window.location.hash = '#/replay';
+    await waitFor(() => expect(router.location.params).toEqual([]));
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('tab')).toBeNull();
+    expect(window.location.hash).toBe('#/replay');
+  });
+
+  it('keeps tabs saved by a new shell when a retired one finishes loading', async () => {
+    const old = gatedClient(1);
+    const first = render(ReplayPage, { client: old.client, projectId: 'p1' });
+    await waitFor(() => expect(old.calls()).toBe(1));
+    first.unmount();
+
+    page('p1');
+    await userEvent.click(await screen.findByText('POST /login'));
+    await screen.findByRole('tab', { name: 'POST /login' });
+    old.release();
+    await new Promise((r) => setTimeout(r, 20));
+    // Asserted on storage: a remount would reopen the tab from the URL hash anyway.
+    const saved = JSON.parse(localStorage.getItem('replay.tabs.p1') ?? 'null');
+    expect(saved.open).toHaveLength(1);
+    expect(saved.active).toBe(saved.open[0]);
   });
 
   it('keeps a startup deep link until the project list has loaded', async () => {
@@ -206,6 +243,8 @@ describe('ReplayPage', () => {
     expect(created).toEqual(['CreateReplaySession']);
     release();
     await screen.findByRole('tab', { name: 'GET /' });
+    // The closing dialog blocks pointer events on the page until it is gone.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     await userEvent.click(screen.getByRole('button', { name: '+ Collection' }));
     await userEvent.type(await screen.findByLabelText('Name'), 'Once');

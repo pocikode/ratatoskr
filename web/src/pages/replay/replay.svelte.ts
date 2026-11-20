@@ -85,6 +85,7 @@ export class ReplayState {
     const r = await this.client
       .query(ReplayCollectionsDocument, {}, { requestPolicy: 'network-only' })
       .toPromise();
+    if (this.#disposed) return;
     if (r.error || !r.data) {
       this.error = r.error?.graphQLErrors[0]?.message ?? r.error?.message ?? 'Request failed';
       return;
@@ -99,6 +100,7 @@ export class ReplayState {
   }
 
   #save(): void {
+    if (this.#disposed) return;
     try {
       localStorage.setItem(
         storageKey(this.projectId),
@@ -131,6 +133,19 @@ export class ReplayState {
     if (!this.openIds.includes(id)) this.openIds = [...this.openIds, id];
     this.activeId = id;
     this.#save();
+  }
+
+  /** Drops a pending `open`, e.g. when the route went back to bare Replay meanwhile. */
+  supersede(): void {
+    this.#nav++;
+  }
+
+  #disposed = false;
+
+  /** The shell is gone: late completions must not overwrite tabs a newer shell has saved. */
+  dispose(): void {
+    this.#disposed = true;
+    this.#nav++;
   }
 
   close(id: string): void {

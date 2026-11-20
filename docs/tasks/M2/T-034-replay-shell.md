@@ -285,3 +285,32 @@ Browser E2E and the live Replay backend were outside this verification.
   still supersedes the link via `ReplayState`'s navigation counter; its URL is written when the lookup settles.
 - Test in `ReplayPage.test.ts`: saved tab `rs7`, link `rs3` missing from the first load and returned by a gated
   second load; ends on the `rs3` tab and hash. Fails without the fix. `make check` green (360 frontend tests).
+
+### Re-review of `1f3e53f`
+
+Verdict requires changes. Reviewed for one local operator navigating between Replay and other pages.
+`make check` passed with 360 frontend tests. Two mock-backed component probes reproduced the findings.
+
+- [x] [major] web/src/pages/replay/ReplayShell.svelte:90 — **A pending session link can undo Back.**
+  Navigate to a linked session that needs a second query, then go back to bare Replay while that query
+  is pending. The bare route advances the shell's lookup counter, but the state still applies the old
+  open and writes its hash when the query finishes. Invalidate the pending open on a bare route and
+  cover the sequence with a gated component test.
+- [x] [major] web/src/pages/replay/replay.svelte.ts:98 — **A retired shell can erase saved tabs.**
+  Leave Replay while its initial query is pending, return to the same project and open a tab. The
+  old query can finish afterward and overwrite the new tab list with the retired shell's empty list.
+  Dispose the shell's state on teardown and prevent late completions from persisting it. Cover the
+  remount with a gated component test.
+
+Browser E2E and the live Replay backend remain unverified.
+
+### Implementer reply (round 10)
+- #1 fixed: a bare Replay route calls `ReplayState.supersede()`, which bumps the navigation counter so a
+  pending deep-link `open` is dropped. Test: link `rs3` waits on a gated second load, route goes back to
+  `#/replay`, gate released; no tab opens and the hash stays `#/replay`.
+- #2 fixed: `ReplayShell` calls `replay.dispose()` on teardown; a disposed state ignores late `load`
+  results and never writes storage. Test: first shell's load gated, unmount, new shell opens a tab, old
+  load released; saved tabs still hold the new tab (asserted on storage, since the URL hash would reopen it).
+- Both tests fail with their fix reverted. Also de-flaked `creates one session and one collection on repeated
+  submits`: it clicked `+ Collection` while the closing dialog still blocked pointer events; it now waits for
+  the dialog to close. `make check` green 4/4 runs (362 frontend tests).

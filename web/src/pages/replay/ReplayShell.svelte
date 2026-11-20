@@ -67,6 +67,7 @@
   });
 
   $effect(() => registry.register(...replayCommands(replay)));
+  $effect(() => () => replay.dispose());
 
   // Route → tabs: the deep link `#/replay/session/<id>` wins over the stored active tab.
   const routed = $derived(
@@ -88,7 +89,10 @@
       };
       staleHash = undefined;
       if (id) void replay.open(id).finally(done);
-      else done();
+      else {
+        replay.supersede(); // Back to bare Replay: an older link still loading must not reopen
+        done();
+      }
     });
   });
   // Tabs → route, once the deep link has been applied.
