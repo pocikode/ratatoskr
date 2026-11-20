@@ -148,7 +148,7 @@ type compiled struct {
 	term      []byte
 	re        *regexp.Regexp
 	resume    *regexp.Regexp // (?s:.)(re): finds re after a given rune (see findAt)
-	tmpl      []piece        // term parsed as regexp.Expand reads it
+	tmpl      template       // term parsed as regexp.Expand reads it
 	cond      core.Node
 	addHeader [2]string // name, value of a header ADD
 }

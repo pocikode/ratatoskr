@@ -253,6 +253,7 @@ func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
 		// Mirrors regexp's FindAll loop one match at a time, so memory stays
 		// bounded by the output cap however dense the matches are.
 		var dst []byte
+		bounds := make([]int, 2*len(c.tmpl.refs)) // per match: each referenced name's group, resolved once
 		last, found := 0, false
 		for pos, prevEnd := 0, -1; pos <= len(src); {
 			m := c.findAt(src, pos)
@@ -272,11 +273,12 @@ func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
 				continue
 			}
 			found = true
-			if len(dst)+m[0]-last+expandLen(c.tmpl, m) > limit {
+			c.tmpl.resolve(bounds, m)
+			if len(dst)+m[0]-last+c.tmpl.expandLen(bounds) > limit {
 				return nil, errTooLarge
 			}
 			dst = append(dst, src[last:m[0]]...)
-			dst = expand(dst, c.tmpl, src, m)
+			dst = c.tmpl.expand(dst, src, bounds)
 			last = m[1]
 		}
 		if !found {
@@ -293,38 +295,50 @@ func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
 	return c.term, nil
 }
 
-// piece is a literal (groups == nil) or a capture group reference of a term.
-// A name lists every group with that name; the first that took part in the
-// match is used, as in regexp.Expand.
-type piece struct {
-	lit    string
-	groups []int
+// template is a REGEX term: literal pieces and references (ref >= 0) into
+// refs, one list per distinct referenced name. A name lists every group with
+// that name; the first that took part in the match is used, as in
+// regexp.Expand. Each list is resolved once per match, so expansion work per
+// match is the pieces plus the groups, never their product.
+type template struct {
+	pieces []piece
+	refs   [][]int
 }
 
-// group returns the bounds in m of p's first participating group.
-func (p piece) group(m []int) (int, int, bool) {
-	for _, g := range p.groups {
-		if 2*g+1 < len(m) && m[2*g] >= 0 {
-			return m[2*g], m[2*g+1], true
+type piece struct {
+	lit string
+	ref int // -1 for a literal
+}
+
+// resolve stores in bounds, for each ref, the bounds of its first
+// participating group in m (0, 0 if none took part).
+func (t *template) resolve(bounds, m []int) {
+	for r, gs := range t.refs {
+		bounds[2*r], bounds[2*r+1] = 0, 0
+		for _, g := range gs {
+			if 2*g+1 < len(m) && m[2*g] >= 0 {
+				bounds[2*r], bounds[2*r+1] = m[2*g], m[2*g+1]
+				break
+			}
 		}
 	}
-	return 0, 0, false
 }
 
 // parseTemplate splits a REGEX term into pieces with regexp.Expand's rules
 // ($$, $n, $name, ${name}; a malformed $ is literal; an unknown name expands to
 // nothing), so the size of an expansion is known before it is built.
-func parseTemplate(re *regexp.Regexp, t string) []piece {
-	var ps []piece
+func parseTemplate(re *regexp.Regexp, t string) template {
+	var tm template
 	var lit strings.Builder
 	var named map[string][]int
+	slot := map[string]int{}                // referenced name -> index in tm.refs
 	groups := make([]int, re.NumSubexp()+1) // groups[n:][:1:1] is the shared slice {n}
 	for i := range groups {
 		groups[i] = i
 	}
 	flush := func() {
 		if lit.Len() > 0 {
-			ps = append(ps, piece{lit: lit.String()})
+			tm.pieces = append(tm.pieces, piece{lit: lit.String(), ref: -1})
 			lit.Reset()
 		}
 	}
@@ -333,7 +347,7 @@ func parseTemplate(re *regexp.Regexp, t string) []piece {
 		lit.WriteString(before)
 		if !ok {
 			flush()
-			return ps
+			return tm
 		}
 		t = after
 		if strings.HasPrefix(t, "$") {
@@ -367,7 +381,13 @@ func parseTemplate(re *regexp.Regexp, t string) []piece {
 		}
 		if gs != nil {
 			flush()
-			ps = append(ps, piece{groups: gs})
+			r, seen := slot[name]
+			if !seen {
+				r = len(tm.refs)
+				slot[name] = r
+				tm.refs = append(tm.refs, gs)
+			}
+			tm.pieces = append(tm.pieces, piece{ref: r})
 		}
 	}
 }
@@ -416,26 +436,26 @@ func templateName(s string) (name, rest string, ok bool) {
 	return name, rest, true
 }
 
-// expandLen is the size expand appends for match m.
-func expandLen(ps []piece, m []int) int {
+// expandLen is the size expand appends for the resolved bounds.
+func (t *template) expandLen(bounds []int) int {
 	n := 0
-	for _, p := range ps {
-		if p.groups == nil {
+	for _, p := range t.pieces {
+		if p.ref < 0 {
 			n += len(p.lit)
-		} else if i, j, ok := p.group(m); ok {
-			n += j - i
+		} else {
+			n += bounds[2*p.ref+1] - bounds[2*p.ref]
 		}
 	}
 	return n
 }
 
-// expand appends the term for match m of src to dst.
-func expand(dst []byte, ps []piece, src []byte, m []int) []byte {
-	for _, p := range ps {
-		if p.groups == nil {
+// expand appends the term for the resolved bounds of a match of src to dst.
+func (t *template) expand(dst, src []byte, bounds []int) []byte {
+	for _, p := range t.pieces {
+		if p.ref < 0 {
 			dst = append(dst, p.lit...)
-		} else if i, j, ok := p.group(m); ok {
-			dst = append(dst, src[i:j]...)
+		} else {
+			dst = append(dst, src[bounds[2*p.ref]:bounds[2*p.ref+1]]...)
 		}
 	}
 	return dst

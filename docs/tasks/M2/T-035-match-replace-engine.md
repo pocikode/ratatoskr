@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -296,6 +296,7 @@ Both round 4 fixes passed the scoped race tests for regex replacement and templa
 
 Verdict: **changes_requested**. The compile-time finding from round 5 is resolved. The review limit in §7 of the agent workflow has been exceeded. The lead owns disposition of the remaining finding.
 
-- [ ] [major] internal/matchreplace/apply.go:305 — Expansion walks the shared duplicate-name slice for every reference, in both the size check and the write pass. A late or absent participating group makes the work per match proportional to the product of reference and group counts, even for an empty expansion. Resolve each referenced name once per match, reuse that result in both passes, and cover repeated references to a late or absent group.
+- [x] [major] internal/matchreplace/apply.go:305 — Expansion walks the shared duplicate-name slice for every reference, in both the size check and the write pass. A late or absent participating group makes the work per match proportional to the product of reference and group counts, even for an empty expansion. Resolve each referenced name once per match, reuse that result in both passes, and cover repeated references to a late or absent group.
+  Fixed: a term is a `template` of pieces plus `refs`, one group list per distinct referenced name; `resolve` picks each name's first participating group once per match into a reused bounds slice, and `expandLen`/`expand` both read it. Per-match work is pieces + groups. `TestRegexSharedGroupsPerMatch` (999 absent groups + absent/late last group, 2^18 `${p}`, 100 matches) runs in well under a second. Benchmark unchanged: 69–73 µs/op, 360 allocs/op.
 
 The scoped race tests for regex replacement, template compilation, and status serialization passed, as did `git diff --check main...HEAD`. Full `make check`, `make test-int`, and request-smuggling verification were outside this review scope.

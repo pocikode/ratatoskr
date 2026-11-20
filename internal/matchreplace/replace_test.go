@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pocikode/ratatoskr/internal/apperr"
 )
@@ -122,8 +123,8 @@ func TestParseTemplateLinear(t *testing.T) { // not parallel: measures allocated
 	runtime.ReadMemStats(&before)
 	c := regexRule(t, `a`, term)
 	runtime.ReadMemStats(&after)
-	if len(c.tmpl) != 1 || c.tmpl[0].lit != strings.Repeat("$", 1<<19) {
-		t.Fatalf("pieces: %d", len(c.tmpl))
+	if len(c.tmpl.pieces) != 1 || c.tmpl.pieces[0].lit != strings.Repeat("$", 1<<19) {
+		t.Fatalf("pieces: %d", len(c.tmpl.pieces))
 	}
 	if n := after.TotalAlloc - before.TotalAlloc; n > 16<<20 {
 		t.Errorf("compiling allocated %d bytes", n)
@@ -139,11 +140,34 @@ func TestParseTemplateSharedGroups(t *testing.T) { // not parallel: measures all
 	runtime.ReadMemStats(&before)
 	c := regexRule(t, re, term)
 	runtime.ReadMemStats(&after)
-	if len(c.tmpl) != 1<<18 || len(c.tmpl[0].groups) != 1000 {
-		t.Fatalf("pieces: %d", len(c.tmpl))
+	if len(c.tmpl.pieces) != 1<<18 || len(c.tmpl.refs) != 1 || len(c.tmpl.refs[0]) != 1000 {
+		t.Fatalf("pieces: %d refs: %d", len(c.tmpl.pieces), len(c.tmpl.refs))
 	}
 	// ~45 MiB (pieces + append growth); a scan per reference allocated ~2 GiB.
 	if n := after.TotalAlloc - before.TotalAlloc; n > 96<<20 {
 		t.Errorf("compiling allocated %d bytes", n)
+	}
+}
+
+// TestRegexSharedGroupsPerMatch: many references to a name whose 1000 groups
+// are all absent (or only the last takes part) resolve the name once per match,
+// not once per reference: 100 matches x 2^18 refs x 1000 groups would take minutes.
+func TestRegexSharedGroupsPerMatch(t *testing.T) {
+	t.Parallel()
+	groups := strings.Repeat("(?P<p>a)|", 999)
+	term := strings.Repeat("${p}", 1<<18)
+	for _, tc := range []struct{ re, src, want string }{
+		{groups + "(?P<p>a)|b", strings.Repeat("b", 100), ""},                         // absent
+		{groups + "(?P<p>b)", strings.Repeat("b", 100), strings.Repeat("b", 100<<18)}, // late
+	} {
+		c := regexRule(t, tc.re, term)
+		start := time.Now()
+		got, err := c.replace([]byte(tc.src), 64<<20)
+		if err != nil || string(got) != tc.want {
+			t.Fatalf("%.20q: len %d %v", tc.src, len(got), err)
+		}
+		if d := time.Since(start); d > 10*time.Second {
+			t.Errorf("replace took %v", d)
+		}
 	}
 }
