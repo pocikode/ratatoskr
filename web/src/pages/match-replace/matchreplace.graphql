@@ -1,0 +1,92 @@
+# Match & Replace page operations (T-036, F-MR-1, docs/02 §3.6), against
+# internal/api/graphql/schema/matchreplace.graphqls (T-099). No subscription:
+# the page refetches after its own mutations.
+
+fragment MatchReplaceRuleFields on MatchReplaceRule {
+  id
+  name
+  enabled
+  condition
+  sources
+  section
+  operation
+  matcher {
+    kind
+    value
+  }
+  term
+}
+
+fragment MatchReplaceCollectionFields on MatchReplaceCollection {
+  id
+  name
+  rules {
+    ...MatchReplaceRuleFields
+  }
+}
+
+query MatchReplaceCollections {
+  matchReplaceCollections {
+    ...MatchReplaceCollectionFields
+  }
+}
+
+query ExportMatchReplace {
+  exportMatchReplace
+}
+
+mutation CreateMatchReplaceCollection($name: String!) {
+  createMatchReplaceCollection(name: $name) {
+    ...MatchReplaceCollectionFields
+  }
+}
+
+mutation RenameMatchReplaceCollection($id: ID!, $name: String!) {
+  renameMatchReplaceCollection(id: $id, name: $name) {
+    id
+    name
+  }
+}
+
+mutation DeleteMatchReplaceCollection($id: ID!) {
+  deleteMatchReplaceCollection(id: $id)
+}
+
+mutation ReorderMatchReplaceCollections($ids: [ID!]!) {
+  reorderMatchReplaceCollections(ids: $ids) {
+    ...MatchReplaceCollectionFields
+  }
+}
+
+mutation CreateMatchReplaceRule($collectionId: ID!, $input: MatchReplaceRuleInput!) {
+  createMatchReplaceRule(collectionId: $collectionId, input: $input) {
+    ...MatchReplaceRuleFields
+  }
+}
+
+mutation UpdateMatchReplaceRule($id: ID!, $input: MatchReplaceRuleInput!) {
+  updateMatchReplaceRule(id: $id, input: $input) {
+    ...MatchReplaceRuleFields
+  }
+}
+
+mutation SetMatchReplaceRuleEnabled($id: ID!, $enabled: Boolean!) {
+  setMatchReplaceRuleEnabled(id: $id, enabled: $enabled) {
+    id
+    enabled
+  }
+}
+
+mutation MoveMatchReplaceRule($id: ID!, $collectionId: ID!, $index: Int!) {
+  moveMatchReplaceRule(id: $id, collectionId: $collectionId, index: $index) {
+    id
+  }
+}
+
+mutation DeleteMatchReplaceRule($id: ID!) {
+  deleteMatchReplaceRule(id: $id)
+}
+
+mutation ImportMatchReplace($json: String!) {
+  importMatchReplace(json: $json)
+}

@@ -52,6 +52,158 @@ export type EnvironmentVariableInput = {
   value: string;
 };
 
+/** A rule's matcher to store; same rules as `MatchReplaceMatcher`. */
+export type MatchReplaceMatcherInput = {
+  /** How to match. */
+  kind: MatchReplaceMatcherKind;
+  /**
+   * The string, pattern or name; must not be empty for `STRING`, `REGEX`, `NAME`
+   * except with `ADD`, which ignores the matcher (any kind and value, stored as
+   * given); at most 1 MiB. Dropped (stored empty) for `FULL` unless the operation
+   * is `ADD`.
+   */
+  value?: string;
+};
+
+/** How a rule finds what it changes. */
+export type MatchReplaceMatcherKind =
+  /** The whole section, or every item. `value` is ignored. */
+  | 'FULL'
+  /**
+   * A header name (case-insensitive) or query param name (case-sensitive). Only
+   * with `UPDATE_VALUE` and `REMOVE`. `value` must not be empty.
+   */
+  | 'NAME'
+  /**
+   * A Go RE2 regular expression; every match. RE2 has no look-around and no
+   * backreferences (`(?=…)`, `(?<=…)`, `\1` are invalid). An invalid pattern is
+   * `BAD_INPUT` with the RE2 error message. In the term, `$1`, `${name}` expand to
+   * capture groups and `$$` is a literal `$`. `value` must not be empty.
+   */
+  | 'REGEX'
+  /** Exact text, case-sensitive; every occurrence. `value` must not be empty. */
+  | 'STRING';
+
+/** What a rule does to its section. */
+export type MatchReplaceOperation =
+  /**
+   * Appends one header or param after the last one. The term is `Name: value`
+   * for headers (`BAD_INPUT` when the name is not an HTTP token or `:` is missing)
+   * and `name=value` (or `name`) for params, appended as written. The matcher is
+   * ignored.
+   */
+  | 'ADD'
+  /**
+   * Removes headers or params: `NAME` by name, `STRING`/`REGEX` when they match
+   * the item text (`Name: value` or `name=value`), `FULL` removes all. The term is
+   * ignored. Matchers: all four.
+   */
+  | 'REMOVE'
+  /**
+   * Replaces matched text in the method or status code token (`FULL` replaces the
+   * token). Only for `REQUEST_METHOD` and `RESPONSE_STATUS_CODE`.
+   * Matchers: `FULL`, `STRING`, `REGEX`.
+   */
+  | 'UPDATE'
+  /**
+   * Replaces matched text in the section text: the start line, the path, the raw
+   * query string, each header line on its own, or the body. With `FULL` the term
+   * replaces the whole text (every header line for header sections).
+   * Matchers: `FULL`, `STRING`, `REGEX`.
+   */
+  | 'UPDATE_RAW'
+  /**
+   * Changes header or query param values. `NAME` selects items by name and the
+   * term replaces the whole value; `STRING`/`REGEX` replace inside every item's
+   * value; `FULL` replaces every item's value. Matchers: all four.
+   */
+  | 'UPDATE_VALUE';
+
+/**
+ * A whole rule. Validation (`BAD_INPUT` unless noted, nothing changes on error):
+ * name 1-200 characters after trimming without control characters; `sources`
+ * empty; section x operation not valid; matcher kind not allowed for the
+ * operation; empty matcher value for `STRING`/`REGEX`/`NAME` (not checked for
+ * `ADD`, which ignores the matcher); invalid regex (the
+ * message carries the RE2 error); `ADD` header term not `Name: value`; term or
+ * matcher value over 1 MiB; condition over 64 KiB. An invalid `condition` is
+ * `BAD_QUERY` with `extensions.span`. Saving (not testing) also checks the
+ * project budget: the UTF-8 sum of all rules' conditions, matcher values and
+ * terms is at most 3 MiB.
+ */
+export type MatchReplaceRuleInput = {
+  /** HTTPQL condition, at most 64 KiB; empty (the default) means always. */
+  condition?: string;
+  /** Whether the rule applies. Default true. */
+  enabled?: boolean;
+  /** How the rule finds what it changes. */
+  matcher: MatchReplaceMatcherInput;
+  /** Display name (see `MatchReplaceRule.name`). */
+  name: string;
+  /** What the rule does. */
+  operation: MatchReplaceOperation;
+  /** The part of the message the rule works on. */
+  section: MatchReplaceSection;
+  /** Traffic the rule applies to; at least one, duplicates dropped. */
+  sources: Array<MatchReplaceSource>;
+  /** Replacement text, at most 1 MiB. Default empty. */
+  term?: string;
+};
+
+/**
+ * The part of a message a rule works on. `REQUEST_*` sections apply to requests,
+ * `RESPONSE_*` sections to responses. Valid operations per section:
+ * first line, path and body take `UPDATE_RAW`; method and status code take
+ * `UPDATE`; query and header take `UPDATE_RAW`, `UPDATE_VALUE`, `ADD`, `REMOVE`.
+ * WebSocket sections arrive with M4 (T-053).
+ */
+export type MatchReplaceSection =
+  /** The request body, after removing one `Content-Encoding` (see `MatchReplaceRule`). `UPDATE_RAW` only. */
+  | 'REQUEST_BODY'
+  /** The request line (`GET /a?b=c HTTP/1.1`, without CRLF). `UPDATE_RAW` only. */
+  | 'REQUEST_FIRST_LINE'
+  /**
+   * Request headers. `UPDATE_RAW` works on each header line (`Name: value`) on its
+   * own; `UPDATE_VALUE`, `ADD`, `REMOVE` on headers (names case-insensitive).
+   */
+  | 'REQUEST_HEADER'
+  /** The method token. `UPDATE` only. */
+  | 'REQUEST_METHOD'
+  /** The path of the request target, without `?` and query. `UPDATE_RAW` only. */
+  | 'REQUEST_PATH'
+  /**
+   * The query string of the request target. `UPDATE_RAW` works on the raw string
+   * after `?`; `UPDATE_VALUE`, `ADD`, `REMOVE` work on its `&`-separated params
+   * (names case-sensitive).
+   */
+  | 'REQUEST_QUERY'
+  /** The response body, after removing one `Content-Encoding`. `UPDATE_RAW` only. */
+  | 'RESPONSE_BODY'
+  /** The status line (`HTTP/1.1 200 OK`, without CRLF). `UPDATE_RAW` only. */
+  | 'RESPONSE_FIRST_LINE'
+  /** Response headers; same operations and rules as `REQUEST_HEADER`. */
+  | 'RESPONSE_HEADER'
+  /**
+   * The three-digit status code. `UPDATE` only; a result that is not three digits
+   * skips the rule (logged).
+   */
+  | 'RESPONSE_STATUS_CODE';
+
+/** Which traffic a rule applies to. */
+export type MatchReplaceSource =
+  /** Automate requests (stored now, applied once Automate lands). */
+  | 'AUTOMATE'
+  /** A message forwarded from the Intercept editor, after the user's edit. */
+  | 'INTERCEPT'
+  /** Plugin requests (stored now, applied once plugins land). */
+  | 'PLUGIN'
+  /** Traffic captured by the proxy, before Intercept holds it. */
+  | 'PROXY'
+  /** Replay sends whose session has "Apply Match & Replace" on. */
+  | 'REPLAY'
+  /** Workflow requests (stored now, applied once workflows land). */
+  | 'WORKFLOW';
+
 /** What happened to a project in a `projectChanged` event. */
 export type ProjectChangeKind =
   /** A project was created (including by duplication or as a temporary project). */
@@ -354,6 +506,96 @@ export type HistoryDeleteRequestsMutationVariables = Exact<{
 
 export type HistoryDeleteRequestsMutation = { deleteRequests: string };
 
+export type MatchReplaceRuleFieldsFragment = { id: string, name: string, enabled: boolean, condition: string, sources: Array<MatchReplaceSource>, section: MatchReplaceSection, operation: MatchReplaceOperation, term: string, matcher: { kind: MatchReplaceMatcherKind, value: string } };
+
+export type MatchReplaceCollectionFieldsFragment = { id: string, name: string, rules: Array<{ id: string, name: string, enabled: boolean, condition: string, sources: Array<MatchReplaceSource>, section: MatchReplaceSection, operation: MatchReplaceOperation, term: string, matcher: { kind: MatchReplaceMatcherKind, value: string } }> };
+
+export type MatchReplaceCollectionsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type MatchReplaceCollectionsQuery = { matchReplaceCollections: Array<{ id: string, name: string, rules: Array<{ id: string, name: string, enabled: boolean, condition: string, sources: Array<MatchReplaceSource>, section: MatchReplaceSection, operation: MatchReplaceOperation, term: string, matcher: { kind: MatchReplaceMatcherKind, value: string } }> }> };
+
+export type ExportMatchReplaceQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type ExportMatchReplaceQuery = { exportMatchReplace: string };
+
+export type CreateMatchReplaceCollectionMutationVariables = Exact<{
+  name: string;
+}>;
+
+
+export type CreateMatchReplaceCollectionMutation = { createMatchReplaceCollection: { id: string, name: string, rules: Array<{ id: string, name: string, enabled: boolean, condition: string, sources: Array<MatchReplaceSource>, section: MatchReplaceSection, operation: MatchReplaceOperation, term: string, matcher: { kind: MatchReplaceMatcherKind, value: string } }> } };
+
+export type RenameMatchReplaceCollectionMutationVariables = Exact<{
+  id: string | number;
+  name: string;
+}>;
+
+
+export type RenameMatchReplaceCollectionMutation = { renameMatchReplaceCollection: { id: string, name: string } };
+
+export type DeleteMatchReplaceCollectionMutationVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type DeleteMatchReplaceCollectionMutation = { deleteMatchReplaceCollection: string };
+
+export type ReorderMatchReplaceCollectionsMutationVariables = Exact<{
+  ids: Array<string | number> | string | number;
+}>;
+
+
+export type ReorderMatchReplaceCollectionsMutation = { reorderMatchReplaceCollections: Array<{ id: string, name: string, rules: Array<{ id: string, name: string, enabled: boolean, condition: string, sources: Array<MatchReplaceSource>, section: MatchReplaceSection, operation: MatchReplaceOperation, term: string, matcher: { kind: MatchReplaceMatcherKind, value: string } }> }> };
+
+export type CreateMatchReplaceRuleMutationVariables = Exact<{
+  collectionId: string | number;
+  input: MatchReplaceRuleInput;
+}>;
+
+
+export type CreateMatchReplaceRuleMutation = { createMatchReplaceRule: { id: string, name: string, enabled: boolean, condition: string, sources: Array<MatchReplaceSource>, section: MatchReplaceSection, operation: MatchReplaceOperation, term: string, matcher: { kind: MatchReplaceMatcherKind, value: string } } };
+
+export type UpdateMatchReplaceRuleMutationVariables = Exact<{
+  id: string | number;
+  input: MatchReplaceRuleInput;
+}>;
+
+
+export type UpdateMatchReplaceRuleMutation = { updateMatchReplaceRule: { id: string, name: string, enabled: boolean, condition: string, sources: Array<MatchReplaceSource>, section: MatchReplaceSection, operation: MatchReplaceOperation, term: string, matcher: { kind: MatchReplaceMatcherKind, value: string } } };
+
+export type SetMatchReplaceRuleEnabledMutationVariables = Exact<{
+  id: string | number;
+  enabled: boolean;
+}>;
+
+
+export type SetMatchReplaceRuleEnabledMutation = { setMatchReplaceRuleEnabled: { id: string, enabled: boolean } };
+
+export type MoveMatchReplaceRuleMutationVariables = Exact<{
+  id: string | number;
+  collectionId: string | number;
+  index: number;
+}>;
+
+
+export type MoveMatchReplaceRuleMutation = { moveMatchReplaceRule: { id: string } };
+
+export type DeleteMatchReplaceRuleMutationVariables = Exact<{
+  id: string | number;
+}>;
+
+
+export type DeleteMatchReplaceRuleMutation = { deleteMatchReplaceRule: string };
+
+export type ImportMatchReplaceMutationVariables = Exact<{
+  json: string;
+}>;
+
+
+export type ImportMatchReplaceMutation = { importMatchReplace: number };
+
 export type ReplaySessionRowFragment = { id: string, name: string, color: RequestColor | null, draft: string, connection: { host: string, port: number, tls: boolean } };
 
 export type ReplayCollectionRowFragment = { id: string, name: string, isDefault: boolean, sessions: Array<{ id: string, name: string, color: RequestColor | null, draft: string, connection: { host: string, port: number, tls: boolean } }> };
@@ -574,6 +816,8 @@ export const EnvironmentFieldsFragmentDoc = {"kind":"Document","definitions":[{"
 export const FilterPresetFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"FilterPresetFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"FilterPreset"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"alias"}},{"kind":"Field","name":{"kind":"Name","value":"query"}}]}}]} as unknown as DocumentNode<FilterPresetFieldsFragment, unknown>;
 export const HistoryRowFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"HistoryRow"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"HttpRequest"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"source"}},{"kind":"Field","name":{"kind":"Name","value":"host"}},{"kind":"Field","name":{"kind":"Name","value":"port"}},{"kind":"Field","name":{"kind":"Name","value":"tls"}},{"kind":"Field","name":{"kind":"Name","value":"method"}},{"kind":"Field","name":{"kind":"Name","value":"path"}},{"kind":"Field","name":{"kind":"Name","value":"query"}},{"kind":"Field","name":{"kind":"Name","value":"ext"}},{"kind":"Field","name":{"kind":"Name","value":"length"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}},{"kind":"Field","name":{"kind":"Name","value":"color"}},{"kind":"Field","name":{"kind":"Name","value":"note"}},{"kind":"Field","name":{"kind":"Name","value":"isDropped"}},{"kind":"Field","name":{"kind":"Name","value":"isTruncated"}},{"kind":"Field","name":{"kind":"Name","value":"editedFrom"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}},{"kind":"Field","name":{"kind":"Name","value":"editedBy"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}},{"kind":"Field","name":{"kind":"Name","value":"response"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"code"}},{"kind":"Field","name":{"kind":"Name","value":"length"}},{"kind":"Field","name":{"kind":"Name","value":"roundtripMs"}},{"kind":"Field","name":{"kind":"Name","value":"createdAt"}}]}}]}}]} as unknown as DocumentNode<HistoryRowFragment, unknown>;
 export const HistoryMessageFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"HistoryMessage"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"HttpRequest"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"editedFrom"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}},{"kind":"Field","name":{"kind":"Name","value":"editedBy"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}},{"kind":"Field","name":{"kind":"Name","value":"head"}},{"kind":"Field","name":{"kind":"Name","value":"bodyLength"}},{"kind":"Field","name":{"kind":"Name","value":"body"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"4194304"}},{"kind":"Argument","name":{"kind":"Name","value":"decode"},"value":{"kind":"BooleanValue","value":true}}]},{"kind":"Field","name":{"kind":"Name","value":"response"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"head"}},{"kind":"Field","name":{"kind":"Name","value":"bodyLength"}},{"kind":"Field","name":{"kind":"Name","value":"body"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"limit"},"value":{"kind":"IntValue","value":"4194304"}},{"kind":"Argument","name":{"kind":"Name","value":"decode"},"value":{"kind":"BooleanValue","value":true}}]}]}}]}}]} as unknown as DocumentNode<HistoryMessageFragment, unknown>;
+export const MatchReplaceRuleFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceRuleFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRule"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"condition"}},{"kind":"Field","name":{"kind":"Name","value":"sources"}},{"kind":"Field","name":{"kind":"Name","value":"section"}},{"kind":"Field","name":{"kind":"Name","value":"operation"}},{"kind":"Field","name":{"kind":"Name","value":"matcher"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"Field","name":{"kind":"Name","value":"term"}}]}}]} as unknown as DocumentNode<MatchReplaceRuleFieldsFragment, unknown>;
+export const MatchReplaceCollectionFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceCollectionFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceCollection"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"rules"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceRuleFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceRuleFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRule"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"condition"}},{"kind":"Field","name":{"kind":"Name","value":"sources"}},{"kind":"Field","name":{"kind":"Name","value":"section"}},{"kind":"Field","name":{"kind":"Name","value":"operation"}},{"kind":"Field","name":{"kind":"Name","value":"matcher"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"Field","name":{"kind":"Name","value":"term"}}]}}]} as unknown as DocumentNode<MatchReplaceCollectionFieldsFragment, unknown>;
 export const ReplaySessionRowFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ReplaySessionRow"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ReplaySession"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"color"}},{"kind":"Field","name":{"kind":"Name","value":"connection"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"host"}},{"kind":"Field","name":{"kind":"Name","value":"port"}},{"kind":"Field","name":{"kind":"Name","value":"tls"}}]}},{"kind":"Field","name":{"kind":"Name","value":"draft"}}]}}]} as unknown as DocumentNode<ReplaySessionRowFragment, unknown>;
 export const ReplayCollectionRowFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ReplayCollectionRow"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ReplayCollection"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"isDefault"}},{"kind":"Field","name":{"kind":"Name","value":"sessions"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"ReplaySessionRow"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ReplaySessionRow"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ReplaySession"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"color"}},{"kind":"Field","name":{"kind":"Name","value":"connection"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"host"}},{"kind":"Field","name":{"kind":"Name","value":"port"}},{"kind":"Field","name":{"kind":"Name","value":"tls"}}]}},{"kind":"Field","name":{"kind":"Name","value":"draft"}}]}}]} as unknown as DocumentNode<ReplayCollectionRowFragment, unknown>;
 export const ScopePresetFieldsFragmentDoc = {"kind":"Document","definitions":[{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ScopePresetFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ScopePreset"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"allow"}},{"kind":"Field","name":{"kind":"Name","value":"deny"}}]}}]} as unknown as DocumentNode<ScopePresetFieldsFragment, unknown>;
@@ -603,6 +847,18 @@ export const HistoryCompletionsDocument = {"kind":"Document","definitions":[{"ki
 export const HistorySetColorDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"HistorySetColor"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"ids"}},"type":{"kind":"NonNullType","type":{"kind":"ListType","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"color"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"RequestColor"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"setRequestColor"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"ids"},"value":{"kind":"Variable","name":{"kind":"Name","value":"ids"}}},{"kind":"Argument","name":{"kind":"Name","value":"color"},"value":{"kind":"Variable","name":{"kind":"Name","value":"color"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"color"}}]}}]}}]} as unknown as DocumentNode<HistorySetColorMutation, HistorySetColorMutationVariables>;
 export const HistorySetNoteDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"HistorySetNote"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"note"}},"type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"setRequestNote"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"note"},"value":{"kind":"Variable","name":{"kind":"Name","value":"note"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"note"}}]}}]}}]} as unknown as DocumentNode<HistorySetNoteMutation, HistorySetNoteMutationVariables>;
 export const HistoryDeleteRequestsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"HistoryDeleteRequests"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"ids"}},"type":{"kind":"NonNullType","type":{"kind":"ListType","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"deleteRequests"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"ids"},"value":{"kind":"Variable","name":{"kind":"Name","value":"ids"}}}]}]}}]} as unknown as DocumentNode<HistoryDeleteRequestsMutation, HistoryDeleteRequestsMutationVariables>;
+export const MatchReplaceCollectionsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"MatchReplaceCollections"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"matchReplaceCollections"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceCollectionFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceRuleFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRule"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"condition"}},{"kind":"Field","name":{"kind":"Name","value":"sources"}},{"kind":"Field","name":{"kind":"Name","value":"section"}},{"kind":"Field","name":{"kind":"Name","value":"operation"}},{"kind":"Field","name":{"kind":"Name","value":"matcher"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"Field","name":{"kind":"Name","value":"term"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceCollectionFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceCollection"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"rules"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceRuleFields"}}]}}]}}]} as unknown as DocumentNode<MatchReplaceCollectionsQuery, MatchReplaceCollectionsQueryVariables>;
+export const ExportMatchReplaceDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ExportMatchReplace"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"exportMatchReplace"}}]}}]} as unknown as DocumentNode<ExportMatchReplaceQuery, ExportMatchReplaceQueryVariables>;
+export const CreateMatchReplaceCollectionDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateMatchReplaceCollection"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createMatchReplaceCollection"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceCollectionFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceRuleFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRule"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"condition"}},{"kind":"Field","name":{"kind":"Name","value":"sources"}},{"kind":"Field","name":{"kind":"Name","value":"section"}},{"kind":"Field","name":{"kind":"Name","value":"operation"}},{"kind":"Field","name":{"kind":"Name","value":"matcher"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"Field","name":{"kind":"Name","value":"term"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceCollectionFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceCollection"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"rules"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceRuleFields"}}]}}]}}]} as unknown as DocumentNode<CreateMatchReplaceCollectionMutation, CreateMatchReplaceCollectionMutationVariables>;
+export const RenameMatchReplaceCollectionDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RenameMatchReplaceCollection"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"renameMatchReplaceCollection"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]} as unknown as DocumentNode<RenameMatchReplaceCollectionMutation, RenameMatchReplaceCollectionMutationVariables>;
+export const DeleteMatchReplaceCollectionDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"DeleteMatchReplaceCollection"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"deleteMatchReplaceCollection"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}]}}]} as unknown as DocumentNode<DeleteMatchReplaceCollectionMutation, DeleteMatchReplaceCollectionMutationVariables>;
+export const ReorderMatchReplaceCollectionsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ReorderMatchReplaceCollections"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"ids"}},"type":{"kind":"NonNullType","type":{"kind":"ListType","type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"reorderMatchReplaceCollections"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"ids"},"value":{"kind":"Variable","name":{"kind":"Name","value":"ids"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceCollectionFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceRuleFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRule"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"condition"}},{"kind":"Field","name":{"kind":"Name","value":"sources"}},{"kind":"Field","name":{"kind":"Name","value":"section"}},{"kind":"Field","name":{"kind":"Name","value":"operation"}},{"kind":"Field","name":{"kind":"Name","value":"matcher"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"Field","name":{"kind":"Name","value":"term"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceCollectionFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceCollection"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"rules"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceRuleFields"}}]}}]}}]} as unknown as DocumentNode<ReorderMatchReplaceCollectionsMutation, ReorderMatchReplaceCollectionsMutationVariables>;
+export const CreateMatchReplaceRuleDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateMatchReplaceRule"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"collectionId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRuleInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createMatchReplaceRule"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"collectionId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"collectionId"}}},{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceRuleFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceRuleFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRule"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"condition"}},{"kind":"Field","name":{"kind":"Name","value":"sources"}},{"kind":"Field","name":{"kind":"Name","value":"section"}},{"kind":"Field","name":{"kind":"Name","value":"operation"}},{"kind":"Field","name":{"kind":"Name","value":"matcher"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"Field","name":{"kind":"Name","value":"term"}}]}}]} as unknown as DocumentNode<CreateMatchReplaceRuleMutation, CreateMatchReplaceRuleMutationVariables>;
+export const UpdateMatchReplaceRuleDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"UpdateMatchReplaceRule"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRuleInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"updateMatchReplaceRule"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"MatchReplaceRuleFields"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"MatchReplaceRuleFields"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"MatchReplaceRule"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}},{"kind":"Field","name":{"kind":"Name","value":"condition"}},{"kind":"Field","name":{"kind":"Name","value":"sources"}},{"kind":"Field","name":{"kind":"Name","value":"section"}},{"kind":"Field","name":{"kind":"Name","value":"operation"}},{"kind":"Field","name":{"kind":"Name","value":"matcher"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"kind"}},{"kind":"Field","name":{"kind":"Name","value":"value"}}]}},{"kind":"Field","name":{"kind":"Name","value":"term"}}]}}]} as unknown as DocumentNode<UpdateMatchReplaceRuleMutation, UpdateMatchReplaceRuleMutationVariables>;
+export const SetMatchReplaceRuleEnabledDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SetMatchReplaceRuleEnabled"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"enabled"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"setMatchReplaceRuleEnabled"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"enabled"},"value":{"kind":"Variable","name":{"kind":"Name","value":"enabled"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"enabled"}}]}}]}}]} as unknown as DocumentNode<SetMatchReplaceRuleEnabledMutation, SetMatchReplaceRuleEnabledMutationVariables>;
+export const MoveMatchReplaceRuleDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"MoveMatchReplaceRule"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"collectionId"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"index"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Int"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"moveMatchReplaceRule"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"collectionId"},"value":{"kind":"Variable","name":{"kind":"Name","value":"collectionId"}}},{"kind":"Argument","name":{"kind":"Name","value":"index"},"value":{"kind":"Variable","name":{"kind":"Name","value":"index"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<MoveMatchReplaceRuleMutation, MoveMatchReplaceRuleMutationVariables>;
+export const DeleteMatchReplaceRuleDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"DeleteMatchReplaceRule"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"deleteMatchReplaceRule"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}]}}]} as unknown as DocumentNode<DeleteMatchReplaceRuleMutation, DeleteMatchReplaceRuleMutationVariables>;
+export const ImportMatchReplaceDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ImportMatchReplace"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"json"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"importMatchReplace"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"json"},"value":{"kind":"Variable","name":{"kind":"Name","value":"json"}}}]}]}}]} as unknown as DocumentNode<ImportMatchReplaceMutation, ImportMatchReplaceMutationVariables>;
 export const ReplayCollectionsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"ReplayCollections"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"replayCollections"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"ReplayCollectionRow"}}]}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ReplaySessionRow"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ReplaySession"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"color"}},{"kind":"Field","name":{"kind":"Name","value":"connection"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"host"}},{"kind":"Field","name":{"kind":"Name","value":"port"}},{"kind":"Field","name":{"kind":"Name","value":"tls"}}]}},{"kind":"Field","name":{"kind":"Name","value":"draft"}}]}},{"kind":"FragmentDefinition","name":{"kind":"Name","value":"ReplayCollectionRow"},"typeCondition":{"kind":"NamedType","name":{"kind":"Name","value":"ReplayCollection"}},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"isDefault"}},{"kind":"Field","name":{"kind":"Name","value":"sessions"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"FragmentSpread","name":{"kind":"Name","value":"ReplaySessionRow"}}]}}]}}]} as unknown as DocumentNode<ReplayCollectionsQuery, ReplayCollectionsQueryVariables>;
 export const CreateReplayCollectionDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"CreateReplayCollection"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"createReplayCollection"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<CreateReplayCollectionMutation, CreateReplayCollectionMutationVariables>;
 export const RenameReplayCollectionDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"RenameReplayCollection"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"name"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"renameReplayCollection"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"name"},"value":{"kind":"Variable","name":{"kind":"Name","value":"name"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<RenameReplayCollectionMutation, RenameReplayCollectionMutationVariables>;
