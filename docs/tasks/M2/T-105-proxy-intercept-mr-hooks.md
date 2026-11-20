@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: in_review
+status: changes_requested
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -256,3 +256,12 @@ The round 8 changes isolate edited requests with incomplete or surplus body byte
 `make check`, `make test-int`, and `git diff --check main...HEAD` passed. This review reused the nil-hook benchmark comparison in Handoff. The CONNECT finding is based on code inspection.
 
 Escalated to the lead in this review because the task has exceeded the three-round limit in docs/07 §7. The lead should resolve the client-facing CONNECT behavior before implementation resumes.
+
+### Round 10
+
+- Verdict: changes_requested
+- [ ] [major] internal/proxy/forward.go:222 — The new head-only branch handles parsed CONNECT successes, but the response reader validates framing fields before that branch can see the status. A successful CONNECT with unsupported transfer coding or invalid length metadata becomes a synthetic 502. The upstream response head is lost from history. → Apply the CONNECT 2xx boundary before validating body framing, preserve the raw head, and extend the regression to cover ignored framing fields. Keep ordinary framing validation for unsuccessful CONNECT responses. [RFC 9112 §6.3](https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3)
+
+The round 9 regression passes for a CONNECT success without framing fields in both streaming and hooked configurations. The remaining parser issue was identified by inspection. Lead escalation remains open under docs/07 §7. A shared fix in `internal/rawhttp` requires lead authorization because it falls outside T-105's source paths.
+
+`make check`, `GOFLAGS='-count=1 -p=2' make test-int`, and `git diff --check main...HEAD` passed. The nil-hook benchmark comparison in Handoff was reused.
