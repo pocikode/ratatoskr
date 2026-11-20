@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_progress
+status: blocked
 depends_on: [T-099]
 owner: "codex"
 branch: task/T-035-match-replace-engine
@@ -81,6 +81,14 @@ shape (T-105), with no storage and no API.
 3. Verify tester limits, golden cases, and header-rule performance.
 
 ## Out-of-scope change needed (if any)
+
+- Open: F-MR-1 says an empty tester response may declare any `Content-Length`,
+  and also says the tester follows `rawhttp` framing. `rawhttp` rejects decimal
+  lengths greater than `math.MaxInt64` on ordinary responses before the tester
+  can apply the empty-body exception. Should the tester accept those empty
+  responses or return `BAD_INPUT`? If it should accept them, which parser entry
+  point should support that exception (`internal/rawhttp/read.go` is outside
+  this task's paths)?
 
 - Resolved (lead, 2026-11-20; see Notes from lead, Condition fields): How should conditions handle HTTPQL fields whose values the rewriter
   and tester cannot know? For example, `req.tls.eq:false` would match an HTTPS
