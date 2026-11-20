@@ -36,6 +36,9 @@ Rules and collections persist per project, the engine always runs the current en
       rule adds nothing; wrong `version` → `BAD_INPUT`.
 - [ ] After `updateMatchReplaceRule`/`setMatchReplaceRuleEnabled` the engine's next `Request` call uses the new list (test);
       `Reload` after a project switch loads that project's rules.
+- [ ] Presets (F-MR-1 "Presets", lead 2026-11-20): the service passes the project's filter presets to the engine's
+      `Set` and `Test`, and exposes `Reload(ctx)` (re-reads rules and presets; test: after deleting a preset a rule uses,
+      `Reload` skips that rule without failing). Calling it on preset changes is T-109's job.
 - [ ] `testMatchReplace` resolver returns output/conditionMatched/changed for a draft rule without saving it.
 - [ ] `testMatchReplace` rejects a request with bytes after the head and neither `Content-Length` nor
       `Transfer-Encoding` (`BAD_INPUT`, rawhttp `FramingNone`); a header-only request with a `FULL` body rule still gains a body (test).

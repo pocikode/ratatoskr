@@ -287,7 +287,12 @@ Open in browser · Filter by this host/path/status · Delete · Export.
   - Body: one `Content-Encoding` of gzip, deflate, br or zstd is removed before matching and reapplied after; other or
     stacked codings skip body rules. A message whose body exceeds the capture cap (64 MiB) passes through with no rule
     applied (logged at info). A changed body keeps its framing: `Content-Length` is updated,
-    a chunked body becomes one chunk plus the last chunk (trailers kept). Messages no rule changed keep their bytes.
+    a chunked body becomes one chunk plus the last chunk (trailers kept).
+    The other framing header fields keep their position and bytes. Messages no rule changed keep their bytes.
+  - Presets (lead, 2026-11-20, T-035): a condition may use `preset:`. It is expanded against the project's filter
+    presets (`filterpreset.Expand`) when rules load and when the tester runs; rules also reload when a filter preset
+    changes. Create, update and the tester reject an unknown or cyclic preset as `BAD_QUERY` with span. A stored rule
+    whose condition no longer expands (preset deleted or renamed later) is skipped at load (logged at warn), not an error.
   - When the request of an exchange is over the capture cap, no response rule runs on that exchange (logged at info);
     its response may still be held (operator, 2026-11-19, T-105 review round 2). A 2xx answer to a request sent as
     `CONNECT` is never rewritten (see F-INT-1).

@@ -3,12 +3,16 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: blocked
+status: in_progress
 depends_on: [T-099]
 owner: "codex"
 branch: task/T-035-match-replace-engine
 paths:
   - internal/matchreplace/**
+  - internal/rawhttp/builder.go
+  - internal/rawhttp/builder_test.go
+  - internal/rawhttp/chunked.go
+  - internal/rawhttp/chunked_test.go
 spec:
   - docs/01-feature-spec.md#F-MR-1 (incl. M2 contract)
   - docs/03-architecture.md §4 (hook order, buffering)
@@ -52,6 +56,17 @@ shape (T-105), with no storage and no API.
   message naming the problem, e.g. "tester output must be at most 16 MiB"). T-102 passes it through unchanged. Proxy
   paths (`Request`/`Response`) are unchanged: no error, oversized results there follow the capture-cap rule.
 - Parse with `rawhttp`, edit with `rawhttp.Builder`; never `net/http` (ADR-0003).
+- Chunked bodies (lead, 2026-11-20, answers blocked Q1): extend `internal/rawhttp` (paths above; no other open task owns
+  it) rather than assembling wire bytes in the engine. Add `Builder.SetChunkedBody(payload, trailer []byte)`: keeps the
+  `Transfer-Encoding` field where it is, drops `Content-Length`, writes `hex(len)\r\n payload \r\n 0\r\n trailer \r\n`
+  (an empty payload writes only the last chunk). Add the matching exported helper in `chunked.go` that splits a wire
+  chunked body (as `Message.Body()` returns it) into payload and raw trailer section. `SetBody` is unchanged. Unit tests
+  in rawhttp for both, including trailers and an empty payload.
+- Presets (lead, 2026-11-20, answers blocked Q2; F-MR-1 "Presets"): the engine expands, the caller supplies the list.
+  `Set(rules, presets []filterpreset.Preset)` and `Test(rule, presets, kind, raw)` expand each condition with
+  `filterpreset.Expand` (pure; no store access). In `Set`, a rule whose condition fails to expand is skipped and logged
+  at warn; in `Test` and in `Validate`/`Compile` it is the `BAD_QUERY` error with span that `Expand` returns. Add golden
+  cases: a `preset:` condition that matches, an unknown preset in `Test`, and a rule skipped by `Set`.
 
 ## Plan (implementer, ≤15 lines)
 
@@ -61,12 +76,12 @@ shape (T-105), with no storage and no API.
 
 ## Out-of-scope change needed (if any)
 
-- Open: F-MR-1 requires changed chunked bodies to retain chunked framing and
+- Resolved (lead, 2026-11-20; see Notes from lead, Chunked bodies): F-MR-1 requires changed chunked bodies to retain chunked framing and
   trailers. The lead note requires edits through `rawhttp.Builder`, but its only
   body setter always removes Transfer-Encoding and sets Content-Length. May
   T-035 extend `internal/rawhttp/builder.go` and its tests to support explicitly
   framed replacement bodies, or may the engine assemble those wire bytes itself?
-- Open: HTTPQL permits `preset:` clauses and requires caller-side expansion.
+- Resolved (lead, 2026-11-20; see Notes from lead, Presets): HTTPQL permits `preset:` clauses and requires caller-side expansion.
   T-035 has no storage, and the tester has no preset input. Should the engine
   accept a preset resolver, or reject preset clauses with a span-bearing
   `BAD_QUERY` until a later task wires preset resolution?
