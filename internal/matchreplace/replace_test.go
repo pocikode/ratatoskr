@@ -166,7 +166,9 @@ func TestRegexSharedGroupsPerMatch(t *testing.T) {
 		if err != nil || string(got) != tc.want {
 			t.Fatalf("%.20q: len %d %v", tc.src, len(got), err)
 		}
-		if d := time.Since(start); d > 10*time.Second {
+		if d := time.Since(start); !raceEnabled && d > 10*time.Second {
+			// The detector makes the engine ~10x slower (22-26 s on a CI runner),
+			// so the wall-clock bound only guards the plain build.
 			t.Errorf("replace took %v", d)
 		}
 	}
