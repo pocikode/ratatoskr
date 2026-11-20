@@ -52,16 +52,20 @@ type Rewriter interface {
 // *history.Capture implements it.
 type HoldCapture interface {
 	Capture
+	// Paused reports that no record would be created, so nothing can be held.
+	Paused() bool
 	Written(ctx context.Context, id int64) error
 	PendingDB(id int64) *store.DB
 	CompleteDropped(ctx context.Context, id int64, resp *history.Response)
 	Add(ctx context.Context, e history.Entry)
 }
 
-// hookRequest reports whether the request side must be buffered.
+// hookRequest reports whether the request side must be buffered. A hold needs
+// a history record, so paused capture leaves only a rule to buffer for; a pause
+// that starts later still yields id 0 and an unheld request.
 func (s *Server) hookRequest() bool {
 	return s.deps.Rewriter != nil && s.deps.Rewriter.Active(sourceProxy, false) ||
-		s.icpt != nil && s.icpt.WouldHold(intercept.Request)
+		s.icpt != nil && !s.hc.Paused() && s.icpt.WouldHold(intercept.Request)
 }
 
 // hookResponse reports whether the response side must be buffered. A request

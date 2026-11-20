@@ -1033,3 +1033,57 @@ func (h *hookRig) expectStreamed(gate chan struct{}, format string) {
 		h.t.Fatalf("body prefix %q, want %q", first, "ab")
 	}
 }
+
+// Paused capture gives no history record, so no request can be held: a queued
+// Request kind must not buffer the upload; the origin sees the head and the
+// first body bytes before the client sends the rest.
+func TestPausedCaptureStreamsRequest(t *testing.T) {
+	h := newHookRig(t, []intercept.Kind{intercept.Request}, nil, rawhttp.Limits{})
+	h.cap.SetPaused(true)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	h.addr = ln.Addr().String()
+
+	prefix := make(chan string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+
+		req, err := rawhttp.ReadRequest(bufio.NewReader(c), rawhttp.Limits{})
+		if err != nil {
+			return
+		}
+		first := make([]byte, 2)
+		if _, err := io.ReadFull(req.Body(), first); err != nil {
+			return
+		}
+		prefix <- string(first)
+		_, _ = io.Copy(io.Discard, req.Body())
+		_, _ = io.WriteString(c, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+	}()
+
+	conn, br := h.send("POST http://%s/u HTTP/1.1\r\nHost: %s\r\nContent-Length: 4\r\n\r\nab")
+
+	select {
+	case got := <-prefix:
+		if got != "ab" {
+			t.Fatalf("origin body prefix %q, want %q", got, "ab")
+		}
+	case <-time.After(2 * time.Second): // fail before the rig timeout
+		t.Fatal("origin did not see the body prefix before the rest was sent")
+	}
+
+	if _, err := io.WriteString(conn, "cd"); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.response(br, "POST"); !strings.HasPrefix(got, "HTTP/1.1 204") {
+		t.Fatalf("response %q", got)
+	}
+}

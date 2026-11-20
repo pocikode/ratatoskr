@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -110,10 +110,11 @@ without changing the streaming path for traffic that neither feature touches.
 - Review round 4: 2 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green; nil-hook
   path untouched, benchmark not rerun.
 - Review round 5: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
+- Review round 6: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Review round 2: 3 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Known limitations:
-  - With capture paused and request queuing on, the request side still buffers (≤ cap) before it learns there is no
-    record (the pending row needs the body); it is then sent unheld. Bounded by the cap.
+  - A capture pause that starts between the `Paused` check and `NewPending` still buffers that one request (≤ cap);
+    it is then sent unheld.
   - The edited record of a request edit stores the bytes the origin received (origin-form target); a response-only
     edit keeps the client's request bytes in both records (F-HIST-4).
   - A client that pipelines more than the 4 KiB read buffer during a hold ends the disconnect watch; its disconnect
@@ -190,7 +191,10 @@ Verification: `make check`, `GOFLAGS='-count=1 -p=2' make test-int` (including t
 ### Round 6
 
 - Verdict: changes_requested
-- [ ] [major] internal/proxy/hooks.go:62 — With capture already paused and request queuing enabled, the proxy buffers the upload before calling `NewPending`. That call returns zero, so the request cannot be held. With no active request rewrite, a slow upload delays the start of upstream forwarding until the body completes or crosses the cap, contrary to the streaming rule in docs/03 §4. Check capture availability before buffering for a request hold, retain the zero-ID check for changes during capture, and add a gated upload test that requires the origin to see the head and first body bytes before the client sends the rest.
+- [x] [major] internal/proxy/hooks.go:62 — With capture already paused and request queuing enabled, the proxy buffers the upload before calling `NewPending`. That call returns zero, so the request cannot be held. With no active request rewrite, a slow upload delays the start of upstream forwarding until the body completes or crosses the cap, contrary to the streaming rule in docs/03 §4. Check capture availability before buffering for a request hold, retain the zero-ID check for changes during capture, and add a gated upload test that requires the origin to see the head and first body bytes before the client sends the rest.
+  - Fixed: `HoldCapture` gains `Paused()` (`*history.Capture` has it); `hookRequest` buffers for a hold only when capture
+    is not paused; the `id != 0` check stays for a pause that starts later. Test `TestPausedCaptureStreamsRequest`
+    (origin must see head + "ab" before the client sends "cd"), mutation-checked.
 
 The round 5 fix gates response buffering on the pending record ID and covers early delivery with paused capture.
 
