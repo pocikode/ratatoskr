@@ -300,3 +300,16 @@ Verdict: **changes_requested**. The compile-time finding from round 5 is resolve
   Fixed: a term is a `template` of pieces plus `refs`, one group list per distinct referenced name; `resolve` picks each name's first participating group once per match into a reused bounds slice, and `expandLen`/`expand` both read it. Per-match work is pieces + groups. `TestRegexSharedGroupsPerMatch` (999 absent groups + absent/late last group, 2^18 `${p}`, 100 matches) runs in well under a second. Benchmark unchanged: 69–73 µs/op, 360 allocs/op.
 
 The scoped race tests for regex replacement, template compilation, and status serialization passed, as did `git diff --check main...HEAD`. Full `make check`, `make test-int`, and request-smuggling verification were outside this review scope.
+
+### Lead escalation follow-up
+
+Verified the round 6 fix in 438107f. Each distinct capture reference is resolved
+once per match, and both expansion passes reuse those bounds. The regression
+covers an absent group and a last participating group across repeated matches.
+The round 6 finding is closed. The branch remains in review for lead disposition
+under the review-round limit.
+
+The scoped regex, template, and status race tests and `git diff --check main...HEAD`
+passed. The 20-rule header benchmark measured 69.2–71.8 µs/op across three runs
+against the 100 µs/op target. Full `make check`, `make test-int`, and
+request-smuggling verification were outside this follow-up.
