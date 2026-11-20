@@ -622,6 +622,11 @@ type ReplaySession struct {
 	// `updateReplaySession` or `sendReplaySession` (before interpolation, Match &
 	// Replace or Content-Length update). At most 16 MiB (16777216 bytes).
 	Draft []byte `json:"draft"`
+	// The request target of the draft's first line (`METHOD target HTTP/1.x`),
+	// decoded as UTF-8 with invalid bytes replaced, cut to 2048 characters. Empty
+	// when the draft does not start with an HTTP/1.x request line. Lets the
+	// collections tree search by path without loading `draft`.
+	RequestTarget string `json:"requestTarget"`
 	// Whether a send is in flight (see `sendReplaySession`).
 	Sending bool `json:"sending"`
 	// When the session was created.

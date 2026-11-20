@@ -21,6 +21,23 @@ function run(c: ReturnType<typeof client>) {
 }
 
 describe('replay mock', () => {
+  it('requestTarget follows the draft request line', async () => {
+    const { m, q } = run(client());
+    const make = (raw: string) =>
+      m(
+        `mutation ($c: ReplayConnectionInput!, $raw: Bytes!) { createReplaySession(input: { connection: $c, raw: $raw }) { requestTarget } }`,
+        { c: CONN, raw: btoa(raw) },
+      );
+    expect(
+      (await make('GET /a?b=1 HTTP/1.1\r\nHost: x\r\n\r\n')).data!.createReplaySession
+        .requestTarget,
+    ).toBe('/a?b=1');
+    expect((await make('not http')).data!.createReplaySession.requestTarget).toBe('');
+    expect(
+      (await q(`{ replaySession(id: "rs3") { requestTarget } }`)).data!.replaySession.requestTarget,
+    ).toBe('/api/v1/users');
+  });
+
   it('seeds Default plus one collection with three sessions and entries', async () => {
     const { q } = run(client());
     const tree = (await q(TREE)).data!.replayCollections;

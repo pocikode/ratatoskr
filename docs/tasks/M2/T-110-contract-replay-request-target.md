@@ -3,7 +3,7 @@ id: T-110
 title: Contract - ReplaySession.requestTarget for the collections tree
 milestone: M2
 role: lead
-status: in_progress
+status: in_review
 depends_on: [T-098]
 owner: claude-sonnet-5-5
 branch: task/T-110-contract-replay-request-target
@@ -31,9 +31,9 @@ The Replay tree can search by path without downloading every draft (T-034 review
 - Out: backend implementation (T-033), switching the UI query (T-111).
 
 ## Acceptance criteria
-- [ ] Schema field documented with the rule above; `make gen` clean.
-- [ ] Mock returns `/a?b=1` for `GET /a?b=1 HTTP/1.1`, `""` for non-request bytes (mock test).
-- [ ] `make check` green.
+- [x] Schema field documented with the rule above; `make gen` clean.
+- [x] Mock returns `/a?b=1` for `GET /a?b=1 HTTP/1.1`, `""` for non-request bytes (mock test).
+- [x] `make check` green.
 
 ## Notes from lead
 - Contract tasks run in sequence (shared generated files): land before T-033 starts.
@@ -47,10 +47,11 @@ The Replay tree can search by path without downloading every draft (T-034 review
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: `ReplaySession.requestTarget: String!` (schema + docs), `gqlgen.yml` resolver flag, stub in `stubs_replay.go` (ErrNotImplemented), mock + test; `make gen`.
+- (gqlgen.yml added to paths: needed for the resolver stub.)
+- How to verify: `make check`; `bun run test` in web (replay.test.ts "requestTarget").
+- Known limitations: backend returns ErrNotImplemented until T-033.
+- Follow-ups (proposed tasks): T-033 implements; T-111 switches the UI query.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested

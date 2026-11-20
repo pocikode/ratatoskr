@@ -38,6 +38,7 @@ export interface MockReplaySession {
   options: Options;
   /** Base64 of the draft bytes, as on the wire. */
   draft: string;
+  requestTarget: () => string;
   sending: boolean;
   createdAt: string;
   /** Newest first. */
@@ -126,6 +127,10 @@ function defaultName(b64: string): string {
   const m = REQUEST_LINE.exec(atob(b64));
   return m ? [...utf8(`${m[1]} ${m[2]}`)].slice(0, 60).join('') : 'Untitled';
 }
+
+/** Target of the request line, UTF-8 decoded, cut to 2048 characters; empty without one. */
+const requestTarget = (b64: string) =>
+  [...utf8(REQUEST_LINE.exec(atob(b64))?.[2] ?? '')].slice(0, 2048).join('');
 
 const body = (s: string) => slicer(Uint8Array.from(s, (ch) => ch.charCodeAt(0)));
 
@@ -247,6 +252,7 @@ export function createReplayMock(deps: ReplayDeps, { sendDelayMs = 300 }: MockRe
       ...fields,
       collectionId: c.id,
       collection: () => collection(s.collectionId),
+      requestTarget: () => requestTarget(s.draft),
       entries: ({ first, after }: Args) => {
         const n = Number(first ?? 100);
         if (n < 1 || n > 1000) throw fail('BAD_INPUT', 'first must be 1..1000');

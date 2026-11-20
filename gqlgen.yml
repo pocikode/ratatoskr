@@ -57,6 +57,7 @@ models:
     fields:
       collection: { resolver: true }
       entries: { resolver: true }
+      requestTarget: { resolver: true }
   ReplayEntry:
     fields:
       request: { resolver: true }
