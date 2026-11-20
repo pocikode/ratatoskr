@@ -1,6 +1,6 @@
 // Intercept settings and queue (F-INT-1), shared by the top bar, the sidebar badge and the
 // Intercept page. Both subscriptions keep it live; a project switch or a reconnect refetches.
-import type { CombinedError } from '@urql/core';
+import type { CombinedError, OperationResult, TypedDocumentNode } from '@urql/core';
 import { onEnd, pipe, subscribe, type Source } from 'wonka';
 import { getApi } from '$lib/api/client';
 import {
@@ -69,6 +69,8 @@ export class InterceptStore {
   #rev = 0;
   /** Queue events seen while a refresh is in flight, replayed on its snapshot. */
   #log: { kind: 'ADDED' | 'REMOVED'; item: InterceptItem }[] | null = null;
+  /** Cancels of the queries in flight, run on a project switch. */
+  #cancels: (() => void)[] = [];
 
   constructor(
     getClient: () => Client = () => getApi().client,
@@ -135,6 +137,7 @@ export class InterceptStore {
     // A project switch releases the queue without REMOVED events (intercept.graphqls). Drop the
     // old project's settings too, and invalidate every response still in flight.
     const offReset = this.#projects.onReset(() => {
+      this.#cancels.forEach((cancel) => cancel());
       this.#rev++;
       this.#seq++;
       this.#log = null;
@@ -162,12 +165,11 @@ export class InterceptStore {
     const n = ++this.#seq;
     const rev = this.#rev;
     this.#log = []; // events from here on may be missing from the snapshots
-    const client = this.#getClient();
     const [s, q] = await Promise.all([
-      client.query(InterceptSettingsDocument, {}, { requestPolicy: 'network-only' }).toPromise(),
-      client.query(InterceptQueueDocument, {}, { requestPolicy: 'network-only' }).toPromise(),
+      this.query(InterceptSettingsDocument),
+      this.query(InterceptQueueDocument),
     ]);
-    if (n !== this.#seq) return; // a newer refresh or a project switch superseded this one
+    if (n !== this.#seq || !s || !q) return; // superseded, or cancelled by a project switch
     const log = this.#log ?? [];
     this.#log = null;
     // A settings event or reset since the request started is newer than the snapshot.
@@ -177,6 +179,34 @@ export class InterceptStore {
       log.forEach((c) => this.#apply(c));
     }
     this.error = s.error?.message ?? q.error?.message ?? null;
+  }
+
+  /**
+   * A variable-less network-only query that a project switch cancels. urql shares an in-flight
+   * operation between callers with the same key, so without the teardown a refetch after a
+   * switch would receive the previous project's payload. Resolves to null when cancelled.
+   */
+  query<D>(doc: TypedDocumentNode<D, Record<string, never>>): Promise<OperationResult<D> | null> {
+    return new Promise((resolve) => {
+      const handle: { sub?: { unsubscribe: () => void } } = {};
+      let done = false;
+      const finish = (r: OperationResult<D> | null) => {
+        if (done) return;
+        done = true;
+        handle.sub?.unsubscribe();
+        this.#cancels = this.#cancels.filter((c) => c !== cancel);
+        resolve(r);
+      };
+      const cancel = () => finish(null);
+      this.#cancels.push(cancel);
+      handle.sub = pipe(
+        this.#getClient().query(doc, {}, { requestPolicy: 'network-only' }),
+        subscribe((r) => {
+          if (!r.stale) finish(r);
+        }),
+      );
+      if (done) handle.sub.unsubscribe(); // the result arrived synchronously
+    });
   }
 
   #setSettings(s: InterceptSettings) {

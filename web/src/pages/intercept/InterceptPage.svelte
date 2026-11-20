@@ -2,6 +2,7 @@
   // Intercept page (F-INT-1, docs/02 §3.4): held requests/responses, an editor for the selected
   // one, and the condition that decides what is held. Settings and queue live in the shared store.
   import type { Client } from '@urql/core';
+  import { untrack } from 'svelte';
   import { getApi } from '$lib/api/client';
   import { registry } from '$lib/commands';
   import SplitPane from '$lib/components/SplitPane/SplitPane.svelte';
@@ -56,6 +57,16 @@
 
   // Unsent edits by item ID: switching rows keeps each draft, a release drops only its own.
   let edits = $state.raw<Record<string, Uint8Array>>({});
+  // A draft lives only while its item is held (either kind): bulk actions, forwarding mode,
+  // remote removals, disconnects and project switches all end up here, so edited bytes of a
+  // message that is gone are not kept.
+  $effect(() => {
+    const queue = store.queue;
+    const kept = Object.entries(untrack(() => edits)).filter(([id]) =>
+      queue.some((i) => i.id === id),
+    );
+    if (kept.length !== Object.keys(untrack(() => edits)).length) edits = Object.fromEntries(kept);
+  });
   const held = $derived(current ? fromBase64(current.raw) : null);
   const tooBig = $derived((held?.length ?? 0) > MAX_EDIT_BYTES);
   const shown = $derived((current && edits[current.id]) || held);
@@ -156,7 +167,7 @@
 </script>
 
 <div class="flex h-[calc(100vh-140px)] min-h-0 flex-col gap-2">
-  <ConditionBar {store} {client} />
+  <ConditionBar {store} />
 
   <div class="flex items-center gap-2">
     <div role="tablist" aria-label="Held kind" class="flex gap-1">

@@ -40,18 +40,38 @@ describe('InterceptPage', () => {
     expect(rows()[1]).toHaveAttribute('aria-selected', 'false');
   });
 
-  it('selects the next item after Forward and after Drop', async () => {
+  it.each(['Forward', 'Drop'])(
+    'selects the next item and shows it in the editor after %s',
+    async (action) => {
+      const { store } = setup();
+      await waitFor(() => expect(store.count).toBe(3));
+      await screen.findAllByRole('row');
+      const second = store.of('REQUEST')[1]!;
+      await userEvent.click(screen.getByRole('button', { name: action }));
+      await waitFor(() => expect(rows()).toHaveLength(1));
+      expect(idOf(rows()[0]!)).toBe(second.request.id);
+      expect(rows()[0]).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('textbox', { name: 'Held request' })).toHaveTextContent(
+        second.request.path,
+      );
+    },
+  );
+
+  it('forgets the draft of an item that left the queue', async () => {
     const { store } = setup();
     await waitFor(() => expect(store.count).toBe(3));
-    await screen.findAllByRole('row');
-    const second = store.of('REQUEST')[1]!.request.id;
-    await userEvent.click(forwardBtn());
+    const editor = await screen.findByRole('textbox', { name: 'Held request' });
+    await userEvent.click(editor);
+    await userEvent.keyboard('X-Edited: 1{Enter}');
+    expect(editor).toHaveTextContent('X-Edited: 1');
+
+    // Removed by another client (bulk release, forwarding mode, disconnect), then held again.
+    const all = store.queue;
+    store.queue = all.slice(1);
     await waitFor(() => expect(rows()).toHaveLength(1));
-    expect(idOf(rows()[0]!)).toBe(second);
-    expect(rows()[0]).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('textbox', { name: 'Held request' })).toHaveTextContent(
-      store.of('REQUEST')[0]!.request.path,
-    );
+    store.queue = all;
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    expect(screen.getByRole('textbox', { name: 'Held request' })).not.toHaveTextContent('X-Edited');
   });
 
   it('appends a new item without moving the selection', async () => {

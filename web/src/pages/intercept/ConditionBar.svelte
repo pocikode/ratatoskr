@@ -1,14 +1,13 @@
 <script lang="ts">
   // What gets held (F-INT-1): HTTPQL condition, scope preset and the status code of a drop.
   // Each control applies through the store and shows the server's error beside it.
-  import type { Client } from '@urql/core';
   import { ScopePresetsDocument } from '$lib/api/generated/graphql';
   import QueryBar from '$lib/components/QueryBar/QueryBar.svelte';
   import ScopeSelector from '$lib/components/ScopeSelector.svelte';
   import { byteToDoc, type QueryError } from '$lib/query/httpql';
   import type { InterceptStore } from '$lib/stores/intercept.svelte';
 
-  let { store, client }: { store: InterceptStore; client: Client } = $props();
+  let { store }: { store: InterceptStore } = $props();
 
   let queryText = $state('');
   let queryError = $state<QueryError | null>(null);
@@ -37,12 +36,10 @@
     presets = [];
     scopeError = null;
     let cancelled = false;
-    void client
-      .query(ScopePresetsDocument, {}, { requestPolicy: 'network-only' })
-      .toPromise()
-      .then((r) => {
-        if (!cancelled) presets = r.data?.scopePresets ?? [];
-      });
+    // The store's query is torn down by a project switch, so an old project's list never lands.
+    void store.query(ScopePresetsDocument).then((r) => {
+      if (!cancelled && r) presets = r.data?.scopePresets ?? [];
+    });
     return () => {
       cancelled = true;
     };

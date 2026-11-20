@@ -1,5 +1,5 @@
-import type { Client } from '@urql/core';
-import { makeSubject } from 'wonka';
+import { Client, fetchExchange, subscriptionExchange } from '@urql/core';
+import { fromPromise, makeSubject } from 'wonka';
 import { describe, expect, it, vi } from 'vitest';
 import {
   InterceptQueueChangedDocument,
@@ -113,14 +113,14 @@ function manual() {
   const settingsEvents = makeSubject<{ data: unknown }>();
   const mutation = deferred<{ data: unknown }>();
   const client = {
-    query: (doc: unknown) => ({
-      toPromise: () =>
+    query: (doc: unknown) =>
+      fromPromise(
         doc === InterceptQueueDocument
           ? queryDocs.queue[calls.queue++]!.promise
           : doc === InterceptSettingsDocument
             ? queryDocs.settings[calls.settings++]!.promise
             : Promise.resolve({ data: null }),
-    }),
+      ),
     subscription: (doc: unknown) =>
       doc === InterceptQueueChangedDocument ? queueEvents.source : settingsEvents.source,
     mutation: (doc: unknown) => ({
@@ -148,6 +148,69 @@ function manual() {
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+
+describe('InterceptStore with the real urql exchanges', () => {
+  it('does not let a project switch share the old project’s in-flight queries', async () => {
+    const pending: { op: string; respond: (data: unknown) => void }[] = [];
+    const fetchImpl = vi.fn(
+      (_url: unknown, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          const { query } = JSON.parse(String(init?.body)) as { query: string };
+          const op = query.includes('InterceptQueue') ? 'queue' : 'settings';
+          pending.push({
+            op,
+            respond: (data) =>
+              resolve(
+                new Response(JSON.stringify({ data }), {
+                  headers: { 'content-type': 'application/json' },
+                }),
+              ),
+          });
+        }),
+    );
+    const client = new Client({
+      url: 'http://localhost/graphql',
+      preferGetMethod: false, // as the app's client: the server only serves POST
+      fetch: fetchImpl as unknown as typeof fetch,
+      exchanges: [
+        fetchExchange,
+        subscriptionExchange({
+          forwardSubscription: () => ({ subscribe: () => ({ unsubscribe() {} }) }),
+        }),
+      ],
+    });
+    let reset = () => {};
+    const store = new InterceptStore(
+      () => client,
+      () => undefined,
+      { onReset: (fn) => ((reset = fn), () => {}) },
+    );
+    const stop = store.start();
+    await vi.waitFor(() => expect(pending).toHaveLength(2)); // old project: settings + queue
+
+    reset();
+    // Torn down: the refetch issues its own requests instead of joining the old ones.
+    await vi.waitFor(() => expect(pending).toHaveLength(4));
+
+    const answer = (index: number, queuing: boolean, id: string) =>
+      pending[index]!.respond(
+        pending[index]!.op === 'queue'
+          ? { interceptQueue: [{ ...item(id), __typename: 'InterceptItem' }] }
+          : { interceptSettings: { ...settings(queuing), __typename: 'InterceptSettings' } },
+      );
+    answer(0, true, 'old');
+    answer(1, true, 'old');
+    await tick();
+    expect(store.settings).toBeNull();
+    expect(store.queue).toEqual([]);
+
+    answer(2, false, 'new');
+    answer(3, false, 'new');
+    await vi.waitFor(() => expect(store.settings?.queuing).toBe(false));
+    expect(store.queue.map((i) => i.id)).toEqual(['new']);
+    stop();
+  });
+});
 
 describe('InterceptStore ordering', () => {
   it('keeps an item that was added while the queue snapshot was in flight', async () => {
