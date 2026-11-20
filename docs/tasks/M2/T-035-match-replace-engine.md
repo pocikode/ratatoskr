@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_review
+status: done
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
