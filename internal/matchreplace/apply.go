@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pocikode/ratatoskr/internal/rawhttp"
 )
@@ -247,15 +248,28 @@ func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
 		}
 		return bytes.ReplaceAll(src, c.value, c.term), nil
 	case Regex:
-		// shortcut: the match indices are held at once (≤ input size); no
-		// public incremental API keeps ^ and \b context.
-		matches := c.re.FindAllSubmatchIndex(src, -1)
-		if len(matches) == 0 {
-			return src, nil
-		}
+		// Mirrors regexp's FindAll loop one match at a time, so memory stays
+		// bounded by the output cap however dense the matches are.
 		var dst []byte
-		last := 0
-		for _, m := range matches {
+		last, found := 0, false
+		for pos, prevEnd := 0, -1; pos <= len(src); {
+			m := c.findAt(src, pos)
+			if m == nil {
+				break
+			}
+			accept := true
+			if m[1] == pos { // empty match: never right after the previous match
+				accept = m[0] != prevEnd
+				_, w := utf8.DecodeRune(src[pos:])
+				pos += max(w, 1)
+			} else {
+				pos = m[1]
+			}
+			prevEnd = m[1]
+			if !accept {
+				continue
+			}
+			found = true
 			dst = append(dst, src[last:m[0]]...)
 			dst = c.re.Expand(dst, c.term, src, m)
 			last = m[1]
@@ -263,12 +277,37 @@ func (c *compiled) replace(src []byte, limit int) ([]byte, error) {
 				return nil, errTooLarge
 			}
 		}
+		if !found {
+			return src, nil
+		}
 		return append(dst, src[last:]...), nil
 	}
 	if len(c.term) > limit {
 		return nil, errTooLarge
 	}
 	return c.term, nil
+}
+
+// findAt returns the leftmost match of c.re in src at or after pos, with the
+// text before pos as context for ^, \b and \B, as regexp's FindAll sees it.
+// Slicing src at pos would lose that context, so after the start c.resume
+// (one rune, then the rule's regex as group 1) is run from the rune before pos.
+func (c *compiled) findAt(src []byte, pos int) []int {
+	if pos == 0 {
+		return c.re.FindSubmatchIndex(src)
+	}
+	_, w := utf8.DecodeLastRune(src[:pos])
+	m := c.resume.FindSubmatchIndex(src[pos-w:])
+	if m == nil {
+		return nil
+	}
+	m = m[2:]
+	for i, v := range m {
+		if v >= 0 {
+			m[i] = v + pos - w
+		}
+	}
+	return m
 }
 
 // cutEOL splits a raw header line into its text and line terminator.

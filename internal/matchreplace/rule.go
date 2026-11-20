@@ -147,6 +147,7 @@ type compiled struct {
 	value     []byte
 	term      []byte
 	re        *regexp.Regexp
+	resume    *regexp.Regexp // (?s:.)(re): finds re after a given rune (see findAt)
 	cond      core.Node
 	addHeader [2]string // name, value of a header ADD
 }
@@ -218,6 +219,9 @@ func compile(r Rule, presets []filterpreset.Preset) (*compiled, error) {
 				return nil, apperr.New(apperr.BadInput, "matcher.value: %v", err)
 			}
 			c.re = re
+			if c.resume, err = regexp.Compile(`(?s:.)(` + r.Matcher.Value + `)`); err != nil {
+				return nil, apperr.New(apperr.BadInput, "matcher.value: %v", err) // nesting limit
+			}
 		}
 	}
 	cond, err := filterpreset.Expand(r.Condition, presets)
