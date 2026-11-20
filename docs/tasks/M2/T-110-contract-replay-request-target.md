@@ -3,7 +3,7 @@ id: T-110
 title: Contract - ReplaySession.requestTarget for the collections tree
 milestone: M2
 role: lead
-status: in_review
+status: changes_requested
 depends_on: [T-098]
 owner: claude-sonnet-5-5
 branch: task/T-110-contract-replay-request-target
@@ -54,5 +54,9 @@ The Replay tree can search by path without downloading every draft (T-034 review
 - Follow-ups (proposed tasks): T-033 implements; T-111 switches the UI query.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested
 - Findings:
+  - [ ] [major] web/src/lib/api/mocks/replay.ts:119 — The mock returns a target for a malformed first line with an embedded ASCII tab, such as `GET /a\tb HTTP/1.1`. The target character class excludes spaces and line endings but accepts tabs and other ASCII control bytes → reject ASCII controls for this field and add a malformed-line test.
+  - [ ] [minor] web/src/lib/api/mocks/replay.ts:133 — Decoding the captured target on its own strips an initial U+FEFF even though it is valid UTF-8 within the draft → preserve U+FEFF when decoding the target and cover it in the mock test.
+  - [ ] [minor] web/src/lib/api/mocks/replay.ts:133 — The spread creates an array containing every decoded code point before applying the 2048-character limit. A target near the 16 MiB draft cap can cause large temporary allocations on a tree fetch → collect at most 2048 code points and test the boundary with a multibyte target.
+- Verification: `make check` passed (403 web tests). `make gen` in a temporary checkout reproduced all tracked files byte for byte.
