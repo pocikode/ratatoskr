@@ -3,7 +3,7 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: in_progress
+status: in_review
 depends_on: [T-099]
 owner: "claude-backend"
 branch: task/T-035-match-replace-engine
@@ -34,20 +34,20 @@ shape (T-105), with no storage and no API.
 - Out: persistence, resolvers, import/export (T-102); Workflow replacer (T-066); WebSocket sections (T-053).
 
 ## Acceptance criteria
-- [ ] Golden tests (`testdata/*.txtar`: rule + input + expected output) for every valid section × operation × matcher
+- [x] Golden tests (`testdata/*.txtar`: rule + input + expected output) for every valid section × operation × matcher
       combination listed in T-099, including regex `$1` / `${name}` / `$$` expansion.
-- [ ] Invalid combinations, disallowed matchers, bad regex, empty sources, oversized term → validation errors naming the field.
-- [ ] Body rules on gzip/deflate/br/zstd responses: decoded match, re-encoded with the same coding, `Content-Length`
+- [x] Invalid combinations, disallowed matchers, bad regex, empty sources, oversized term → validation errors naming the field.
+- [x] Body rules on gzip/deflate/br/zstd responses: decoded match, re-encoded with the same coding, `Content-Length`
       fixed; stacked/unknown coding → body rule skipped, message unchanged; chunked body → one chunk + last chunk, trailers kept.
-- [ ] A message no rule changes is returned as the same slice (fidelity); conditions see earlier rules' changes; `resp.*`
+- [x] A message no rule changes is returned as the same slice (fidelity); conditions see earlier rules' changes; `resp.*`
       clauses are false on requests; non-matching `sources` never apply.
-- [ ] F-MR-1 AC core: `REQUEST_HEADER / ADD / "User-Agent: x"` appends the header.
-- [ ] Status update to a non-3-digit result skips the rule (logged).
-- [ ] `Test` returns an `apperr.BadInput` error and nil output for: a section for the other kind, `raw` > 12 MiB, each
+- [x] F-MR-1 AC core: `REQUEST_HEADER / ADD / "User-Agent: x"` appends the header.
+- [x] Status update to a non-3-digit result skips the rule (logged).
+- [x] `Test` returns an `apperr.BadInput` error and nil output for: a section for the other kind, `raw` > 12 MiB, each
       tester framing rejection in F-MR-1, and output that would exceed 16 MiB (detected while replacing, before the full
       result is allocated; test with a small input whose replacement crosses the cap); a bad condition is `BAD_QUERY`.
 - [ ] Benchmark: 20 enabled header rules on a 2 KiB request; result in Handoff (target ≤ 100 µs/op).
-- [ ] `make check` green.
+- [x] `make check` green.
 
 ## Notes from lead
 - Go structural typing: do not import `internal/proxy`; T-109 adds a compile-time assertion in `internal/app`.
@@ -166,10 +166,55 @@ shape (T-105), with no storage and no API.
 - Resolved (lead, 2026-11-20): "Should `Test` return an error for `BAD_INPUT`?" Yes, the engine owns every tester check; see Notes from lead.
 
 ## Handoff (implementer)
-- Completed: `rawhttp.SplitChunkedBody` and `Builder.SetChunkedBody` preserve trailer fields when decoding and rewriting chunked bodies. Tests cover populated and empty payloads, chunk extensions, and bare-LF trailers.
-- Verification: `make check` passed on the current branch, including Go race tests and all 402 web tests.
-- Former blocker (resolved by reassignment, see Notes from lead): The lead confirmed that the live rewrite contract requires forwarding ambiguously framed requests to support HTTP request smuggling tests. That requirement blocks completion of T-035.
-- Pending: The rule engine, offline tester, golden fixtures, and benchmark remain open. For implementation to resume, revise the live contract to reject ambiguous framing or split out the offline-only tester.
+- Completed (claude-backend, 2026-11-20):
+  - `internal/rawhttp`: `Builder.SetHeaders(hs)` (whole header block; a field keeps its `Raw` bytes unless edited) and
+    `Builder.Head()` (head without reading the body). `SplitChunkedBody` now reads into a buffer sized and limited
+    to `len(wire)` (the payload can never be longer), documents that the trailer aliases `wire`, and rejects a body
+    without the last chunk. New tests: bare-LF trailers with chunk extensions on data and last chunk, empty input,
+    and `SetHeaders`/`Head`. This addresses the open minor review finding on `chunked.go`.
+  - `internal/matchreplace` (new):
+    - `rule.go`: `Rule`/`Matcher` in the `MatchReplaceRuleInput` shape (schema enum names, JSON tags as in export) and
+      `Validate` (name, sources, then the rest). Unexported `compile` checks the section x operation table and the
+      matchers allowed per operation (ADD ignores the matcher), non-empty values, RE2, ADD header term, 1 MiB
+      term/value and 64 KiB condition. The condition goes through `filterpreset.Expand` and the condition-field allowlist.
+    - `condition.go`: field allowlist (`BAD_QUERY` with span, "<field> is not available in Match & Replace
+      conditions", `source:` too) and an evaluator where clauses about a missing side are false (`NOT` of one is true).
+    - `message.go`/`apply.go`: parse with rawhttp; the body and any bytes after it are located in the input buffer.
+      Each section x operation edits through `rawhttp.Builder`, except UPDATE_RAW on the first line, which splices
+      the raw line and is re-parsed. One bounded replacer serves all matchers: `$1`/`${name}`/`$$` via
+      `Regexp.Expand`, and the output cap is checked while replacing.
+    - `body.go`: one gzip/deflate (zlib or raw, re-encoded the same way)/br/zstd coding is decoded (bounded at 64 MiB)
+      and re-encoded. Content-Length is set in place. Chunked bodies use `SplitChunkedBody` + `SetChunkedBody`. Stacked,
+      unknown or corrupt codings skip the rule. Body rules leave a response that cannot carry a body (HEAD/1xx/204/304)
+      unchanged. A body over 64 MiB gets no rule (info log).
+    - `engine.go`: `New(log)`, `Set(rules, presets)` (atomic list; a rule that fails to compile is skipped at warn),
+      `Active`, `Request`, `Response`, matching the T-105 `Rewriter` structurally. Every changed result is re-parsed.
+      An unparsable result or a non-3-digit status skips the rule (warn with the rule name), and the next rule gets the
+      previous output. No framing-safety check. Errors only for unparsable input or a done ctx. Unchanged output is the
+      input slice. A 2xx answer to CONNECT is never rewritten.
+    - `tester.go`: `(*Engine).Test(rule, presets, kind, raw) (out, conditionMatched, changed, err)` does every F-MR-1
+      tester check and returns `*apperr.Error` with nil output. A skipped rule gives the input with `changed=false`.
+- Verification: `make check` is green. Run `go test ./internal/matchreplace/ ./internal/rawhttp/` (goldens:
+  `internal/matchreplace/testdata/engine.txtar`, 83 cases, `-update` rewrites `out`) and
+  `go test ./internal/matchreplace/ -run '^$' -bench HeaderRules -benchmem`.
+- Benchmark (Apple M4, GOMAXPROCS 10): `BenchmarkHeaderRules` ~115 µs/op (range 112-137 µs over 6 runs), 539 KB/op,
+  3081 allocs/op. **This misses the 100 µs target.** All 20 rules change the message, so the request is parsed 21
+  times (the contract re-parses every changed result). One rawhttp parse of the 2 KiB head costs ~4.4 µs and 23 KB
+  (measured alone), about 92 µs in total. The engine's own work is the rest. A pooled bufio reader did not
+  measurably help and was dropped.
+- Limitations:
+  - A REGEX replacement holds all match indices of one section at once (bounded by the input size). The output cap is
+    still checked per match, before the result is complete.
+  - On proxy paths a rule result over 256 MiB is skipped. This is a memory bound only (`shortcut:` comment in
+    `engine.go`); F-MR-1 sets no proxy output cap.
+  - Edits rebuild the start line from parsed fields (Builder `SetMethod`/`SetTarget`/`SetStatus`), so odd spacing
+    in an edited request or status line is normalised. Untouched lines keep their bytes.
+  - A header line emptied by UPDATE_RAW is dropped, not written as a blank line.
+  - A REQUEST_QUERY param edit that removes the last param also drops the `?`.
+  - `identity` in Content-Encoding counts as an "other" coding, so body rules skip it (spec wording).
+- Follow-ups: cut the rawhttp parse allocations (`internal/rawhttp/read.go`, outside this task) to reach the 100 µs
+  budget. T-109 adds the `proxy.Rewriter` compile-time assertion. T-102 maps API enums onto `Rule` (string values
+  are the schema names; hook sources match case-insensitively).
 
 ## Review (reviewer)
 - Verdict: changes_requested
