@@ -3,7 +3,7 @@ id: T-036
 title: Match & Replace page - collections, rule list, rule editor, import/export
 milestone: M2
 role: frontend
-status: in_review
+status: done
 depends_on: [T-099]
 owner: claude-sonnet-5.5
 branch: task/T-036-match-replace-page
