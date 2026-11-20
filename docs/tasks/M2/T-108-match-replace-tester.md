@@ -32,6 +32,15 @@ The tester column runs the draft rule against a request or response and shows be
 - [ ] Picking a history row loads its request (or response) bytes.
 - [ ] Changed lines are marked by more than colour (prefix `+`/`-` or icon) for accessibility.
 - [ ] Inputs over 1 MiB show a notice and skip the diff (output still shown).
+- [ ] Inputs over 12 MiB (pasted or picked) are not sent; a notice says the tester takes at most 12 MiB
+      (F-MR-1 size budget, set by T-099 review).
+- [ ] `raw` (pasted or picked) is sent as unwrapped base64 (no line breaks) in GraphQL variables; wrapped base64
+      can push a 12 MiB message past the 32 MiB API cap (F-MR-1 size budget).
+- [ ] The draft is sent as `MatchReplaceTestRuleInput`: `name`, `enabled` and `sources` are dropped from the
+      editor's `MatchReplaceRuleInput` (GraphQL rejects unknown input fields), so a long draft name cannot push the
+      request past the 32 MiB API cap.
+- [ ] A `BAD_INPUT` "tester output must be at most 16 MiB" result shows that message in place of the output
+      (mock: 64 KiB of `b` with term of 300 bytes).
 - [ ] Component tests against the mock; `make check` green.
 
 ## Notes from lead

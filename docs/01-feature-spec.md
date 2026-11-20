@@ -284,6 +284,30 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     condition matched and whether anything changed. The UI shows a line diff.
   - Export/import JSON `{"version":1,"collections":[{"name":…,"rules":[…]}]}`; import appends collections, all or nothing.
   - Limits: names 1–200 characters, ≤ 1000 rules per project, term ≤ 1 MiB. Rules reload on every change and on project switch.
+  - API details (lead, 2026-11-19, T-099; schema `matchreplace.graphqls`): there is no default collection (the list may
+    be empty); new collections and rules go last. `STRING`, `REGEX` and `NAME` need a non-empty value; `FULL` ignores it; `ADD` ignores the matcher
+    (any kind and value).
+    An `ADD` header term must be `Name: value` with a token name (`BAD_INPUT`); a param term is appended as written.
+    Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester takes `MatchReplaceTestRuleInput` (a rule without name, enabled and sources, so a tester request stays
+    under the 32 MiB API cap whatever the draft name), rejects
+    a section for the other message kind, a `Content-Length` that is not decimal or disagrees with another (exact decimal values, leading zeroes ignored), and a body
+    whose length differs from `Content-Length` (a response with no body may declare any length, as for `HEAD`; body
+    rules leave an empty response that declares a nonzero length unchanged, since it may answer `HEAD`, but fill one
+    with `Content-Length: 0`), and a request with bytes after the head but neither `Content-Length` nor
+    `Transfer-Encoding` (such a request has no body, so those bytes are not part of it; a header-only request stays
+    valid and a rule may add a body) (`BAD_INPUT`); otherwise `raw` is framed exactly as the wire parser
+    (`internal/rawhttp`) frames it, e.g. `Transfer-Encoding` is ignored on HTTP/1.0, and evaluates the condition on the given message only (clauses
+    about the other message are false). Import rejects unknown fields; an unparsable condition there is `BAD_INPUT` naming
+    the rule. Export rule fields are those of `MatchReplaceRuleInput`, enum values as strings, no IDs. A non-`ADD` `FULL`
+    matcher is stored with an empty value.
+  - Size budget (lead, 2026-11-19, T-099 review) so every request fits the 32 MiB API cap (docs/03 §6): a condition is
+    at most 64 KiB; a project holds at most 1000 collections, and the UTF-8 sum of all its rules' conditions, matcher
+    values and terms is at most 3 MiB (any create, update or import past either is `BAD_INPUT`). A valid export, JSON
+    escaped again inside the import request, then stays under ~25 MiB. The tester takes at most 12 MiB of `raw`
+    (`BAD_INPUT`); this fits only when `raw` is sent as unwrapped base64 (no line breaks, which `Bytes` would accept)
+    in GraphQL variables, as the UI does; the UI does not send a larger pasted or picked message and says why. Its `output` is at most 16 MiB:
+    a rule whose result would be larger is `BAD_INPUT` ("tester output must be at most 16 MiB"), detected while
+    replacing, before the full result is allocated or encoded; no partial output. The UI shows that message.
 
 ---
 

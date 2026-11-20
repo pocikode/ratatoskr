@@ -299,6 +299,130 @@ type InterceptSettingsInput struct {
 	DropStatusCode *int `json:"dropStatusCode,omitempty"`
 }
 
+// An ordered folder of rules. There is no default collection; the list may be empty.
+type MatchReplaceCollection struct {
+	// Opaque identifier.
+	ID string `json:"id"`
+	// Display name: trimmed, 1-200 characters, no control characters; need not be unique.
+	Name string `json:"name"`
+	// Rules in order (see `moveMatchReplaceRule`).
+	Rules []MatchReplaceRule `json:"rules"`
+}
+
+func (MatchReplaceCollection) IsNode() {}
+
+// A rule's matcher.
+type MatchReplaceMatcher struct {
+	// How to match.
+	Kind MatchReplaceMatcherKind `json:"kind"`
+	// The string, pattern or name to match; empty for `FULL` (except with `ADD`), and stored as given (unused) for `ADD`.
+	Value string `json:"value"`
+}
+
+// A rule's matcher to store; same rules as `MatchReplaceMatcher`.
+type MatchReplaceMatcherInput struct {
+	// How to match.
+	Kind MatchReplaceMatcherKind `json:"kind"`
+	// The string, pattern or name; must not be empty for `STRING`, `REGEX`, `NAME`
+	// except with `ADD`, which ignores the matcher (any kind and value, stored as
+	// given); at most 1 MiB. Dropped (stored empty) for `FULL` unless the operation
+	// is `ADD`.
+	Value string `json:"value"`
+}
+
+// One Match & Replace rule. Body sections: one `Content-Encoding` of gzip,
+// deflate, br or zstd is removed before matching and reapplied after; other or
+// stacked codings skip body rules. A message whose body exceeds the capture cap
+// (64 MiB) passes through with no rule applied. A changed body keeps its framing:
+// `Content-Length` is updated, a chunked body becomes one chunk plus the last
+// chunk (trailers kept). Requests a rule changed are marked edited in HTTP History.
+type MatchReplaceRule struct {
+	// Opaque identifier.
+	ID string `json:"id"`
+	// Display name: trimmed, 1-200 characters, no control characters; need not be unique.
+	Name string `json:"name"`
+	// Whether the rule applies. Disabled rules keep their place.
+	Enabled bool `json:"enabled"`
+	// The collection holding the rule.
+	Collection *MatchReplaceCollection `json:"collection"`
+	// HTTPQL condition, at most 64 KiB; empty means always. Evaluated in memory on the message as
+	// changed by earlier rules. For request sections no response exists, so
+	// `resp.*` clauses are false.
+	Condition string `json:"condition"`
+	// Traffic the rule applies to; never empty. In stored order, without duplicates.
+	Sources []MatchReplaceSource `json:"sources"`
+	// The part of the message the rule works on.
+	Section MatchReplaceSection `json:"section"`
+	// What the rule does; must be valid for `section` (see `MatchReplaceSection`).
+	Operation MatchReplaceOperation `json:"operation"`
+	// How the rule finds what it changes; must be allowed for `operation`.
+	Matcher *MatchReplaceMatcher `json:"matcher"`
+	// Replacement text, at most 1 MiB of UTF-8. `$1`, `${name}` and `$$` expand only
+	// with `REGEX`; other matchers use the term literally. Ignored by `REMOVE`.
+	// The Workflow replacer arrives with M5 (T-066).
+	Term string `json:"term"`
+	// ID of the collection holding the rule; not exposed in the schema.
+	CollectionID string `json:"-"`
+}
+
+func (MatchReplaceRule) IsNode() {}
+
+// A whole rule. Validation (`BAD_INPUT` unless noted, nothing changes on error):
+// name 1-200 characters after trimming without control characters; `sources`
+// empty; section x operation not valid; matcher kind not allowed for the
+// operation; empty matcher value for `STRING`/`REGEX`/`NAME` (not checked for
+// `ADD`, which ignores the matcher); invalid regex (the
+// message carries the RE2 error); `ADD` header term not `Name: value`; term or
+// matcher value over 1 MiB; condition over 64 KiB. An invalid `condition` is
+// `BAD_QUERY` with `extensions.span`. Saving (not testing) also checks the
+// project budget: the UTF-8 sum of all rules' conditions, matcher values and
+// terms is at most 3 MiB.
+type MatchReplaceRuleInput struct {
+	// Display name (see `MatchReplaceRule.name`).
+	Name string `json:"name"`
+	// Whether the rule applies. Default true.
+	Enabled bool `json:"enabled"`
+	// HTTPQL condition, at most 64 KiB; empty (the default) means always.
+	Condition string `json:"condition"`
+	// Traffic the rule applies to; at least one, duplicates dropped.
+	Sources []MatchReplaceSource `json:"sources"`
+	// The part of the message the rule works on.
+	Section MatchReplaceSection `json:"section"`
+	// What the rule does.
+	Operation MatchReplaceOperation `json:"operation"`
+	// How the rule finds what it changes.
+	Matcher *MatchReplaceMatcherInput `json:"matcher"`
+	// Replacement text, at most 1 MiB. Default empty.
+	Term string `json:"term"`
+}
+
+// What the tester produced.
+type MatchReplaceTestResult struct {
+	// The message after the rule, at most 16 MiB; the input bytes unchanged when nothing changed.
+	Output []byte `json:"output"`
+	// Whether the condition matched (true for an empty condition).
+	ConditionMatched bool `json:"conditionMatched"`
+	// Whether `output` differs from the input.
+	Changed bool `json:"changed"`
+}
+
+// A draft rule for `testMatchReplace`: the `MatchReplaceRuleInput` fields the
+// tester uses. It has no `name`, `enabled` or `sources`, so their size cannot push
+// a tester request past the 32 MiB API cap. Validation as in
+// `MatchReplaceRuleInput` for these fields; the project budget is not checked.
+type MatchReplaceTestRuleInput struct {
+	// HTTPQL condition, at most 64 KiB; empty (the default) means always.
+	Condition string `json:"condition"`
+	// The part of the message the rule works on.
+	Section MatchReplaceSection `json:"section"`
+	// What the rule does.
+	Operation MatchReplaceOperation `json:"operation"`
+	// How the rule finds what it changes.
+	Matcher *MatchReplaceMatcherInput `json:"matcher"`
+	// Replacement text, at most 1 MiB. Default empty.
+	Term string `json:"term"`
+}
+
 // Mutations. Other schema files extend this type.
 type Mutation struct {
 }
@@ -892,6 +1016,371 @@ func (e *InterceptQueueChangeKind) UnmarshalJSON(b []byte) error {
 }
 
 func (e InterceptQueueChangeKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// How a rule finds what it changes.
+type MatchReplaceMatcherKind string
+
+const (
+	// The whole section, or every item. `value` is ignored.
+	MatchReplaceMatcherKindFull MatchReplaceMatcherKind = "FULL"
+	// Exact text, case-sensitive; every occurrence. `value` must not be empty.
+	MatchReplaceMatcherKindString MatchReplaceMatcherKind = "STRING"
+	// A Go RE2 regular expression; every match. RE2 has no look-around and no
+	// backreferences (`(?=…)`, `(?<=…)`, `\1` are invalid). An invalid pattern is
+	// `BAD_INPUT` with the RE2 error message. In the term, `$1`, `${name}` expand to
+	// capture groups and `$$` is a literal `$`. `value` must not be empty.
+	MatchReplaceMatcherKindRegex MatchReplaceMatcherKind = "REGEX"
+	// A header name (case-insensitive) or query param name (case-sensitive). Only
+	// with `UPDATE_VALUE` and `REMOVE`. `value` must not be empty.
+	MatchReplaceMatcherKindName MatchReplaceMatcherKind = "NAME"
+)
+
+var AllMatchReplaceMatcherKind = []MatchReplaceMatcherKind{
+	MatchReplaceMatcherKindFull,
+	MatchReplaceMatcherKindString,
+	MatchReplaceMatcherKindRegex,
+	MatchReplaceMatcherKindName,
+}
+
+func (e MatchReplaceMatcherKind) IsValid() bool {
+	switch e {
+	case MatchReplaceMatcherKindFull, MatchReplaceMatcherKindString, MatchReplaceMatcherKindRegex, MatchReplaceMatcherKindName:
+		return true
+	}
+	return false
+}
+
+func (e MatchReplaceMatcherKind) String() string {
+	return string(e)
+}
+
+func (e *MatchReplaceMatcherKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = MatchReplaceMatcherKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid MatchReplaceMatcherKind", str)
+	}
+	return nil
+}
+
+func (e MatchReplaceMatcherKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *MatchReplaceMatcherKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e MatchReplaceMatcherKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Which message the tester runs on.
+type MatchReplaceMessageKind string
+
+const (
+	// An HTTP/1.x request; only `REQUEST_*` rules can be tested on it.
+	MatchReplaceMessageKindRequest MatchReplaceMessageKind = "REQUEST"
+	// An HTTP/1.x response; only `RESPONSE_*` rules can be tested on it.
+	MatchReplaceMessageKindResponse MatchReplaceMessageKind = "RESPONSE"
+)
+
+var AllMatchReplaceMessageKind = []MatchReplaceMessageKind{
+	MatchReplaceMessageKindRequest,
+	MatchReplaceMessageKindResponse,
+}
+
+func (e MatchReplaceMessageKind) IsValid() bool {
+	switch e {
+	case MatchReplaceMessageKindRequest, MatchReplaceMessageKindResponse:
+		return true
+	}
+	return false
+}
+
+func (e MatchReplaceMessageKind) String() string {
+	return string(e)
+}
+
+func (e *MatchReplaceMessageKind) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = MatchReplaceMessageKind(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid MatchReplaceMessageKind", str)
+	}
+	return nil
+}
+
+func (e MatchReplaceMessageKind) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *MatchReplaceMessageKind) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e MatchReplaceMessageKind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What a rule does to its section.
+type MatchReplaceOperation string
+
+const (
+	// Replaces matched text in the section text: the start line, the path, the raw
+	// query string, each header line on its own, or the body. With `FULL` the term
+	// replaces the whole text (every header line for header sections).
+	// Matchers: `FULL`, `STRING`, `REGEX`.
+	MatchReplaceOperationUpdateRaw MatchReplaceOperation = "UPDATE_RAW"
+	// Replaces matched text in the method or status code token (`FULL` replaces the
+	// token). Only for `REQUEST_METHOD` and `RESPONSE_STATUS_CODE`.
+	// Matchers: `FULL`, `STRING`, `REGEX`.
+	MatchReplaceOperationUpdate MatchReplaceOperation = "UPDATE"
+	// Changes header or query param values. `NAME` selects items by name and the
+	// term replaces the whole value; `STRING`/`REGEX` replace inside every item's
+	// value; `FULL` replaces every item's value. Matchers: all four.
+	MatchReplaceOperationUpdateValue MatchReplaceOperation = "UPDATE_VALUE"
+	// Appends one header or param after the last one. The term is `Name: value`
+	// for headers (`BAD_INPUT` when the name is not an HTTP token or `:` is missing)
+	// and `name=value` (or `name`) for params, appended as written. The matcher is
+	// ignored.
+	MatchReplaceOperationAdd MatchReplaceOperation = "ADD"
+	// Removes headers or params: `NAME` by name, `STRING`/`REGEX` when they match
+	// the item text (`Name: value` or `name=value`), `FULL` removes all. The term is
+	// ignored. Matchers: all four.
+	MatchReplaceOperationRemove MatchReplaceOperation = "REMOVE"
+)
+
+var AllMatchReplaceOperation = []MatchReplaceOperation{
+	MatchReplaceOperationUpdateRaw,
+	MatchReplaceOperationUpdate,
+	MatchReplaceOperationUpdateValue,
+	MatchReplaceOperationAdd,
+	MatchReplaceOperationRemove,
+}
+
+func (e MatchReplaceOperation) IsValid() bool {
+	switch e {
+	case MatchReplaceOperationUpdateRaw, MatchReplaceOperationUpdate, MatchReplaceOperationUpdateValue, MatchReplaceOperationAdd, MatchReplaceOperationRemove:
+		return true
+	}
+	return false
+}
+
+func (e MatchReplaceOperation) String() string {
+	return string(e)
+}
+
+func (e *MatchReplaceOperation) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = MatchReplaceOperation(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid MatchReplaceOperation", str)
+	}
+	return nil
+}
+
+func (e MatchReplaceOperation) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *MatchReplaceOperation) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e MatchReplaceOperation) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// The part of a message a rule works on. `REQUEST_*` sections apply to requests,
+// `RESPONSE_*` sections to responses. Valid operations per section:
+// first line, path and body take `UPDATE_RAW`; method and status code take
+// `UPDATE`; query and header take `UPDATE_RAW`, `UPDATE_VALUE`, `ADD`, `REMOVE`.
+// WebSocket sections arrive with M4 (T-053).
+type MatchReplaceSection string
+
+const (
+	// The request line (`GET /a?b=c HTTP/1.1`, without CRLF). `UPDATE_RAW` only.
+	MatchReplaceSectionRequestFirstLine MatchReplaceSection = "REQUEST_FIRST_LINE"
+	// The method token. `UPDATE` only.
+	MatchReplaceSectionRequestMethod MatchReplaceSection = "REQUEST_METHOD"
+	// The path of the request target, without `?` and query. `UPDATE_RAW` only.
+	MatchReplaceSectionRequestPath MatchReplaceSection = "REQUEST_PATH"
+	// The query string of the request target. `UPDATE_RAW` works on the raw string
+	// after `?`; `UPDATE_VALUE`, `ADD`, `REMOVE` work on its `&`-separated params
+	// (names case-sensitive).
+	MatchReplaceSectionRequestQuery MatchReplaceSection = "REQUEST_QUERY"
+	// Request headers. `UPDATE_RAW` works on each header line (`Name: value`) on its
+	// own; `UPDATE_VALUE`, `ADD`, `REMOVE` on headers (names case-insensitive).
+	MatchReplaceSectionRequestHeader MatchReplaceSection = "REQUEST_HEADER"
+	// The request body, after removing one `Content-Encoding` (see `MatchReplaceRule`). `UPDATE_RAW` only.
+	MatchReplaceSectionRequestBody MatchReplaceSection = "REQUEST_BODY"
+	// The status line (`HTTP/1.1 200 OK`, without CRLF). `UPDATE_RAW` only.
+	MatchReplaceSectionResponseFirstLine MatchReplaceSection = "RESPONSE_FIRST_LINE"
+	// The three-digit status code. `UPDATE` only; a result that is not three digits
+	// skips the rule (logged).
+	MatchReplaceSectionResponseStatusCode MatchReplaceSection = "RESPONSE_STATUS_CODE"
+	// Response headers; same operations and rules as `REQUEST_HEADER`.
+	MatchReplaceSectionResponseHeader MatchReplaceSection = "RESPONSE_HEADER"
+	// The response body, after removing one `Content-Encoding`. `UPDATE_RAW` only.
+	MatchReplaceSectionResponseBody MatchReplaceSection = "RESPONSE_BODY"
+)
+
+var AllMatchReplaceSection = []MatchReplaceSection{
+	MatchReplaceSectionRequestFirstLine,
+	MatchReplaceSectionRequestMethod,
+	MatchReplaceSectionRequestPath,
+	MatchReplaceSectionRequestQuery,
+	MatchReplaceSectionRequestHeader,
+	MatchReplaceSectionRequestBody,
+	MatchReplaceSectionResponseFirstLine,
+	MatchReplaceSectionResponseStatusCode,
+	MatchReplaceSectionResponseHeader,
+	MatchReplaceSectionResponseBody,
+}
+
+func (e MatchReplaceSection) IsValid() bool {
+	switch e {
+	case MatchReplaceSectionRequestFirstLine, MatchReplaceSectionRequestMethod, MatchReplaceSectionRequestPath, MatchReplaceSectionRequestQuery, MatchReplaceSectionRequestHeader, MatchReplaceSectionRequestBody, MatchReplaceSectionResponseFirstLine, MatchReplaceSectionResponseStatusCode, MatchReplaceSectionResponseHeader, MatchReplaceSectionResponseBody:
+		return true
+	}
+	return false
+}
+
+func (e MatchReplaceSection) String() string {
+	return string(e)
+}
+
+func (e *MatchReplaceSection) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = MatchReplaceSection(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid MatchReplaceSection", str)
+	}
+	return nil
+}
+
+func (e MatchReplaceSection) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *MatchReplaceSection) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e MatchReplaceSection) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Which traffic a rule applies to.
+type MatchReplaceSource string
+
+const (
+	// Traffic captured by the proxy, before Intercept holds it.
+	MatchReplaceSourceProxy MatchReplaceSource = "PROXY"
+	// A message forwarded from the Intercept editor, after the user's edit.
+	MatchReplaceSourceIntercept MatchReplaceSource = "INTERCEPT"
+	// Replay sends whose session has "Apply Match & Replace" on.
+	MatchReplaceSourceReplay MatchReplaceSource = "REPLAY"
+	// Automate requests (stored now, applied once Automate lands).
+	MatchReplaceSourceAutomate MatchReplaceSource = "AUTOMATE"
+	// Workflow requests (stored now, applied once workflows land).
+	MatchReplaceSourceWorkflow MatchReplaceSource = "WORKFLOW"
+	// Plugin requests (stored now, applied once plugins land).
+	MatchReplaceSourcePlugin MatchReplaceSource = "PLUGIN"
+)
+
+var AllMatchReplaceSource = []MatchReplaceSource{
+	MatchReplaceSourceProxy,
+	MatchReplaceSourceIntercept,
+	MatchReplaceSourceReplay,
+	MatchReplaceSourceAutomate,
+	MatchReplaceSourceWorkflow,
+	MatchReplaceSourcePlugin,
+}
+
+func (e MatchReplaceSource) IsValid() bool {
+	switch e {
+	case MatchReplaceSourceProxy, MatchReplaceSourceIntercept, MatchReplaceSourceReplay, MatchReplaceSourceAutomate, MatchReplaceSourceWorkflow, MatchReplaceSourcePlugin:
+		return true
+	}
+	return false
+}
+
+func (e MatchReplaceSource) String() string {
+	return string(e)
+}
+
+func (e *MatchReplaceSource) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = MatchReplaceSource(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid MatchReplaceSource", str)
+	}
+	return nil
+}
+
+func (e MatchReplaceSource) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *MatchReplaceSource) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e MatchReplaceSource) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

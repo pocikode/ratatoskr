@@ -60,3 +60,11 @@ models:
   ReplayEntry:
     fields:
       request: { resolver: true }
+  # The rule's collection is a back-reference; it loads lazily to keep the model acyclic (T-099).
+  MatchReplaceRule:
+    fields:
+      collection: { resolver: true }
+    extraFields:
+      CollectionID:
+        type: string
+        description: ID of the collection holding the rule; not exposed in the schema.
