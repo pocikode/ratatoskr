@@ -62,30 +62,19 @@ Flash models never review. `opus` reviews only core tasks written by `sol` (save
 
 `<role>` = the task's `role`. `<GITDIR>` = absolute path of the main checkout's `.git` directory (worktrees commit into it).
 
-claude and codex are interactive: pass these after `--` to `herdr agent start`.
+All three are interactive Herdr agents: pass these after `--` to `herdr agent start <name> --kind <harness>`.
 
 | Harness | profile `safe` | profile `full` (only on a dedicated VPS/container) |
 |---|---|---|
 | claude | `--agent <role> --model <id> --permission-mode acceptEdits` (+ allowlist in `.claude/settings.json`) | `--agent <role> --model <id> --dangerously-skip-permissions` |
 | codex | `-m <id> --sandbox workspace-write --ask-for-approval never --add-dir <GITDIR> -c sandbox_workspace_write.network_access=true` | `-m <id> --dangerously-bypass-approvals-and-sandbox` |
+| opencode | `mini --agent <role> --model <id>` (permissions from `opencode.json`) | same, with `"permission": "allow"` everywhere |
 
-opencode (v2) has no `--agent/--model` flags on its TUI, so it runs **one-shot** with `opencode run`: each turn is one
-shell command in the task's pane, and the process exits when the turn ends. It is not a Herdr agent session
-(`herdr agent prompt/wait/read` do not apply; use the pane commands). `<name>` = `t###-impl` or `t###-rev`.
+opencode v2's full TUI has no `--agent/--model` flags; its minimal UI `opencode mini` has them (plus `--prompt`,
+`--session <id>`). Use `mini`, not `opencode run`: a one-shot run auto-rejects every `ask` permission and is not a
+Herdr agent.
 
-| Step | Command |
-|---|---|
-| First turn | `herdr pane run <pane> "opencode run --agent <role> --model <id> --title <name> '<prompt>'; echo DONE-<name>'#'"` |
-| Wait | `herdr pane wait-output <pane> --match "DONE-<name>#" --timeout <prompt_timeout_ms>` (the quotes in the typed command keep it from matching itself) |
-| Session id | `opencode session list --format json` run in the worktree; take the `id` of the session titled `<name>` |
-| Later turns | `herdr pane run <pane> "opencode run --session <session-id> --agent <role> --model <id> '<prompt>'; echo DONE-<name>-<n>'#'"`, then wait on `DONE-<name>-<n>#` (`<n>` = turn number, so an earlier marker never matches) |
-| Output | `herdr pane read <pane> --source recent-unwrapped --lines 80` (only when the task file does not explain the result) |
-
-Profile `safe`: permissions come from `opencode.json`; a one-shot run cannot answer an `ask` rule, so the worker must
-treat a refused command as `blocked` (AGENTS.md autonomous mode). Profile `full`: add `--auto` to every `opencode run`.
-Prompts go inside single quotes: never put a `'` in them.
-
-Check each flag once with `<harness> --help` (`opencode run --help` for opencode); if a flag differs in the installed
+Check each flag once with `<harness> --help` (`opencode mini --help` for opencode); if a flag differs in the installed
 version, fix this section, don't improvise.
 
 ## 6. First prompt per harness
@@ -93,8 +82,7 @@ version, fix this section, don't improvise.
 | Harness | Implementer | Reviewer |
 |---|---|---|
 | claude | `/task T-###` | `/review T-###` |
-| opencode | `Autonomous mode (AGENTS.md). Follow .opencode/commands/task.md for T-###.` | `Autonomous mode (AGENTS.md). Follow .opencode/commands/review.md for T-###.` |
+| opencode | `/task T-###` | `/review T-###` |
 | codex | `Act as the role in .codex/agents/<role>.toml (developer_instructions). Autonomous mode (AGENTS.md). $task T-###` | `Act as the role in .codex/agents/reviewer.toml. Autonomous mode (AGENTS.md). $review T-###` |
 
-After approval: `/task-done T-###` (claude), `$task-done T-###` (codex) or `Follow .opencode/commands/task-done.md for T-###.`
-(opencode, as a later turn of the implementer session), sent to the **implementer**.
+After approval: `/task-done T-###` (claude/opencode) or `$task-done T-###` (codex), sent to the **implementer** session.

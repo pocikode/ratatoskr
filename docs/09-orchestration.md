@@ -48,7 +48,7 @@ pane then shows as blocked — that is the operator's notification.
 
 ## 5. One-time setup (operator)
 1. Run Herdr on a machine dedicated to this project (VPS or container recommended when `permission_profile: full`).
-2. Install integrations: `herdr integration install claude`, `herdr integration install codex`, `herdr integration install opencode` (opencode workers run one-shot via `opencode run` in a pane; see `docs/agents/routing.md` §5).
+2. Install integrations: `herdr integration install claude`, `herdr integration install codex`, `herdr integration install opencode` (opencode workers run as `opencode mini`; see `docs/agents/routing.md` §5).
    Codex asks you to trust the new hook once.
 3. Log in to every harness (`claude`, `codex login`, `opencode auth login`) on that machine.
 4. Verify the ⚠ model IDs in `docs/agents/routing.md` and fix them in a commit.
