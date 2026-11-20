@@ -3,7 +3,7 @@ id: T-036
 title: Match & Replace page - collections, rule list, rule editor, import/export
 milestone: M2
 role: frontend
-status: in_progress
+status: in_review
 depends_on: [T-099]
 owner: claude-sonnet-5.5
 branch: task/T-036-match-replace-page
@@ -53,10 +53,10 @@ Shortcuts: `window.prompt/confirm` for rename, new collection and unsaved-edit g
 ## Out-of-scope change needed (if any)
 
 ## Handoff (implementer)
-- What changed:
-- How to verify:
-- Known limitations:
-- Follow-ups (proposed tasks):
+- What changed: Match & Replace page (`web/src/pages/match-replace/`): `RuleList` (collections tree, enable checkbox, HTML5 drag + ↑/↓ buttons, context menu via `mr.*` registry commands, import/export), `RuleEditor` (section→operation→matcher dependencies from `rules.ts`, `ADD` hides matcher, RE2 hint, `QueryBar` condition), `MatchReplaceState` (field errors: `BAD_INPUT` message→field, `BAD_QUERY` span→QueryBar; optimistic enable/move with revert), `tester/TesterPanel` placeholder (prop `rule`). Operations in `matchreplace.graphql`; generated client regenerated (`bun run codegen`).
+- How to verify: `make check`; `cd web && bun run dev` then open `/?mock=match-replace` (dev mock). Tests: `rules.test.ts`, `MatchReplacePage.test.ts`.
+- Known limitations: `window.prompt/confirm` for new/rename collection, delete collection and the unsaved-edit guard (marked `shortcut:`). Field attribution of `BAD_INPUT` is by message keywords; unmatched messages show at the form bottom. No Playwright spec (page only reachable through the dev mock; no E2E fixture for it yet). Collection drag drop-targets the header only.
+- Follow-ups (proposed tasks): dialog component replacing prompt/confirm; E2E spec once T-102 backend is on main; structured `field` in `BAD_INPUT` extensions would remove message matching.
 
 ## Review (reviewer)
 - Verdict: approve | changes_requested
