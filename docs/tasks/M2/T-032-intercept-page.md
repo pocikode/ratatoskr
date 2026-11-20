@@ -83,7 +83,7 @@ requests and responses on the Intercept page (against the T-030 mocks until T-10
 - Review round 1: all findings addressed (see ticked items). Page split into `InterceptPage`, `ConditionBar`, `HeldEditor`, `commands.ts`; store gained `flip()`, `epoch`, event replay and revision guards.
 
 ## Review (reviewer)
-- Verdict: changes_requested
+- Verdict: approve
 
 ### Round 1 findings
 
@@ -106,6 +106,20 @@ requests and responses on the Intercept page (against the T-030 mocks until T-10
 
 - [x] [major] web/src/pages/intercept/ConditionBar.svelte:40 — The round-2 query issue remains for scope presets when another page owns an in-flight subscription to the same operation. HTTP History starts `ScopePresetsDocument` with `toPromise()` and leaves it running on navigation (`web/src/pages/http-history/history.svelte:104`). A user who opens Intercept and switches projects before that response arrives can still see the old project's presets. A deferred-fetch check using the installed urql client and production cache/fetch exchanges confirmed one HTTP fetch and the old result delivered to the post-reset caller even after Intercept unsubscribed → Give Intercept a distinct scope presets operation in `intercept.graphql` so its cancellation can tear down the request. Cover a second consumer in the regression test.
 - [x] [minor] web/src/pages/intercept/InterceptPage.test.ts:74 — The draft-pruning test restores the removed item but leaves the other row selected. The assertion still passes if the removed item's draft was retained → Reselect the restored item and assert that its original bytes are shown.
+
+### Round 4 findings (457dbf4, sonnet; tier 2 after escalation to sol)
+
+- No new findings. Round-3 findings verified fixed: `ConditionBar.svelte` uses a dedicated `InterceptScopePresets`
+  operation (no shared key with HTTP History, so a project reset cancels it independently); regression test uses the
+  real urql cache + fetch exchanges with History's `ScopePresets` as a second open consumer and asserts abort on reset,
+  old payload discarded, new presets rendered. Draft-pruning test reselects the restored row and compares original bytes.
+- `gql.ts`/`graphql.ts` changes are codegen output only (lead answer, round 1). Other files inside task paths.
+- Every acceptance criterion is covered by component or store tests. Live backend E2E pending T-109.
+
+### Round 4 verification
+
+- `make check` passed: Go lint 0 issues, Go race suite ok, svelte-check 0/0, eslint + prettier clean, 461/461 frontend tests.
+- `git diff --check main...HEAD` passed. No backend files changed, so `make test-int` not run.
 
 ### Round 1 verification
 
