@@ -9,7 +9,7 @@ interface Deps {
   router: Pick<Router, 'navigate'>;
   ui: Pick<UiState, 'toggleSidebar' | 'openPalette'>;
   theme: Pick<ThemeState, 'set' | 'toggle'>;
-  intercept?: Pick<InterceptStore, 'toggleQueuing' | 'update' | 'settings'>;
+  intercept?: Pick<InterceptStore, 'toggleQueuing' | 'flip'>;
 }
 
 /** Registers the shell's own commands: go-to-page, palette, sidebar, theme and the intercept toggles. */
@@ -29,13 +29,13 @@ export function registerBuiltins(
       id: 'intercept.toggleRequests',
       title: 'Intercept: hold requests',
       group: 'Intercept',
-      run: () => void intercept.update({ requests: !intercept.settings?.requests }),
+      run: () => void intercept.flip('requests'),
     },
     {
       id: 'intercept.toggleResponses',
       title: 'Intercept: hold responses',
       group: 'Intercept',
-      run: () => void intercept.update({ responses: !intercept.settings?.responses }),
+      run: () => void intercept.flip('responses'),
     },
     ...routes.map((r) => ({
       id: `nav.goto.${r.id}`,

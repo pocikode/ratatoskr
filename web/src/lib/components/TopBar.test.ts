@@ -20,12 +20,12 @@ function setup() {
     {
       id: 'intercept.toggleRequests',
       title: 'Requests',
-      run: () => void store.update({ requests: !store.settings?.requests }),
+      run: () => void store.flip('requests'),
     },
     {
       id: 'intercept.toggleResponses',
       title: 'Responses',
-      run: () => void store.update({ responses: !store.settings?.responses }),
+      run: () => void store.flip('responses'),
     },
   );
   render(TopBar, { store });
@@ -66,6 +66,25 @@ describe('TopBar intercept toggle', () => {
     await userEvent.click(await screen.findByText('Responses'));
     await waitFor(() => expect(s.store.settings?.responses).toBe(false));
     expect(s.store.settings?.requests).toBe(true);
+  });
+
+  it('toggles requests from the dropdown', async () => {
+    const s = setup();
+    off = s.off;
+    await waitFor(() => expect(s.store.settings).not.toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Intercept options' }));
+    await userEvent.click(await screen.findByText('Requests'));
+    await waitFor(() => expect(s.store.settings?.requests).toBe(false));
+    expect(s.store.settings?.responses).toBe(true);
+  });
+
+  it('is disabled until the settings of the current project are known', async () => {
+    const s = setup();
+    off = s.off;
+    const button = await screen.findByRole('button', { name: 'Intercept: Queuing' });
+    s.store.settings = null;
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Intercept options' })).toBeDisabled();
   });
 
   it('Ctrl+I runs the toggle command', async () => {

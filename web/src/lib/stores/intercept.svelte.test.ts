@@ -1,4 +1,14 @@
+import type { Client } from '@urql/core';
+import { makeSubject } from 'wonka';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  InterceptQueueChangedDocument,
+  InterceptQueueDocument,
+  InterceptSettingsDocument,
+  UpdateInterceptSettingsDocument,
+  type InterceptItemFieldsFragment,
+  type InterceptSettingsFieldsFragment,
+} from '$lib/api/generated/graphql';
 import { createMockClient } from '$lib/api/mocks/exchange';
 import { fromBase64, InterceptStore, toBase64 } from './intercept.svelte';
 
@@ -58,8 +68,154 @@ describe('InterceptStore', () => {
     expect(input.error).toMatch(/100-599/);
   });
 
+  it('does nothing when flipping before the settings are known', async () => {
+    const { store } = setup();
+    expect(await store.flip('queuing')).toEqual({ error: null });
+    expect(store.settings).toBeNull();
+  });
+
   it('round-trips base64', () => {
     const bytes = Uint8Array.from({ length: 70000 }, (_, i) => i % 256);
     expect(fromBase64(toBase64(bytes))).toEqual(bytes);
+  });
+});
+
+// Out-of-order delivery: subscription events and mutation results racing the refetch snapshots.
+const item = (id: string): InterceptItemFieldsFragment => ({
+  id,
+  kind: 'REQUEST',
+  raw: '',
+  heldAt: '2026-11-20T10:00:00Z',
+  request: { id, method: 'GET', host: 'example.test', port: 80, tls: false, path: '/', query: '' },
+});
+const settings = (queuing: boolean): InterceptSettingsFieldsFragment => ({
+  queuing,
+  requests: true,
+  responses: false,
+  query: '',
+  scopeId: null,
+  dropStatusCode: 502,
+});
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+function manual() {
+  const queryDocs = {
+    queue: [deferred<{ data: unknown }>(), deferred<{ data: unknown }>()],
+    settings: [deferred<{ data: unknown }>(), deferred<{ data: unknown }>()],
+  };
+  const calls = { queue: 0, settings: 0 };
+  const queueEvents = makeSubject<{ data: unknown }>();
+  const settingsEvents = makeSubject<{ data: unknown }>();
+  const mutation = deferred<{ data: unknown }>();
+  const client = {
+    query: (doc: unknown) => ({
+      toPromise: () =>
+        doc === InterceptQueueDocument
+          ? queryDocs.queue[calls.queue++]!.promise
+          : doc === InterceptSettingsDocument
+            ? queryDocs.settings[calls.settings++]!.promise
+            : Promise.resolve({ data: null }),
+    }),
+    subscription: (doc: unknown) =>
+      doc === InterceptQueueChangedDocument ? queueEvents.source : settingsEvents.source,
+    mutation: (doc: unknown) => ({
+      toPromise: () => (doc === UpdateInterceptSettingsDocument ? mutation.promise : null),
+    }),
+  } as unknown as Client;
+  let reset = () => {};
+  const store = new InterceptStore(
+    () => client,
+    () => undefined,
+    { onReset: (fn) => ((reset = fn), () => {}) },
+  );
+  const stop = store.start();
+  return {
+    store,
+    stop,
+    queryDocs,
+    mutation,
+    reset: () => reset(),
+    queueEvent: (kind: 'ADDED' | 'REMOVED', i: InterceptItemFieldsFragment) =>
+      queueEvents.next({ data: { interceptQueueChanged: { kind, item: i } } }),
+    settingsEvent: (s: InterceptSettingsFieldsFragment) =>
+      settingsEvents.next({ data: { interceptSettingsChanged: s } }),
+  };
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+describe('InterceptStore ordering', () => {
+  it('keeps an item that was added while the queue snapshot was in flight', async () => {
+    const t = manual();
+    t.queueEvent('ADDED', item('c'));
+    t.queryDocs.settings[0]!.resolve({ data: { interceptSettings: settings(true) } });
+    t.queryDocs.queue[0]!.resolve({ data: { interceptQueue: [item('a'), item('b')] } });
+    await tick();
+    expect(t.store.queue.map((i) => i.id)).toEqual(['a', 'b', 'c']);
+    t.stop();
+  });
+
+  it('keeps an item gone that was removed while the queue snapshot was in flight', async () => {
+    const t = manual();
+    t.queueEvent('ADDED', item('a'));
+    t.queueEvent('REMOVED', item('a'));
+    t.queryDocs.settings[0]!.resolve({ data: { interceptSettings: settings(true) } });
+    t.queryDocs.queue[0]!.resolve({ data: { interceptQueue: [item('a'), item('b')] } });
+    await tick();
+    expect(t.store.queue.map((i) => i.id)).toEqual(['b']);
+    t.stop();
+  });
+
+  it('does not let an older settings snapshot overwrite a newer event', async () => {
+    const t = manual();
+    t.settingsEvent(settings(false));
+    t.queryDocs.settings[0]!.resolve({ data: { interceptSettings: settings(true) } });
+    t.queryDocs.queue[0]!.resolve({ data: { interceptQueue: [] } });
+    await tick();
+    expect(t.store.settings?.queuing).toBe(false);
+    t.stop();
+  });
+
+  it('does not let an older mutation result overwrite a newer event', async () => {
+    const t = manual();
+    t.queryDocs.settings[0]!.resolve({ data: { interceptSettings: settings(true) } });
+    t.queryDocs.queue[0]!.resolve({ data: { interceptQueue: [] } });
+    await tick();
+    const pending = t.store.update({ queuing: false });
+    t.settingsEvent({ ...settings(true), requests: false });
+    t.mutation.resolve({ data: { updateInterceptSettings: settings(false) } });
+    await pending;
+    expect(t.store.settings).toMatchObject({ queuing: true, requests: false });
+    t.stop();
+  });
+
+  it('clears settings on a project switch and ignores the old project in flight', async () => {
+    const t = manual();
+    t.queryDocs.settings[0]!.resolve({ data: { interceptSettings: settings(true) } });
+    t.queryDocs.queue[0]!.resolve({ data: { interceptQueue: [item('a')] } });
+    await tick();
+    const pending = t.store.update({ queuing: true });
+
+    t.reset();
+    expect(t.store.settings).toBeNull();
+    expect(t.store.queue).toEqual([]);
+    expect(t.store.epoch).toBe(1);
+    // The old project's mutation result must not come back as the new project's settings.
+    t.mutation.resolve({ data: { updateInterceptSettings: settings(true) } });
+    await pending;
+    expect(t.store.settings).toBeNull();
+    // Nothing is flipped from stale settings either.
+    expect(await t.store.flip('queuing')).toEqual({ error: null });
+
+    t.queryDocs.settings[1]!.resolve({ data: { interceptSettings: settings(false) } });
+    t.queryDocs.queue[1]!.resolve({ data: { interceptQueue: [] } });
+    await tick();
+    expect(t.store.settings?.queuing).toBe(false);
+    t.stop();
   });
 });

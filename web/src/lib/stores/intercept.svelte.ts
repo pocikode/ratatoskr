@@ -55,6 +55,8 @@ export class InterceptStore {
   /** Held items, oldest first. */
   queue = $state.raw<InterceptItem[]>([]);
   error = $state<string | null>(null);
+  /** Bumped on every project switch; project-scoped data on the page (scope presets) follows it. */
+  epoch = $state(0);
   count = $derived(this.queue.length);
 
   readonly #getClient: () => Client;
@@ -63,6 +65,10 @@ export class InterceptStore {
   #users = 0;
   #stop: (() => void) | undefined;
   #seq = 0;
+  /** Bumped on every settings change or reset; guards older snapshots and mutation results. */
+  #rev = 0;
+  /** Queue events seen while a refresh is in flight, replayed on its snapshot. */
+  #log: { kind: 'ADDED' | 'REMOVED'; item: InterceptItem }[] | null = null;
 
   constructor(
     getClient: () => Client = () => getApi().client,
@@ -113,7 +119,7 @@ export class InterceptStore {
     listen(
       () => client.subscription(InterceptSettingsChangedDocument, {}),
       (r) => {
-        if (r.data) this.settings = r.data.interceptSettingsChanged;
+        if (r.data) this.#setSettings(r.data.interceptSettingsChanged);
       },
     );
     listen(
@@ -121,14 +127,20 @@ export class InterceptStore {
       (r) => {
         const change = r.data?.interceptQueueChanged;
         if (!change) return;
-        const { item } = change;
-        if (change.kind === 'REMOVED') this.queue = this.queue.filter((i) => i.id !== item.id);
-        else if (!this.queue.some((i) => i.id === item.id)) this.queue = [...this.queue, item];
+        this.#apply(change);
+        // A snapshot still in flight may predate this event: refresh() replays it on top.
+        this.#log?.push(change);
       },
     );
-    // A project switch releases the queue without REMOVED events (intercept.graphqls).
+    // A project switch releases the queue without REMOVED events (intercept.graphqls). Drop the
+    // old project's settings too, and invalidate every response still in flight.
     const offReset = this.#projects.onReset(() => {
+      this.#rev++;
+      this.#seq++;
+      this.#log = null;
       this.queue = [];
+      this.settings = null;
+      this.epoch++;
       void this.refresh();
     });
     let connected = false;
@@ -148,15 +160,33 @@ export class InterceptStore {
 
   async refresh(): Promise<void> {
     const n = ++this.#seq;
+    const rev = this.#rev;
+    this.#log = []; // events from here on may be missing from the snapshots
     const client = this.#getClient();
     const [s, q] = await Promise.all([
       client.query(InterceptSettingsDocument, {}, { requestPolicy: 'network-only' }).toPromise(),
       client.query(InterceptQueueDocument, {}, { requestPolicy: 'network-only' }).toPromise(),
     ]);
-    if (n !== this.#seq) return; // a newer refresh superseded this one
-    if (s.data) this.settings = s.data.interceptSettings;
-    if (q.data) this.queue = q.data.interceptQueue;
+    if (n !== this.#seq) return; // a newer refresh or a project switch superseded this one
+    const log = this.#log ?? [];
+    this.#log = null;
+    // A settings event or reset since the request started is newer than the snapshot.
+    if (s.data && rev === this.#rev) this.settings = s.data.interceptSettings;
+    if (q.data) {
+      this.queue = q.data.interceptQueue;
+      log.forEach((c) => this.#apply(c));
+    }
     this.error = s.error?.message ?? q.error?.message ?? null;
+  }
+
+  #setSettings(s: InterceptSettings) {
+    this.#rev++;
+    this.settings = s;
+  }
+
+  #apply({ kind, item }: { kind: 'ADDED' | 'REMOVED'; item: InterceptItem }) {
+    if (kind === 'REMOVED') this.queue = this.queue.filter((i) => i.id !== item.id);
+    else if (!this.queue.some((i) => i.id === item.id)) this.queue = [...this.queue, item];
   }
 
   /** Items of one kind, oldest first. */
@@ -165,14 +195,22 @@ export class InterceptStore {
   }
 
   async update(input: InterceptSettingsInput): Promise<Outcome> {
+    const rev = this.#rev;
     const r = await this.#getClient()
       .mutation(UpdateInterceptSettingsDocument, { input })
       .toPromise();
-    if (r.data) this.settings = r.data.updateInterceptSettings;
+    // The change's own event, a later one or a project switch got here first: it is newer.
+    if (r.data && rev === this.#rev) this.#setSettings(r.data.updateInterceptSettings);
     return outcome(r.error);
   }
 
-  toggleQueuing = () => this.update({ queuing: !this.settings?.queuing });
+  /** Flips a switch from the current settings; does nothing until they are known. */
+  async flip(field: 'queuing' | 'requests' | 'responses'): Promise<Outcome> {
+    const current = this.settings;
+    return current ? this.update({ [field]: !current[field] }) : { error: null };
+  }
+
+  toggleQueuing = () => this.flip('queuing');
 
   /** Forwards one item; `raw` (bytes) replaces the message, `null` sends it unchanged. */
   async forward(id: string, raw: Uint8Array | null): Promise<Outcome> {

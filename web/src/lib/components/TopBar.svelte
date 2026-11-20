@@ -49,6 +49,7 @@
       class="rounded-l-token border border-line px-2 py-1 font-medium hover:bg-hover
         {queuing ? 'bg-warn/20 text-warn' : 'bg-subtle text-muted'}"
       aria-pressed={queuing}
+      disabled={!store.settings}
       aria-label="Intercept: {queuing ? 'Queuing' : 'Forwarding'}"
       title="Toggle intercept ({isMac ? '⌘I' : 'Ctrl I'})"
       onclick={() => registry.run('intercept.toggle')}
@@ -59,6 +60,7 @@
       <DropdownMenu.Trigger
         class="rounded-r-token border border-l-0 border-line px-1.5 py-1 hover:bg-hover"
         aria-label="Intercept options"
+        disabled={!store.settings}
       >
         <span aria-hidden="true">▾</span>
       </DropdownMenu.Trigger>
