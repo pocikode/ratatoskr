@@ -12,6 +12,7 @@ paths:
   - web/src/pages/match-replace/*.ts
   - web/src/pages/match-replace/*.graphql
   - web/src/pages/match-replace/tester/TesterPanel.svelte   # placeholder only; T-108 owns it afterwards
+  - web/src/lib/api/generated/**   # codegen output only (lead, 2026-11-20)
 spec:
   - docs/01-feature-spec.md#F-MR-1 (incl. M2 contract)
   - docs/02-ui-layout.md §3.6
@@ -40,6 +41,14 @@ Users manage Match & Replace collections and rules: create, edit, enable, reorde
 
 ## Notes from lead
 - Reuse `SplitPane`, `QueryBar`, `ContextMenu`; no new dependencies.
+- Lead decisions (2026-11-20, review-limit escalation after round 3):
+  - Generated paths: `web/src/lib/api/generated/**` added to `paths` (codegen output only, never hand-edited; same as T-034).
+    Verified: `bun run codegen` on `6235548` produces no diff.
+  - Browser coverage: not required here. The Match & Replace E2E belongs to T-039 (`web/tests/e2e/match-replace.spec.ts`,
+    after T-109 wires T-102). No dev-mock E2E hook needed.
+  - The `shortcut:` items (prompt/confirm, keyword-based `BAD_INPUT` field mapping) are accepted for M2.
+  - One extra review round (4) is authorized, limited to the round 3 fixes in `6235548`. If round 4 finds only
+    minor/nit items, approve and track them as follow-ups.
 
 ## Plan (implementer, ≤15 lines)
 1. `matchreplace.graphql` + `bun run codegen` (T-099 schema already on main).
@@ -91,7 +100,7 @@ Shortcuts: `window.prompt/confirm` for rename, new collection and unsaved-edit g
 - Verdict: changes_requested (reviewed `b64cdc2`).
 - Verification: `make check` passed, including 419 web tests. No proxy, store or raw HTTP files changed. Browser E2E was not run.
 - The rework covers project switching, successful saves that finish after a rule switch, row-bound context-menu deletion, and rollback when a different rule's toggle succeeds. The browser fixture dependency is recorded in the handoff.
-- [ ] [major] web/src/lib/api/generated/graphql.ts:55 — This file and `web/src/lib/api/generated/gql.ts` still fall outside the declared paths. The handoff requests authorization → Have the lead add the generated paths before resubmitting.
+- [x] [major] web/src/lib/api/generated/graphql.ts:55 — This file and `web/src/lib/api/generated/gql.ts` still fall outside the declared paths. The handoff requests authorization → Have the lead add the generated paths before resubmitting.
 - [x] [major] web/src/pages/match-replace/matchreplace.svelte.ts:210 — Save becomes available before the refresh completes and before a new draft adopts its saved ID. A second save during a slow refresh creates a duplicate. If the refresh fails, the successful create can disappear from the editor because selection uses the stale list → Reconcile the draft with the mutation result and guard duplicate submits through reconciliation. Test delayed and failed refreshes after a successful create.
 - [x] [major] web/src/pages/match-replace/matchreplace.svelte.ts:240 — Delete records whether the open draft belongs to the deleted rule before awaiting a refresh. If the user opens and edits another rule during that refresh, the old delete clears the new draft. Collection deletion has the same race at line 330 → Check the current draft against the deleted entity at completion and cover a switch during the refresh.
 - [x] [major] web/src/pages/match-replace/RuleEditor.svelte:50 — The form renders only the QueryBar's span error for Condition. A condition over 64 KiB returns `BAD_INPUT` and sets `mr.errors.condition`, which the form never renders → Show the condition's field error and cover this case alongside the existing `BAD_QUERY` test.
@@ -105,7 +114,8 @@ Shortcuts: `window.prompt/confirm` for rename, new collection and unsaved-edit g
 - The rework prevents a second create during refresh, renders condition validation, updates the draft baseline after a move, and checks the exact export payload.
 - [x] [major] web/src/pages/match-replace/matchreplace.svelte.ts:237 — Updating an existing rule can succeed while the subsequent list refresh fails. The old rule still exists in the cached list, so the existence check passes and `select` silently replaces the saved values with the old values → Reconcile the list and clean draft from the mutation result. Test an existing-rule update followed by a failed refresh.
 - [x] [major] web/src/pages/match-replace/MatchReplaceShell.svelte:88 — Dismissing a row menu leaves its ID in `mr.menuRule`. After selecting a different rule, running Delete from the command palette still targets the dismissed menu's rule → Pass the row ID in the menu's command context and use the active draft for palette invocations. Cover dismissing the row menu before running the palette command.
-- [ ] [major] web/src/lib/api/generated/graphql.ts:55 — Round 2's path finding remains open for this file and `web/src/lib/api/generated/gql.ts` → Have the lead authorize the generated paths for codegen output.
+- [x] [major] web/src/lib/api/generated/graphql.ts:55 — Round 2's path finding remains open for this file and `web/src/lib/api/generated/gql.ts` → Have the lead authorize the generated paths for codegen output.
 - [x] [minor] web/src/pages/match-replace/MatchReplacePage.test.ts:159 — The delete race test can assert the new draft before the deferred refresh has applied, allowing it to pass even if the old delete clears the draft afterward → First wait for the deleted row to disappear, then assert that the new draft remains.
 - Rework round 3: update result is patched into the list before the refresh (failed refresh keeps saved values); `menuRule` state removed, row id travels in the menu's command context and palette runs use the open rule; delete-race test waits for the row to vanish first. Tests added for each. The generated-paths item stays unticked: lead authorization required.
 - Lead escalation: Round 3 reached the review limit in docs/07 §7. The lead owns the pending decision on generated paths and coordination of the remaining fixes.
+- Lead resolution (2026-11-20): generated paths authorized; browser coverage moved to T-039; round 4 review authorized (see Notes from lead).
