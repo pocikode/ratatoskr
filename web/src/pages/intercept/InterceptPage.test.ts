@@ -1,7 +1,8 @@
 import { render, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
+import { cacheExchange, Client, fetchExchange, subscriptionExchange } from '@urql/core';
 import { describe, expect, it, vi } from 'vitest';
-import { ScopePresetsDocument } from '$lib/api/generated/graphql';
+import { InterceptScopePresetsDocument, ScopePresetsDocument } from '$lib/api/generated/graphql';
 import { createMockClient } from '$lib/api/mocks/exchange';
 import { InterceptStore } from '$lib/stores/intercept.svelte';
 import InterceptPage from './InterceptPage.svelte';
@@ -10,7 +11,10 @@ import InterceptPage from './InterceptPage.svelte';
 Range.prototype.getClientRects ??= () => [] as unknown as DOMRectList;
 
 function setup(options: Parameters<typeof createMockClient>[0] = {}) {
-  const client = createMockClient(options);
+  return renderWithClient(createMockClient(options));
+}
+
+function renderWithClient(client: Client) {
   let reset = () => {};
   const store = new InterceptStore(
     () => client,
@@ -61,6 +65,7 @@ describe('InterceptPage', () => {
     const { store } = setup();
     await waitFor(() => expect(store.count).toBe(3));
     const editor = await screen.findByRole('textbox', { name: 'Held request' });
+    const original = editor.textContent;
     await userEvent.click(editor);
     await userEvent.keyboard('X-Edited: 1{Enter}');
     expect(editor).toHaveTextContent('X-Edited: 1');
@@ -71,7 +76,8 @@ describe('InterceptPage', () => {
     await waitFor(() => expect(rows()).toHaveLength(1));
     store.queue = all;
     await waitFor(() => expect(rows()).toHaveLength(2));
-    expect(screen.getByRole('textbox', { name: 'Held request' })).not.toHaveTextContent('X-Edited');
+    await userEvent.click(within(rows()[0]!).getAllByRole('gridcell')[1]!);
+    expect(screen.getByRole('textbox', { name: 'Held request' }).textContent).toBe(original);
   });
 
   it('appends a new item without moving the selection', async () => {
@@ -134,7 +140,7 @@ describe('InterceptPage', () => {
     const query = vi.spyOn(client, 'query');
     await waitFor(() => expect(store.settings).not.toBeNull());
     const presetCalls = () =>
-      query.mock.calls.filter(([doc]) => doc === ScopePresetsDocument).length;
+      query.mock.calls.filter(([doc]) => doc === InterceptScopePresetsDocument).length;
     const scope = await screen.findByRole('combobox', { name: 'Hold scope' });
     await waitFor(() => expect(scope).toHaveTextContent('Example app'));
 
@@ -145,6 +151,62 @@ describe('InterceptPage', () => {
     vi.spyOn(store, 'update').mockResolvedValue({ error: 'scope preset 9 not found' });
     await userEvent.selectOptions(scope, 'Example app');
     expect(await screen.findByText('scope preset 9 not found')).toBeInTheDocument();
+  });
+
+  it('loads current scope presets while another page still has its old query open', async () => {
+    const pending: { signal: AbortSignal | null | undefined; respond: (name: string) => void }[] =
+      [];
+    const client = new Client({
+      url: 'http://localhost/graphql',
+      preferGetMethod: false,
+      exchanges: [
+        cacheExchange,
+        fetchExchange,
+        subscriptionExchange({
+          forwardSubscription: () => ({ subscribe: () => ({ unsubscribe() {} }) }),
+        }),
+      ],
+      fetch: async (_url, init) => {
+        const { query } = JSON.parse(String(init?.body)) as { query: string };
+        if (!query.includes('scopePresets')) {
+          return Response.json({ data: { interceptSettings: null, interceptQueue: [] } });
+        }
+        return new Promise<Response>((resolve) => {
+          pending.push({
+            signal: init?.signal,
+            respond: (name) =>
+              resolve(
+                Response.json({
+                  data: {
+                    scopePresets: [
+                      { __typename: 'ScopePreset', id: name, name, allow: [], deny: [] },
+                    ],
+                  },
+                }),
+              ),
+          });
+        });
+      },
+    });
+
+    const history = client
+      .query(ScopePresetsDocument, {}, { requestPolicy: 'network-only' })
+      .toPromise();
+    await waitFor(() => expect(pending).toHaveLength(1));
+    const { reset } = renderWithClient(client);
+    await waitFor(() => expect(pending).toHaveLength(2));
+    reset();
+    await waitFor(() => expect(pending).toHaveLength(3));
+    expect(pending[0]!.signal?.aborted).toBe(false);
+    expect(pending[1]!.signal?.aborted).toBe(true);
+
+    pending[0]!.respond('Old project');
+    pending[1]!.respond('Old project');
+    expect((await history).data?.scopePresets[0]?.name).toBe('Old project');
+    pending[2]!.respond('New project');
+
+    expect(await screen.findByRole('option', { name: 'New project' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Old project' })).toBeNull();
   });
 
   it('forwards unchanged (raw null) and selects the next item', async () => {

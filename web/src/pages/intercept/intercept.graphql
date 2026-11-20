@@ -37,6 +37,14 @@ query InterceptQueue {
   }
 }
 
+# Keep scope preset requests separate from other pages so a project switch can cancel them.
+query InterceptScopePresets {
+  scopePresets {
+    id
+    name
+  }
+}
+
 mutation UpdateInterceptSettings($input: InterceptSettingsInput!) {
   updateInterceptSettings(input: $input) {
     ...InterceptSettingsFields
