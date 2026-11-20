@@ -3,7 +3,7 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: changes_requested
+status: in_review
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
@@ -117,6 +117,9 @@ without changing the streaming path for traffic that neither feature touches.
 - Review round 6: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Review round 7: 1 finding fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green;
   nil-hook path untouched, benchmark not rerun.
+- Review round 8: 2 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green;
+  nil-hook path untouched (only an extra `if` on `edits`), benchmark not rerun. Test helper `scripted.received` now
+  returns connections in the order they ended.
 - Review round 2: 3 findings fixed (see Review). `make check` and `GOFLAGS='-count=1 -p=2' make test-int` green.
 - Known limitations:
   - A capture pause that starts between the `Paused` check and `NewPending` still buffers that one request (≤ cap);
@@ -223,7 +226,13 @@ Verification: `make check`, `make test-int`, and `git diff --check main...HEAD` 
 ### Round 8
 
 - Verdict: changes_requested
-- [ ] [major] internal/proxy/hooks.go:527 — The edited request is reparsed only through its head. If its body ends outside the declared boundary, the proxy can still take a shared upstream connection and return it to the pool at hooks.go:668. A later exchange can inherit an upstream connection whose request and response boundaries no longer agree. The existing byte-fidelity test forces `Connection: close` and misses this case. Check the full edited request boundary and send mismatched bytes exactly once on a fresh connection that is closed after the exchange. Add a regression that verifies byte fidelity and connection isolation without relying on a close header.
-- [ ] [minor] internal/proxy/hooks.go:254 — The documented hold limit counts all pipelined bytes, but the check runs only after the first 4 KiB has filled the reader and another read has completed. With a small configured head limit, a client can exceed it while the watcher is still peeking. Count buffered and newly read bytes against the same budget and cover the boundary with a small configured limit.
+- [x] [major] internal/proxy/hooks.go:527 — The edited request is reparsed only through its head. If its body ends outside the declared boundary, the proxy can still take a shared upstream connection and return it to the pool at hooks.go:668. A later exchange can inherit an upstream connection whose request and response boundaries no longer agree. The existing byte-fidelity test forces `Connection: close` and misses this case. Check the full edited request boundary and send mismatched bytes exactly once on a fresh connection that is closed after the exchange. Add a regression that verifies byte fidelity and connection isolation without relying on a close header.
+  - Fixed: a changed request is re-read whole (`wholeRequest`); bytes that end off their framing set `edits.split`:
+    `roundTrip` takes `pool.Fresh` (never the pool, no retry) and `release` closes that upstream after the exchange;
+    the client connection stays usable. Test `TestInterceptSplitRequestGetsOwnConnection` (warm pooled upstream,
+    overlong body, keep-alive, then a later request), mutation-checked for both the fresh dial and the close.
+- [x] [minor] internal/proxy/hooks.go:254 — The documented hold limit counts all pipelined bytes, but the check runs only after the first 4 KiB has filled the reader and another read has completed. With a small configured head limit, a client can exceed it while the watcher is still peeking. Count buffered and newly read bytes against the same budget and cover the boundary with a small configured limit.
+  - Fixed: the watcher checks `Buffered()` before each peek and `Buffered()+len(over)` after each read against the
+    head limit. Test `TestInterceptPipelinedOverHeadLimitEndsHold` (512-byte limit, ~1 KiB pipelined), mutation-checked.
 
 The round 7 changes keep watching for disconnects past a full reader and replay buffered input in order. `make check`, `make test-int`, and `git diff --check main...HEAD` passed. This review reused the recorded nil-hook benchmark comparison. Lead escalation under docs/07 §7 is due because the review has exceeded three rounds.

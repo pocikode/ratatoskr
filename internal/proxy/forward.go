@@ -102,7 +102,7 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 		}
 	}
 
-	resp, up, err := c.roundTrip(x.sent, out, dst, pending)
+	resp, up, err := c.roundTrip(x, out, dst, pending)
 	if err != nil {
 		pending()
 		return c.fail(id, dst, err)
@@ -132,7 +132,7 @@ func (c *session) forward(req *rawhttp.Request, dst destination, inTunnel bool) 
 	// An incomplete body closes up either way. The origin answered the method
 	// it got (exchange reads with x.sent); a HEAD edit leaves the client's
 	// framing wrong, so its connection ends here.
-	return c.release(copyErr, req, x.sent, resp, up) && !x.headChanged(req)
+	return c.release(copyErr, req, x, resp, up) && !x.headChanged(req)
 }
 
 // idempotent reports the RFC 9110 safe methods: a repeat is harmless.
@@ -148,8 +148,22 @@ func idempotent(method string) bool {
 // roundTrip writes the request and reads the final response head. A pooled
 // connection the server closed meanwhile is retried once on a fresh one, but
 // only for safe methods without a body, which can be sent twice.
-func (c *session) roundTrip(req *rawhttp.Request, out io.WriterTo, dst destination, pending func()) (*rawhttp.Response, *netx.Conn, error) {
-	up, reused, err := c.s.pool.Get(c.ctx, dst.key())
+// Split bytes (x.split) go out once, on a fresh connection.
+func (c *session) roundTrip(x *edits, out io.WriterTo, dst destination, pending func()) (*rawhttp.Response, *netx.Conn, error) {
+	req := x.sent
+
+	var (
+		up     *netx.Conn
+		reused bool
+		err    error
+	)
+
+	if x.split {
+		up, err = c.s.pool.Fresh(c.ctx, dst.key())
+	} else {
+		up, reused, err = c.s.pool.Get(c.ctx, dst.key())
+	}
+
 	if err != nil {
 		return nil, nil, err
 	}

@@ -489,6 +489,26 @@ func testClientGone(t *testing.T, pipelined string) {
 	}
 }
 
+// Pipelined bytes count against the head limit from the first byte: with a
+// small limit the hold ends although the client reader is far from full.
+func TestInterceptPipelinedOverHeadLimitEndsHold(t *testing.T) {
+	h := newHookRig(t, []intercept.Kind{intercept.Request}, nil, rawhttp.Limits{MaxHeadBytes: 512})
+
+	_, br := h.send("GET http://%s/ HTTP/1.1\r\nHost: %s\r\n\r\nGET /next HTTP/1.1\r\nX-Pad: " + strings.Repeat("p", 1024))
+	if got := readAll(t, br); got != "" { // treated as gone: closed without an answer
+		t.Fatalf("client got %q", got)
+	}
+
+	recs := h.records(1, func([]history.Item) bool { return true })
+	if recs[0].Resp != nil || recs[0].Dropped {
+		t.Fatalf("record = %+v", recs[0].Request)
+	}
+
+	if got := h.upstreamRequests(); len(got) != 0 {
+		t.Fatalf("upstream got %q", got)
+	}
+}
+
 func TestOverCapPassesThroughUnheldAndUnchanged(t *testing.T) {
 	tests := []struct {
 		name string
@@ -601,10 +621,7 @@ func TestInterceptRulesRunOnlyAfterEditedForward(t *testing.T) {
 // into an echo.
 type scripted struct {
 	addr string
-
-	mu    sync.Mutex
-	conns []*bytes.Buffer
-	done  chan struct{} // one value per finished connection
+	done chan *bytes.Buffer // what each finished connection sent, in finish order
 }
 
 func newScripted(t *testing.T, reply func(req *rawhttp.Request) string) *scripted {
@@ -616,7 +633,7 @@ func newScripted(t *testing.T, reply func(req *rawhttp.Request) string) *scripte
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 
-	s := &scripted{addr: ln.Addr().String(), done: make(chan struct{}, 16)}
+	s := &scripted{addr: ln.Addr().String(), done: make(chan *bytes.Buffer, 16)}
 
 	go func() {
 		for {
@@ -625,12 +642,7 @@ func newScripted(t *testing.T, reply func(req *rawhttp.Request) string) *scripte
 				return
 			}
 
-			in := &bytes.Buffer{}
-			s.mu.Lock()
-			s.conns = append(s.conns, in)
-			s.mu.Unlock()
-
-			go s.serve(c, in, reply)
+			go s.serve(c, &bytes.Buffer{}, reply)
 		}
 	}()
 
@@ -638,7 +650,7 @@ func newScripted(t *testing.T, reply func(req *rawhttp.Request) string) *scripte
 }
 
 func (s *scripted) serve(c net.Conn, in *bytes.Buffer, reply func(req *rawhttp.Request) string) {
-	defer func() { _ = c.Close(); s.done <- struct{}{} }()
+	defer func() { _ = c.Close(); s.done <- in }()
 
 	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 
@@ -668,24 +680,20 @@ func (s *scripted) serve(c net.Conn, in *bytes.Buffer, reply func(req *rawhttp.R
 	}
 }
 
-// received waits for n connections to end and returns what each sent.
+// received waits for n more connections to end and returns what each sent,
+// in the order they ended.
 func (s *scripted) received(t *testing.T, ctx context.Context, n int) []string {
 	t.Helper()
 
+	var out []string
+
 	for range n {
 		select {
-		case <-s.done:
+		case b := <-s.done:
+			out = append(out, b.String())
 		case <-ctx.Done():
 			t.Fatalf("waiting for upstream connections: %v", ctx.Err())
 		}
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var out []string
-	for _, b := range s.conns {
-		out = append(out, b.String())
 	}
 
 	return out
@@ -725,6 +733,47 @@ func TestInterceptEditedLengthSendsBytesAsGiven(t *testing.T) {
 	want := "POST /b HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\nConnection: close\r\n\r\nedited"
 	if got := up.received(t, h.ctx, 1); len(got) != 1 || got[0] != want {
 		t.Fatalf("upstream got %q, want [%q]", got, want)
+	}
+}
+
+// A Forward whose body ends off its framing goes out once, as given, on its
+// own upstream connection, which is closed after the exchange: neither an
+// idle pooled connection nor a later exchange shares it.
+func TestInterceptSplitRequestGetsOwnConnection(t *testing.T) {
+	h := newHookRig(t, []intercept.Kind{intercept.Request}, nil, rawhttp.Limits{})
+	up := newScripted(t, func(*rawhttp.Request) string { return testutil.RawReply })
+	h.addr = up.addr
+
+	conn, br := h.send("GET http://%s/warm HTTP/1.1\r\nHost: %s\r\n\r\n")
+	call := h.nextHold(intercept.Request)
+	call.reply <- intercept.Decision{Raw: call.msg.Request().Raw} // unedited: the upstream is pooled
+	h.response(br, "GET")
+
+	if _, err := fmt.Fprintf(conn, "POST http://%s/a HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\nbody", up.addr); err != nil {
+		t.Fatal(err)
+	}
+
+	// The body runs past its Content-Length: "ited" would read as the start
+	// of the next request on a shared connection.
+	edited := fmt.Sprintf("POST http://%s/b HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nedited", up.addr)
+	h.nextHold(intercept.Request).reply <- intercept.Decision{Raw: []byte(edited), Edited: true}
+	h.response(br, "POST")
+
+	want := "POST /b HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nedited"
+	if got := up.received(t, h.ctx, 1); got[0] != want {
+		t.Fatalf("split connection got %q, want %q", got[0], want)
+	}
+
+	// The client connection still works, on an upstream the split never touched.
+	if _, err := fmt.Fprintf(conn, "GET http://%s/after HTTP/1.1\r\nHost: x\r\n\r\n", up.addr); err != nil {
+		t.Fatal(err)
+	}
+
+	call = h.nextHold(intercept.Request)
+	call.reply <- intercept.Decision{Raw: call.msg.Request().Raw}
+
+	if got := h.response(br, "GET"); got != testutil.RawReply {
+		t.Fatalf("client got %q", got)
 	}
 }
 

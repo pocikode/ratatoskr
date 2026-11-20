@@ -173,6 +173,21 @@ func (s *Server) parseResponse(raw []byte, method string) (r *rawhttp.Response, 
 	return r, err == nil && rd.Len()+br.Buffered() == 0, nil
 }
 
+// wholeRequest reports whether raw is exactly one complete request.
+func (s *Server) wholeRequest(raw []byte) bool {
+	rd := bytes.NewReader(raw)
+	br := bufio.NewReader(rd)
+
+	r, err := rawhttp.ReadRequest(br, rawhttp.Limits{MaxHeadBytes: s.maxHead(), MaxBodyBytes: -1})
+	if err != nil {
+		return false
+	}
+
+	_, err = io.Copy(io.Discard, r.Body())
+
+	return err == nil && rd.Len()+br.Buffered() == 0
+}
+
 // upstreamBytes returns raw (a whole request, or a head alone) as it goes to
 // the origin server, and its parse: outside a tunnel an absolute-form target
 // becomes origin-form. Only the head is rebuilt; the bytes after it go out as
@@ -234,9 +249,16 @@ func (c *session) watchClient(cancel context.CancelFunc) (stop func()) {
 	go func() {
 		defer close(done)
 
-		// Pipelined bytes stay in c.br for the next read; only a read error means
-		// the client is gone.
+		// Pipelined bytes stay in c.br, then in over once c.br is full; a read
+		// error means the client is gone. Both count against the head limit: a
+		// client that pipelines more during a hold is treated as gone.
 		for n := c.br.Buffered() + 1; n <= c.br.Size(); n = c.br.Buffered() + 1 {
+			if n > c.s.maxHead()+1 {
+				gone()
+
+				return
+			}
+
 			if _, err := c.br.Peek(n); err != nil {
 				gone()
 
@@ -244,14 +266,12 @@ func (c *session) watchClient(cancel context.CancelFunc) (stop func()) {
 			}
 		}
 
-		// c.br is full: keep reading behind it, bounded by the head limit. A
-		// client that pipelines more during a hold is treated as gone.
 		buf := make([]byte, c.br.Size())
 		for {
-			n, err := c.br.Read(buf)
+			n, err := c.br.Read(buf) // drains c.br into over first
 			over = append(over, buf[:n]...)
 
-			if err != nil || len(over) > c.s.maxHead() {
+			if err != nil || c.br.Buffered()+len(over) > c.s.maxHead() {
 				gone()
 
 				return
@@ -458,7 +478,10 @@ type edits struct {
 	changed bool
 	// intercepted is set when a Forward in Intercept changed bytes.
 	intercepted bool
-	inTunnel    bool
+	// split is set when the sent bytes do not end where their framing says:
+	// they go out once on a fresh upstream connection that is closed after.
+	split    bool
+	inTunnel bool
 }
 
 // headChanged reports whether a hook made the request HEAD or took HEAD away:
@@ -525,6 +548,8 @@ func (c *session) requestHooks(x *edits, id int64, entry *history.Entry, raw []b
 	}
 
 	x.sent, x.upRaw, x.changed = r, b, !bytes.Equal(sent, raw)
+	// Bytes that end off their framing would desync a shared upstream.
+	x.split = x.changed && !c.s.wholeRequest(b)
 
 	return writeAll{b: b}, false, nil
 }
@@ -547,7 +572,7 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 		c.finish(id, answer, resp)
 		c.storeEdited(owner, x, id, entry, answer)
 
-		return c.release(cmp.Or(err, copyErr), req, x.sent, resp, up) && !x.headChanged(req)
+		return c.release(cmp.Or(err, copyErr), req, x, resp, up) && !x.headChanged(req)
 	}
 
 	upgrade := resp.Status() == 101
@@ -559,7 +584,7 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 		}()
 	} else {
 		// The response is in memory: the upstream is free before any hold.
-		_ = c.release(nil, x.sent, x.sent, resp, up)
+		_ = c.release(nil, x.sent, x, resp, up)
 	}
 
 	// Response rules get the upstream request, built only when a rule runs.
@@ -658,11 +683,17 @@ func (c *session) respondHooked(x *edits, id int64, entry *history.Entry, req *r
 
 // release returns up to the pool when it is reusable after the exchange and
 // reports whether the client connection stays usable.
-func (c *session) release(err error, client, sent *rawhttp.Request, resp *rawhttp.Response, up *netx.Conn) bool {
-	if err != nil || client.Close() || sent.Close() || resp.Close() || resp.Framing() == rawhttp.FramingClose {
+func (c *session) release(err error, client *rawhttp.Request, x *edits, resp *rawhttp.Response, up *netx.Conn) bool {
+	if err != nil || client.Close() || x.sent.Close() || resp.Close() || resp.Framing() == rawhttp.FramingClose {
 		_ = up.Close()
 
 		return false
+	}
+
+	if x.split { // the client is fine; only this upstream is out of step
+		_ = up.Close()
+
+		return true
 	}
 
 	c.s.pool.Put(up)
