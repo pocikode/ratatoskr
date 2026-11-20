@@ -3,9 +3,9 @@ id: T-035
 title: Match & Replace engine - rule model, sections, operations, matchers, term replacer, body encodings
 milestone: M2
 role: backend
-status: todo
+status: in_progress
 depends_on: [T-099]
-owner: ""
+owner: "claude-backend"
 branch: task/T-035-match-replace-engine
 paths:
   - internal/matchreplace/**
@@ -111,11 +111,18 @@ shape (T-105), with no storage and no API.
 
 ## Plan (implementer, ≤15 lines)
 
-1. Compile and validate rule definitions and HTTPQL conditions.
-2. Apply ordered rules to raw HTTP sections and preserve message framing.
-3. Verify tester limits, golden cases, and header-rule performance.
-
-Progress: Completed the chunked-body decoding, trailer extraction and serialization portions of step 2.
+1. rawhttp: `Builder.SetHeaders` (whole header list, Raw kept per field) and `Builder.Head` (head only); bound and
+   document `SplitChunkedBody` (payload ≤ input, trailer aliases wire), bare-LF/extension test.
+2. `internal/matchreplace/rule.go`: `Rule` (MatchReplaceRuleInput shape, schema enum strings), `Validate`, `compile`
+   (section × operation, matchers, RE2, sizes, ADD header term, condition via `filterpreset.Expand` + field allowlist).
+3. `message.go`: parse raw bytes with rawhttp into head/body/trailing bytes; `condition.go`: query.Message view, eval
+   where clauses about a missing side are false.
+4. `apply.go`: per-section operations with a bounded replacer (`$1`/`${name}`/`$$` via `Regexp.Expand`, output cap
+   checked while replacing); `body.go`: gzip/deflate/br/zstd decode (bounded) + re-encode, Content-Length / chunked.
+5. `engine.go`: atomic rule list, `Set/Active/Request/Response`; each changed result is re-parsed, invalid → skip+warn.
+6. `tester.go`: `(*Engine).Test` with all F-MR-1 tester checks as `apperr`.
+7. Tests: txtar goldens (all section × operation × matcher, regex expansion, framing, presets), table tests for
+   validation/tester/encodings/fidelity, benchmark (20 header rules, 2 KiB).
 
 ## Out-of-scope change needed (if any)
 
