@@ -3,9 +3,9 @@ id: T-112
 title: Make CI green - race-aware time bound in matchreplace, no port reuse race in proxy 502 test
 milestone: M2
 role: qa
-status: todo
+status: in_progress
 depends_on: []
-owner: ""
+owner: "opencode (deepseek-v4.1-flash-1017)"
 branch: task/T-112-ci-test-timing
 paths:
   - internal/matchreplace/replace_test.go
@@ -43,6 +43,12 @@ spec:
 - Shell rules (autonomous mode): one simple allowlisted command per call, no pipes/chains/`cd`.
 
 ## Plan (implementer, ≤15 lines)
+1. `race_on_test.go` (`//go:build race`) + `race_off_test.go` (`//go:build !race`): `const raceEnabled`.
+2. `TestRegexSharedGroupsPerMatch`: keep both cases and the 10 s bound, apply the bound only when `!raceEnabled`.
+3. `TestUpstreamErrorIs502AndRecorded`: dial `127.0.0.1:1` instead of a closed listener — a privileged port the
+   unprivileged test process can never bind and the kernel never hands out for `:0`, so no parallel test can take it.
+   Assertions untouched.
+4. Verify `-race -count=20` on both packages, then `make check`.
 
 ## Out-of-scope change needed (if any)
 
