@@ -110,6 +110,7 @@ func TestSplitChunkedBody(t *testing.T) {
 		err                    error
 	}{
 		{"2\r\nhi\r\n1\r\n!\r\n0\r\nX-Test: a\r\nY-Test: b\r\n\r\n", "hi!", "X-Test: a\r\nY-Test: b\r\n", nil},
+		{"2;ext=value\nhi\n0\nX-Test: a\nY-Test: b\n\n", "hi", "X-Test: a\nY-Test: b\n", nil},
 		{"0\r\n\r\n", "", "", nil},
 		{"0\r\nX-Test: a\r\n", "", "", io.ErrUnexpectedEOF},
 		{"0\r\n\r\nextra", "", "", ErrFraming},

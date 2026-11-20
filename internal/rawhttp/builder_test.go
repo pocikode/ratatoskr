@@ -81,6 +81,25 @@ func TestBuilderDropsChunkedFraming(t *testing.T) {
 	}
 }
 
+func TestBuilderSetChunkedBody(t *testing.T) {
+	t.Parallel()
+	const start = "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding:  chunked\r\n"
+	const trailer = "X-Trailer: v\r\n"
+	const wire = start + "Content-Length: 3\r\nTrailer: X-Trailer\r\n\r\n3\r\nabc\r\n0\r\n" + trailer + "\r\n"
+	for _, tt := range []struct {
+		payload, chunk string
+	}{
+		{"hello world", "b\r\nhello world\r\n"},
+		{"", ""},
+	} {
+		got := request(t, wire).Builder().SetChunkedBody([]byte(tt.payload), []byte(trailer)).Bytes()
+		want := start + "Trailer: X-Trailer\r\n\r\n" + tt.chunk + "0\r\n" + trailer + "\r\n"
+		if string(got) != want {
+			t.Errorf("payload %q wrote %q, want %q", tt.payload, got, want)
+		}
+	}
+}
+
 func TestBuilderStatusLine(t *testing.T) {
 	t.Parallel()
 	res := response(t, "", "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi")

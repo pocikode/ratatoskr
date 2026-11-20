@@ -14,7 +14,7 @@ import (
 const maxChunkLine = 8 << 10
 
 // SplitChunkedBody decodes one complete wire body and returns its trailer
-// fields as a slice of wire, excluding the final blank line.
+// fields as a slice that aliases wire, excluding the final blank line.
 func SplitChunkedBody(wire []byte) (payload, trailer []byte, err error) {
 	src := bytes.NewReader(wire)
 	c := &chunkedReader{br: bufio.NewReader(src)}

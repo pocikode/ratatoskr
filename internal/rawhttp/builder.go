@@ -98,6 +98,24 @@ func (b *Builder) SetBody(body []byte) *Builder {
 		SetHeader("Content-Length", strconv.Itoa(len(body)))
 }
 
+// SetChunkedBody replaces the body of a message that already uses chunked
+// transfer encoding. Trailer fields include their line endings and exclude
+// the final blank line, as returned by [SplitChunkedBody].
+func (b *Builder) SetChunkedBody(payload, trailer []byte) *Builder {
+	body := make([]byte, 0, len(payload)+len(trailer)+24)
+	if len(payload) > 0 {
+		body = strconv.AppendInt(body, int64(len(payload)), 16)
+		body = append(body, "\r\n"...)
+		body = append(body, payload...)
+		body = append(body, "\r\n"...)
+	}
+	body = append(body, "0\r\n"...)
+	body = append(body, trailer...)
+	body = append(body, "\r\n"...)
+	b.body, b.bodySet = body, true
+	return b.DelHeader("Content-Length")
+}
+
 // WriteTo writes the re-serialized message. A body that was not replaced is
 // read from the connection, so WriteTo consumes it.
 func (b *Builder) WriteTo(w io.Writer) (int64, error) {
