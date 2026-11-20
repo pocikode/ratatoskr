@@ -286,7 +286,7 @@ The scoped race tests for regex parity, expansion budgets, dense matching, and t
 
 ### Round 5
 
-- [ ] [major] internal/matchreplace/apply.go:352 — Template compilation scans every capture group for each named reference and allocates a fresh list of duplicate group indices for each occurrence. Compile time and memory can grow with the product of two independently capped inputs. → Index capture names once per regexp and share each ordered index slice across references. Add a compilation allocation regression for repeated named references.
+- [x] [major] internal/matchreplace/apply.go:352 — Template compilation scans every capture group for each named reference and allocates a fresh list of duplicate group indices for each occurrence. Compile time and memory can grow with the product of two independently capped inputs. → Index capture names once per regexp and share each ordered index slice across references. Add a compilation allocation regression for repeated named references.
   Fixed: `parseTemplate` indexes capture names once per term (`map[name][]int`) and every reference shares that slice; numeric references share one slice from a per-term index table; numbers are recognised without `strconv` (no error allocation per named reference). `TestParseTemplateSharedGroups` (1000 groups named `p`, 1 MiB of `${p}`: ~45 MiB vs ~2 GiB before).
 
 Both round 4 fixes passed the scoped race tests for regex replacement and template compilation. The standalone 20-rule benchmark measured 69.1–70.9 µs/op and 360 allocs/op across three runs on Apple M4. `git diff --check main...HEAD` passed. This round used scoped checks and excluded request-smuggling verification and the full `make check` and `make test-int` suites.
