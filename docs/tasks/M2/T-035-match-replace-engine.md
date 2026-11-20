@@ -54,7 +54,23 @@ shape (T-105), with no storage and no API.
 - Tester errors (lead, 2026-11-20, answers the blocked question): the engine owns them. `Test` returns
   `(out []byte, conditionMatched, changed bool, err error)`; `err` is an `*apperr.Error` (`apperr.New(apperr.BadInput, …)`,
   message naming the problem, e.g. "tester output must be at most 16 MiB"). T-102 passes it through unchanged. Proxy
-  paths (`Request`/`Response`) are unchanged: no error, oversized results there follow the capture-cap rule.
+  paths (`Request`/`Response`) never return an `apperr`; oversized results there follow the capture-cap rule.
+- Hook errors and invalid results (lead, 2026-11-20, answers blocked Q6; F-MR-1 "Invalid results"): implement the merged
+  T-105 signatures exactly (`([]byte, error)`). Return a non-nil error only when the input does not parse with `rawhttp`
+  or `ctx` is done; the proxy then keeps the original bytes. Every per-rule failure is handled inside the engine: a
+  result that `rawhttp` cannot parse as the same kind with its framed body complete in the buffer is discarded (warn,
+  rule name) and the next rule sees the previous output; same for a non-3-digit status. Edits to framing header fields
+  are kept when the result parses (e.g. a smaller `Content-Length`: the extra bytes stay, not body). `Test` uses the
+  same rule: a skipped rule gives `changed=false` and the input as output, not an error. Golden cases: a first-line
+  update that breaks the request line is skipped while a later rule still applies; a `Content-Length` raw edit larger
+  than the body is skipped; one smaller than the body is kept with the trailing bytes.
+- Trailing bytes and smuggling (lead, 2026-11-20, answers blocked Q7; F-MR-1 "Invalid results"): the contract stands.
+  Forwarding a message whose edited framing leaves extra bytes is a feature (ADR-0003: desync and smuggling testing),
+  and the merged T-105 proxy already contains it. It sends a changed request that `wholeRequest` rejects
+  (`x.split`, `hooks.go:552`) once on a fresh upstream connection and closes that connection after
+  (`forward.go:174`, `release`). It closes the client connection after a changed response that is not whole
+  (`respondHooked`). Do not add a framing-safety check or refuse such results in the engine. Implement the golden
+  cases as written.
 - Parse with `rawhttp`, edit with `rawhttp.Builder`; never `net/http` (ADR-0003).
 - Chunked bodies (lead, 2026-11-20, answers blocked Q1): extend `internal/rawhttp` (paths above; no other open task owns
   it) rather than assembling wire bytes in the engine. Add `Builder.SetChunkedBody(payload, trailer []byte)`: keeps the
@@ -93,9 +109,13 @@ shape (T-105), with no storage and no API.
 2. Apply ordered rules to raw HTTP sections and preserve message framing.
 3. Verify tester limits, golden cases, and header-rule performance.
 
-Progress: Completed the chunked-body decoding and trailer extraction portion of step 2.
+Progress: Completed the chunked-body decoding, trailer extraction and serialization portions of step 2.
 
 ## Out-of-scope change needed (if any)
+
+- Resolved (lead, 2026-11-20; see Notes from lead, Trailing bytes and smuggling): the live rewrite contract forwards a message whose edited Content-Length leaves bytes beyond its declared body, which can enable request smuggling. A framing-safe contract is needed.
+
+- Resolved (lead, 2026-11-20; see Notes from lead, Hook errors and invalid results): T-035 calls for the exact T-105 `Rewriter` shape, but the lead's tester note says the proxy paths have “no error”. The merged interface returns `([]byte, error)` for both hooks, and the proxy uses a non-nil error to keep the original bytes. Should the engine implement the merged signatures and use that fallback for invalid rewrite results, or always return a nil error and handle invalid results inside the engine? F-MR-1 specifies skipping invalid status-code results but leaves the handling of other invalid start-line and framing edits open.
 
 - Resolved (lead, 2026-11-20; see Notes from lead, Chunked with Content-Length): F-MR-1 requires rejecting a body whose length differs from
   `Content-Length`. For a valid HTTP/1.1 chunked message with a valid decimal `Content-Length`,
@@ -133,9 +153,12 @@ Progress: Completed the chunked-body decoding and trailer extraction portion of 
 - Resolved (lead, 2026-11-20): "Should `Test` return an error for `BAD_INPUT`?" Yes, the engine owns every tester check; see Notes from lead.
 
 ## Handoff (implementer)
+- Commit `47f3f3e` added `rawhttp.Builder.SetChunkedBody`. It preserves Transfer-Encoding and trailers, removes Content-Length, and emits canonical chunk framing for both populated and empty payloads. The splitter tests also cover bare-LF trailers and a chunk extension.
+- `go test -race ./internal/rawhttp` and `git diff --check` passed for the builder change. The full check has yet to be run for this update.
+- Blocker: The live rewrite contract requires forwarding a message whose edited Content-Length leaves bytes beyond its declared body. That behavior can enable HTTP request smuggling. A framing-safe contract is needed to finish the engine. (Resolved by the lead: see Notes from lead, Trailing bytes and smuggling.)
 - What changed: Commit `c37e05d` added `rawhttp.SplitChunkedBody`. It uses the existing chunk parser, rejects trailing bytes, and returns the trailer fields as a slice of the input without the terminating blank line.
 - How to verify: `go test -race ./internal/rawhttp` passed and covers multiple chunks, trailers, an empty body, truncation and trailing bytes. `make check` passed after `cd web && bun install --frozen-lockfile` installed the missing dependencies. All 402 web tests passed.
-- Known limitations: The acceptance criteria remain open. The rule engine, offline tester, chunked body writer, golden tests and benchmark are pending. Status stays `in_progress`.
+- Known limitations: The acceptance criteria remain open. The rule engine, offline tester, chunked body writer, golden tests and benchmark are pending. The hook error and invalid-result contract is resolved in Notes from lead.
 - Follow-ups: Start with rule and HTTPQL condition validation for the offline tester. The live rewrite paths and ambiguous request framing behavior require a scope decision before implementation.
 
 ## Review (reviewer)

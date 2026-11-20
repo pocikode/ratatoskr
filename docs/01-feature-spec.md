@@ -300,6 +300,18 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     selects the source) is `BAD_QUERY` with its span ("<field> is not available in Match & Replace conditions"), checked
     after preset expansion, so a preset that brings one in fails like an unknown preset (create, update, tester), or skips
     the rule at load. `req.host` comes from the `Host` header, else the absolute-form target.
+  - Invalid results (lead, 2026-11-20, T-035): a rule whose result is not a valid message of the same kind is skipped
+    (logged at warn with the rule name) and the next rule gets the previous output, as for a status result that is not
+    three digits. Valid means `internal/rawhttp` parses the head and reads the framed body to its end from the buffer
+    (a declared length beyond the bytes present, a broken chunked body or a bad start line fails). Framing header edits
+    are otherwise applied as written; bytes after the framed body are kept as they are and are not body for later
+    rules. The proxy hooks return an error only when the input itself does not parse or the context is done; the caller
+    then uses the original bytes (`internal/proxy` already does).
+    Forwarding such bytes is intended: desync and smuggling tests need them (ADR-0003). The proxy keeps them off shared
+    connections (T-105, already merged). A changed request that is not exactly one complete message goes out once on a
+    fresh upstream connection, which is closed after the exchange and never pooled. The client connection stays open. A
+    changed response whose bytes do not end where their framing says closes the client connection after delivery. The
+    engine adds no framing check of its own.
   - When the request of an exchange is over the capture cap, no response rule runs on that exchange (logged at info);
     its response may still be held (operator, 2026-11-19, T-105 review round 2). A 2xx answer to a request sent as
     `CONNECT` is never rewritten (see F-INT-1).
