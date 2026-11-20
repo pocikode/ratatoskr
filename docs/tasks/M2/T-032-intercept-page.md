@@ -3,7 +3,7 @@ id: T-032
 title: Intercept page, top-bar intercept toggle and sidebar badge
 milestone: M2
 role: frontend
-status: in_review
+status: done
 depends_on: [T-030, T-104, T-034]
 owner: codex (sol)
 branch: task/T-032-intercept-page
