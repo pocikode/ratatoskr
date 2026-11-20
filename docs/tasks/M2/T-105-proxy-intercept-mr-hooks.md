@@ -3,12 +3,14 @@ id: T-105
 title: Proxy hooks - intercept hold, drop, Match & Replace rewrite, edited pairs
 milestone: M2
 role: backend
-status: blocked
+status: changes_requested
 depends_on: [T-100, T-031]
 owner: "claude-code (opus-5.5)"
 branch: task/T-105-proxy-intercept-mr-hooks
 paths:
   - internal/proxy/**
+  - internal/rawhttp/read.go       # lead 2026-11-20: CONNECT 2xx framing only
+  - internal/rawhttp/read_test.go
 spec:
   - docs/03-architecture.md §4 (pipeline, buffering rule, hook order)
   - docs/01-feature-spec.md#F-INT-1, #F-HIST-4, #F-MR-1 (M2 contracts)
@@ -60,6 +62,16 @@ without changing the streaming path for traffic that neither feature touches.
 ## Notes from lead
 - Plan mode required. Byte fidelity: no `net/http` on this path (ADR-0003); unchanged messages must go out as the same bytes.
 - Edits to a held request may change its framing; re-read the edited bytes with `rawhttp` before writing them upstream.
+- Lead answer (2026-11-20, round 10 block): RFC 9110 §9.3.6 — a client MUST ignore `Content-Length`/`Transfer-Encoding`
+  on a 2xx to CONNECT. `internal/rawhttp/read.go` + `read_test.go` are added to `paths` for exactly this: in `frame()`,
+  a response to `CONNECT` with status 2xx gets `FramingNone` **before** TE/CL validation (no error, no warning needed).
+  Leave 1xx/204/304/HEAD ordering as is (T-010 net/http parity, golden tests must stay unchanged). Add a `read_test.go`
+  case (CONNECT 200 with `Transfer-Encoding: gzip` and with a bad `Content-Length` → no error, FramingNone; CONNECT 407
+  with bad CL → `ErrFraming`) and extend `TestMethodEditToConnectClosesBoth` as proposed. Update the `noResponseBody`
+  comment. All earlier "Lead: add to F-…" items are now in docs/01 F-INT-1 / F-MR-1.
+- Lead (docs/07 §7, round 10): this is the last fix round. The reviewer approves once this lands green; any further
+  finding that is not a regression of an AC goes to a follow-up task, not another round. 101 as `dropStatusCode` stays
+  allowed for now (out of T-105 scope).
 
 ## Plan (implementer, ≤15 lines)
 1. `hooks.go`: `Interceptor` (WouldHold/HoldRequest/HoldResponse, intercept.Service shape) and `Rewriter` (task shape) in `Deps`.
@@ -88,7 +100,7 @@ without changing the streaming path for traffic that neither feature touches.
 - Lead: add to F-MR-1/F-INT-1 the operator's decision (2026-11-20, T-105 review round 9): when an edit makes the sent
   request CONNECT and the origin answers 2xx, the client gets that head only and both connections close; the response
   is not held or rewritten.
-- BLOCKED (2026-11-20, T-105 review round 10, operator chose to block): `rawhttp.ReadResponse` validates
+- RESOLVED by lead 2026-11-20 (see Notes from lead). Was BLOCKED (2026-11-20, T-105 review round 10, operator chose to block): `rawhttp.ReadResponse` validates
   Transfer-Encoding/Content-Length (`frame()` in `internal/rawhttp/read.go`) before `noResponseBody`, and
   `noResponseBody` does not know CONNECT 2xx. So a CONNECT 2xx carrying e.g. `Transfer-Encoding: gzip` or a bad
   `Content-Length` returns `ErrFraming`; the proxy answers 502 and the upstream head is lost. Proposed fix (~5 lines,
