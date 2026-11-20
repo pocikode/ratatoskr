@@ -80,6 +80,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   `exchange.ts`; `matchreplace.test.ts` covers CRUD, enable, move, reorder, validation codes, import/export, tester.
   Size budget (review of `3ff8e51`): condition ≤ 64 KiB, ≤ 1000 collections, ≤ 3 MiB rule text per project,
   tester `raw` ≤ 12 MiB, tester `output` ≤ 16 MiB (lead escalation); in F-MR-1, the schema, the mock, and a new T-108 criterion (T-108 file added to paths).
+  Tester rule input is `MatchReplaceTestRuleInput` (no name/enabled/sources) so its request always fits the 32 MiB cap.
   Import is validated against the schema (`createMatchReplaceMock(schema)` uses `coerceInputValue` on
   `MatchReplaceRuleInput` plus exact-key checks); malformed imports are rejected with nothing appended.
   F-MR-1 gained an "API details" bullet for the decisions the contract makes (no default collection, non-empty matcher
