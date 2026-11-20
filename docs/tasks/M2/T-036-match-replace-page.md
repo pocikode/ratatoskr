@@ -3,7 +3,7 @@ id: T-036
 title: Match & Replace page - collections, rule list, rule editor, import/export
 milestone: M2
 role: frontend
-status: in_review
+status: changes_requested
 depends_on: [T-099]
 owner: claude-sonnet-5.5
 branch: task/T-036-match-replace-page
@@ -59,5 +59,13 @@ Shortcuts: `window.prompt/confirm` for rename, new collection and unsaved-edit g
 - Follow-ups (proposed tasks): dialog component replacing prompt/confirm; E2E spec once T-102 backend is on main; structured `field` in `BAD_INPUT` extensions would remove message matching.
 
 ## Review (reviewer)
-- Verdict: approve | changes_requested
+- Verdict: changes_requested (reviewed `b16f38f`).
+- Verification: `make check` passed, including 415 web tests. The diff changes no proxy, store or raw HTTP files, so the integration target was outside the review procedure. Live Match & Replace remains dependent on T-102.
 - Findings:
+  - [ ] [major] web/src/pages/match-replace/MatchReplacePage.svelte:34 — The page loads on mount without tracking the active project. A project selection while this route stays mounted leaves the previous project's collections and draft visible → Scope the page state to the active project, following the Replay page pattern, and test a project change while the page is open.
+  - [ ] [major] web/src/pages/match-replace/matchreplace.svelte.ts:213 — A slow save reselects the saved rule after awaiting the mutation and reload. Users can switch to another rule and start editing it while the request is pending, then lose those edits when the old save finishes. A late failure also attaches errors to the current draft → Keep the originating draft stable during save or apply completion and errors only to the matching, unchanged draft. Test with a delayed response.
+  - [ ] [major] web/src/pages/match-replace/RuleList.svelte:161 — Right-clicking another rule while editing a dirty rule opens its context menu even when the user declines the discard prompt. Delete then uses the still-selected draft ID, so choosing it deletes the previously selected rule → Bind row actions to the row ID and give destructive actions a confirmation that names the rule. Test declining the switch before using the menu.
+  - [ ] [major] web/src/pages/match-replace/matchreplace.svelte.ts:235 — Rolling back an enable failure restores a snapshot of every collection. If a different toggle succeeds before the failure arrives, the snapshot also rolls back that successful toggle in the UI → Serialize overlapping list mutations or reconcile each mutation without undoing successful updates. Cover mixed success and failure with delayed mock responses.
+  - [ ] [major] web/src/lib/api/generated/graphql.ts:509 — This file and `web/src/lib/api/generated/gql.ts` are outside the task's declared paths. The handoff identifies both as codegen output → Have the lead authorize the generated paths in the task before resubmitting.
+  - [ ] [minor] web/src/pages/match-replace/MatchReplacePage.test.ts:123 — The successful drop test checks membership after dropping onto the only rule in the destination. An implementation that always appends would pass. The export test checks the version alone → Assert the move variables and resulting order, and verify the download filename and full mock payload.
+  - [ ] [minor] docs/tasks/M2/T-036-match-replace-page.md:65 — The handoff records no browser test for the user-visible page → Get the browser fixture path authorized and cover the workflow against the dev mock, or record the browser coverage dependency explicitly with the lead.
