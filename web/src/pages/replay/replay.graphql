@@ -1,0 +1,79 @@
+# Replay shell operations (T-034, F-REP-1), against internal/api/graphql/schema/replay.graphqls.
+# No subscription: the page refetches after its own mutations.
+
+fragment ReplaySessionRow on ReplaySession {
+  id
+  name
+  color
+  connection {
+    host
+    port
+    tls
+  }
+  draft
+}
+
+fragment ReplayCollectionRow on ReplayCollection {
+  id
+  name
+  isDefault
+  sessions {
+    ...ReplaySessionRow
+  }
+}
+
+query ReplayCollections {
+  replayCollections {
+    ...ReplayCollectionRow
+  }
+}
+
+mutation CreateReplayCollection($name: String!) {
+  createReplayCollection(name: $name) {
+    id
+  }
+}
+
+mutation RenameReplayCollection($id: ID!, $name: String!) {
+  renameReplayCollection(id: $id, name: $name) {
+    id
+  }
+}
+
+mutation DeleteReplayCollection($id: ID!) {
+  deleteReplayCollection(id: $id)
+}
+
+mutation CreateReplaySession($input: CreateReplaySessionInput!) {
+  createReplaySession(input: $input) {
+    id
+  }
+}
+
+mutation RenameReplaySession($id: ID!, $name: String!) {
+  updateReplaySession(id: $id, input: { name: $name }) {
+    id
+  }
+}
+
+mutation SetReplaySessionColor($id: ID!, $color: RequestColor) {
+  setReplaySessionColor(id: $id, color: $color) {
+    id
+  }
+}
+
+mutation DuplicateReplaySession($id: ID!) {
+  duplicateReplaySession(id: $id) {
+    id
+  }
+}
+
+mutation MoveReplaySession($id: ID!, $collectionId: ID!, $index: Int!) {
+  moveReplaySession(id: $id, collectionId: $collectionId, index: $index) {
+    id
+  }
+}
+
+mutation DeleteReplaySession($id: ID!) {
+  deleteReplaySession(id: $id)
+}

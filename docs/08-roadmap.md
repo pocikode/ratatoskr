@@ -66,7 +66,8 @@ Only T-109 edits `internal/app`; backend tasks are tested through their own pack
 | T-100 | History pending records (`NewPending`/`Complete`), edited pairs API, `editedBy` (deferred from T-011) | B | T-030 |
 | T-031 | Intercept service: queue, settings, conditions, release semantics, resolvers | B | T-030 |
 | T-105 | Proxy hooks: intercept hold, drop, M&R rewrite, edited pairs | B | T-100, T-031 |
-| T-033 | Replay service: collections, sessions, entries (no sending) | B | T-098 |
+| T-110 | Contract: `ReplaySession.requestTarget` (schema, stub, mock) | L | T-098 |
+| T-033 | Replay service: collections, sessions, entries (no sending) | B | T-098, T-110 |
 | T-101 | Replay sender: raw send on fresh connection, Content-Length rule, timeout, cancel, redirects | B | — |
 | T-037 | Environment backend: Global/project envs, sealed secrets (`internal/secret`), interpolation | B | T-098 |
 | T-106 | Replay send/cancel: interpolation, M&R hook, records + entries | B | T-033, T-101, T-100, T-037 |
@@ -75,6 +76,7 @@ Only T-109 edits `internal/app`; backend tasks are tested through their own pack
 | T-109 | Wire M2 services into the app (proxy deps, resolvers, project switch) | B | T-105, T-106, T-102 |
 | T-104 | `RawEditor`: byte-preserving editable HTTP editor with `{{var}}` highlighting | F | — |
 | T-034 | Replay page shell: session sidebar, collections, tab strip, `openInReplay` | F | T-098 |
+| T-111 | TabStrip drag reorder; Replay tree reads `requestTarget` instead of `draft` | F | T-034, T-110 |
 | T-103 | Environment page + status-bar switcher | F | T-098 |
 | T-032 | Intercept page + top-bar toggle + sidebar badge | F | T-030, T-104, T-034 |
 | T-107 | Replay session editor: connection bar, send/cancel, entries, response; Send to Replay from History | F | T-034, T-104, T-103 |
