@@ -3,7 +3,7 @@ id: T-099
 title: Contract - Match & Replace collections, rules, tester, import/export
 milestone: M2
 role: lead
-status: changes_requested
+status: in_review
 depends_on: [T-098]
 owner: "claude-code (opus-5.5)"
 branch: task/T-099-contract-match-replace
@@ -462,7 +462,7 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
 ### Review of `c0399b7`
 
 - Verdict is `changes_requested`. Escalate the remaining contract decision to the lead.
-- [ ] [major] internal/api/graphql/schema/matchreplace.graphqls:329 — The 12 MiB tester input
+- [x] [major] internal/api/graphql/schema/matchreplace.graphqls:329 — The 12 MiB tester input
   cap does not guarantee a request fits the 32 MiB API limit. The tester accepts a full
   `MatchReplaceRuleInput` and ignores `name` and `sources`, so their serialized size is
   unbounded by the tester contract. A 12 MiB response with an otherwise valid draft and a
@@ -470,6 +470,10 @@ GraphQL contract for Match & Replace so T-035/T-102 (backend) and T-036/T-108 (f
   ceiling. The transport rejects it before the tester can run. → Give the tester a draft
   input containing only fields it uses, or document the transport limit separately and
   have T-108 send bounded placeholders for the ignored fields.
+  → Fixed (lead decision): `testMatchReplace(rule:)` now takes `MatchReplaceTestRuleInput` (condition, section,
+  operation, matcher, term), so name/enabled/sources cannot be sent at all. F-MR-1, the stub and T-108 (drop those
+  fields from the editor draft) updated. Mock tests strip them; a regression test checks a `name` is rejected.
+  `make gen` regenerated; `make check` green (43 files, 353 tests).
 - The new regression passes in both header orders. The output cap is checked on the final
   sum before building any replacement strings. `make check` passed (43 Vitest files, 353
   tests). Measured the serialized POST locally. Review assumed a single desktop user

@@ -19,7 +19,8 @@
 # Size budget, so every request fits the 32 MiB API cap: a condition is at most
 # 64 KiB; a project holds at most 1000 rules and 1000 collections, and the UTF-8
 # sum of all its rules' conditions, matcher values and terms is at most 3 MiB.
-# The tester takes at most 12 MiB of `raw` and returns at most 16 MiB of `output`.
+# The tester takes at most 12 MiB of `raw` and returns at most 16 MiB of `output`;
+# its rule input has only the bounded fields it uses.
 #
 # The rules are repeated in the descriptions below so they reach the generated
 # SDL and introspection.
@@ -245,6 +246,25 @@ input MatchReplaceRuleInput {
   term: String! = ""
 }
 
+"""
+A draft rule for `testMatchReplace`: the `MatchReplaceRuleInput` fields the
+tester uses. It has no `name`, `enabled` or `sources`, so their size cannot push
+a tester request past the 32 MiB API cap. Validation as in
+`MatchReplaceRuleInput` for these fields; the project budget is not checked.
+"""
+input MatchReplaceTestRuleInput {
+  "HTTPQL condition, at most 64 KiB; empty (the default) means always."
+  condition: String! = ""
+  "The part of the message the rule works on."
+  section: MatchReplaceSection!
+  "What the rule does."
+  operation: MatchReplaceOperation!
+  "How the rule finds what it changes."
+  matcher: MatchReplaceMatcherInput!
+  "Replacement text, at most 1 MiB. Default empty."
+  term: String! = ""
+}
+
 "What the tester produced."
 type MatchReplaceTestResult {
   "The message after the rule, at most 16 MiB; the input bytes unchanged when nothing changed."
@@ -327,9 +347,8 @@ extend type Mutation {
   """
   importMatchReplace(json: String!): Int!
   """
-  Runs one draft rule (saved or not) on `raw` and returns the result. `name`,
-  `enabled` and `sources` are not checked or used; everything else is validated
-  as in `createMatchReplaceRule`. The condition sees only `raw`: clauses about
+  Runs one draft rule (saved or not) on `raw` and returns the result. The rule
+  is validated as in `createMatchReplaceRule`, without the project budget. The condition sees only `raw`: clauses about
   the other message are false. Same section, encoding and framing rules as for
   traffic.
 
@@ -349,8 +368,8 @@ fill), or an
   an invalid condition.
   """
   testMatchReplace(
-    "The draft rule."
-    rule: MatchReplaceRuleInput!
+    "The draft rule (no name, enabled or sources)."
+    rule: MatchReplaceTestRuleInput!
     "Whether `raw` is a request or a response."
     kind: MatchReplaceMessageKind!
     "The message bytes, as pasted or picked from HTTP History; at most 12 MiB."

@@ -406,6 +406,23 @@ type MatchReplaceTestResult struct {
 	Changed bool `json:"changed"`
 }
 
+// A draft rule for `testMatchReplace`: the `MatchReplaceRuleInput` fields the
+// tester uses. It has no `name`, `enabled` or `sources`, so their size cannot push
+// a tester request past the 32 MiB API cap. Validation as in
+// `MatchReplaceRuleInput` for these fields; the project budget is not checked.
+type MatchReplaceTestRuleInput struct {
+	// HTTPQL condition, at most 64 KiB; empty (the default) means always.
+	Condition string `json:"condition"`
+	// The part of the message the rule works on.
+	Section MatchReplaceSection `json:"section"`
+	// What the rule does.
+	Operation MatchReplaceOperation `json:"operation"`
+	// How the rule finds what it changes.
+	Matcher *MatchReplaceMatcherInput `json:"matcher"`
+	// Replacement text, at most 1 MiB. Default empty.
+	Term string `json:"term"`
+}
+
 // Mutations. Other schema files extend this type.
 type Mutation struct {
 }

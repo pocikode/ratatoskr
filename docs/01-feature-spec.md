@@ -288,7 +288,8 @@ Open in browser · Filter by this host/path/status · Delete · Export.
     be empty); new collections and rules go last. `STRING`, `REGEX` and `NAME` need a non-empty value; `FULL` ignores it; `ADD` ignores the matcher
     (any kind and value).
     An `ADD` header term must be `Name: value` with a token name (`BAD_INPUT`); a param term is appended as written.
-    Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester ignores name, enabled and sources, rejects
+    Term expansion (`$1`, `${name}`, `$$`) only happens with `REGEX`. The tester takes `MatchReplaceTestRuleInput` (a rule without name, enabled and sources, so a tester request stays
+    under the 32 MiB API cap whatever the draft name), rejects
     a section for the other message kind, a `Content-Length` that is not decimal or disagrees with another (exact decimal values, leading zeroes ignored), and a body
     whose length differs from `Content-Length` (a response with no body may declare any length, as for `HEAD`; body
     rules leave an empty response that declares a nonzero length unchanged, since it may answer `HEAD`, but fill one

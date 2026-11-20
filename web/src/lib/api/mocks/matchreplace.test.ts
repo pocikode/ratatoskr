@@ -28,7 +28,17 @@ const addHeader = {
   term: 'X-Test: 1',
 };
 const CREATE = `mutation ($c: ID!, $i: MatchReplaceRuleInput!) { createMatchReplaceRule(collectionId: $c, input: $i) { ${RULE} } }`;
-const TEST = `mutation ($r: MatchReplaceRuleInput!, $k: MatchReplaceMessageKind!, $raw: Bytes!) { testMatchReplace(rule: $r, kind: $k, raw: $raw) { output conditionMatched changed } }`;
+const TEST = `mutation ($r: MatchReplaceTestRuleInput!, $k: MatchReplaceMessageKind!, $raw: Bytes!) { testMatchReplace(rule: $r, kind: $k, raw: $raw) { output conditionMatched changed } }`;
+
+// The tester input has no name, enabled or sources; drop them from the saved-rule fixtures.
+const tester = (
+  m: (q: string, v?: object) => Promise<Res>,
+  { r, ...v }: { r: object; k: string; raw: string },
+): Promise<Res> => {
+  const draft: Record<string, unknown> = { ...r };
+  for (const k of ['name', 'enabled', 'sources']) delete draft[k];
+  return m(TEST, { ...v, r: draft });
+};
 
 describe('match & replace mock', () => {
   it('seeds two collections with four rules', async () => {
@@ -254,15 +264,22 @@ describe('match & replace mock', () => {
   it('tests header and body rules', async () => {
     const { m } = run();
     const req = btoa('GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n');
-    const added = (await m(TEST, { r: { ...addHeader, sources: [] }, k: 'REQUEST', raw: req }))
+    const added = (await tester(m, { r: { ...addHeader, sources: [] }, k: 'REQUEST', raw: req }))
       .data!.testMatchReplace;
     expect(added).toEqual({
       output: btoa('GET / HTTP/1.1\r\nHost: www.example.com\r\nX-Test: 1\r\n\r\n'),
       conditionMatched: true,
       changed: true,
     });
+    // No name/enabled/sources in the tester input, so an unbounded draft name cannot reach it.
+    const named = await m(TEST, {
+      r: { ...addHeader, sources: undefined },
+      k: 'REQUEST',
+      raw: req,
+    });
+    expect(named.error).toBeDefined();
     const search = btoa('M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250\r\n\r\n');
-    const ext = (await m(TEST, { r: { ...addHeader, sources: [] }, k: 'REQUEST', raw: search }))
+    const ext = (await tester(m, { r: { ...addHeader, sources: [] }, k: 'REQUEST', raw: search }))
       .data!.testMatchReplace;
     expect(atob(ext.output)).toBe(
       'M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250\r\nX-Test: 1\r\n\r\n',
@@ -277,10 +294,10 @@ describe('match & replace mock', () => {
       matcher: { kind: 'STRING', value: 'b' },
       term: 'xyz',
     };
-    const out = (await m(TEST, { r: body, k: 'RESPONSE', raw: resp })).data!.testMatchReplace;
+    const out = (await tester(m, { r: body, k: 'RESPONSE', raw: resp })).data!.testMatchReplace;
     expect(atob(out.output)).toBe('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\naxyzc');
     const same = (
-      await m(TEST, {
+      await tester(m, {
         r: { ...body, matcher: { kind: 'STRING', value: 'q' } },
         k: 'RESPONSE',
         raw: resp,
@@ -300,13 +317,13 @@ describe('match & replace mock', () => {
         'POST / HTTP/1.1\r\nHost: a.test\r\nContent-Length: 2\r\n\r\nbb',
       ],
     ] as const) {
-      const r = (await m(TEST, { r: reqBB, k: 'REQUEST', raw: btoa(input) })).data!
+      const r = (await tester(m, { r: reqBB, k: 'REQUEST', raw: btoa(input) })).data!
         .testMatchReplace;
       expect(atob(r.output)).toBe(want);
     }
     // No-op keeps the original bytes, duplicate lengths included.
     const dup = btoa('POST / HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\na');
-    const noop = (await m(TEST, { r: { ...reqBody, term: 'a' }, k: 'REQUEST', raw: dup })).data!
+    const noop = (await tester(m, { r: { ...reqBody, term: 'a' }, k: 'REQUEST', raw: dup })).data!
       .testMatchReplace;
     expect(noop).toMatchObject({ output: dup, changed: false });
     // Mock shortcut: chunked or content-coded bodies are left alone, never re-framed wrongly.
@@ -315,7 +332,8 @@ describe('match & replace mock', () => {
       'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n0\r\n\r\n',
       'HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 1\r\n\r\na',
     ]) {
-      const r = (await m(TEST, { r: ab, k: 'RESPONSE', raw: btoa(framed) })).data!.testMatchReplace;
+      const r = (await tester(m, { r: ab, k: 'RESPONSE', raw: btoa(framed) })).data!
+        .testMatchReplace;
       expect(r).toMatchObject({ output: btoa(framed), changed: false });
     }
     // 1xx, 204 and 304 responses are bodyless on the wire: a FULL body rule must not append bytes.
@@ -325,7 +343,7 @@ describe('match & replace mock', () => {
       'HTTP/1.1 304\r\nETag: "x"\r\n\r\n',
       'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n',
     ]) {
-      const r = (await m(TEST, { r: fullBB, k: 'RESPONSE', raw: btoa(bodyless) })).data!
+      const r = (await tester(m, { r: fullBB, k: 'RESPONSE', raw: btoa(bodyless) })).data!
         .testMatchReplace;
       expect(r).toMatchObject({ output: btoa(bodyless), changed: false });
     }
@@ -336,7 +354,9 @@ describe('match & replace mock', () => {
       'POST / HTTP/1.1\r\nContent-Length: 1\r\n\r\nab',
       'POST / HTTP/1.1\r\nContent-Length: x\r\n\r\na',
     ])
-      expect(code(await m(TEST, { r: reqBB, k: 'REQUEST', raw: btoa(partial) }))).toBe('BAD_INPUT');
+      expect(code(await tester(m, { r: reqBB, k: 'REQUEST', raw: btoa(partial) }))).toBe(
+        'BAD_INPUT',
+      );
     // Length syntax and agreement are checked even when the body-size check is waived.
     for (const bad of [
       'HTTP/1.1 200 OK\r\nContent-Length: x\r\n\r\n',
@@ -346,46 +366,49 @@ describe('match & replace mock', () => {
       // Byte 0xA0 is not HTTP whitespace (Unicode trim() would strip it).
       'HTTP/1.1 200 OK\r\nContent-Length: \xA04\r\n\r\nabcd',
     ])
-      expect(code(await m(TEST, { r: fullBB, k: 'RESPONSE', raw: btoa(bad) }))).toBe('BAD_INPUT');
+      expect(code(await tester(m, { r: fullBB, k: 'RESPONSE', raw: btoa(bad) }))).toBe('BAD_INPUT');
     // Leading zeroes do not change the value: 04 and 4 agree.
     const zeros = btoa('HTTP/1.1 200 OK\r\nContent-Length: 04\r\nContent-Length: 4\r\n\r\nabcd');
-    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: zeros })).error).toBeUndefined();
+    expect((await tester(m, { r: body, k: 'RESPONSE', raw: zeros })).error).toBeUndefined();
     // Space and tab around the value are HTTP whitespace.
     const ows = btoa('HTTP/1.1 200 OK\r\nContent-Length: \t4 \t\r\n\r\nabcd');
-    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: ows })).error).toBeUndefined();
+    expect((await tester(m, { r: body, k: 'RESPONSE', raw: ows })).error).toBeUndefined();
     // A response with no body keeps its length (reply to HEAD); body rules leave it unchanged.
     const head = btoa('HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n');
-    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: head })).error).toBeUndefined();
-    const headFull = (await m(TEST, { r: fullBB, k: 'RESPONSE', raw: head })).data!
+    expect((await tester(m, { r: body, k: 'RESPONSE', raw: head })).error).toBeUndefined();
+    const headFull = (await tester(m, { r: fullBB, k: 'RESPONSE', raw: head })).data!
       .testMatchReplace;
     expect(headFull).toMatchObject({ output: head, changed: false });
     // An empty 200 with length 0 is a real empty body: a FULL rule fills it.
     const empty = btoa('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
-    const filled = (await m(TEST, { r: fullBB, k: 'RESPONSE', raw: empty })).data!.testMatchReplace;
+    const filled = (await tester(m, { r: fullBB, k: 'RESPONSE', raw: empty })).data!
+      .testMatchReplace;
     expect(atob(filled.output)).toBe('HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nbb');
-    expect(code(await m(TEST, { r: body, k: 'REQUEST', raw: req }))).toBe('BAD_INPUT');
-    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe('BAD_INPUT');
+    expect(code(await tester(m, { r: body, k: 'REQUEST', raw: req }))).toBe('BAD_INPUT');
+    expect(code(await tester(m, { r: body, k: 'RESPONSE', raw: btoa('garbage') }))).toBe(
+      'BAD_INPUT',
+    );
     // A bare CR inside the status line is malformed, not a line end.
     const bareCR = btoa('HTTP/1.1 200\rX\r\n\r\noriginal');
-    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: bareCR }))).toBe('BAD_INPUT');
+    expect(code(await tester(m, { r: body, k: 'RESPONSE', raw: bareCR }))).toBe('BAD_INPUT');
     const noReason = btoa('HTTP/1.1 204\r\n\r\nb');
-    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: noReason })).error).toBeUndefined();
+    expect((await tester(m, { r: body, k: 'RESPONSE', raw: noReason })).error).toBeUndefined();
     const huge = btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(12 * 1024 * 1024)}`);
-    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: huge }))).toBe('BAD_INPUT');
-    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: resp.replace(/=+$/, '') }))).toBe(
+    expect(code(await tester(m, { r: body, k: 'RESPONSE', raw: huge }))).toBe('BAD_INPUT');
+    expect(code(await tester(m, { r: body, k: 'RESPONSE', raw: resp.replace(/=+$/, '') }))).toBe(
       'BAD_INPUT',
     );
     // 64 KiB of 'b' x 300-byte term: a small input whose result crosses the 16 MiB output cap.
     const grow = btoa(`HTTP/1.1 200 OK\r\n\r\n${'b'.repeat(64 * 1024)}`);
     expect(
-      code(await m(TEST, { r: { ...body, term: 'x'.repeat(300) }, k: 'RESPONSE', raw: grow })),
+      code(await tester(m, { r: { ...body, term: 'x'.repeat(300) }, k: 'RESPONSE', raw: grow })),
     ).toBe('BAD_INPUT');
     // Near-12 MiB of 'a' with a 2-byte term: over the cap, rejected without materialising matches.
     const dense = btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(12 * 1024 * 1024 - 19)}`);
     const aa = { ...body, matcher: { kind: 'STRING', value: 'a' }, term: 'xx' };
-    expect(code(await m(TEST, { r: aa, k: 'RESPONSE', raw: dense }))).toBe('BAD_INPUT');
+    expect(code(await tester(m, { r: aa, k: 'RESPONSE', raw: dense }))).toBe('BAD_INPUT');
     // Dense replacement that fits: every 'a' becomes '$&' literally (no replacement patterns).
-    const dollar = await m(TEST, {
+    const dollar = await tester(m, {
       r: { ...aa, term: '$&' },
       k: 'RESPONSE',
       raw: btoa(`HTTP/1.1 200 OK\r\n\r\n${'a'.repeat(4 * 1024 * 1024)}`),
@@ -402,12 +425,12 @@ describe('match & replace mock', () => {
       matcher: { kind: 'FULL', value: '' },
       term: 'x'.repeat(1024 * 1024),
     };
-    expect(code(await m(TEST, { r: full, k: 'RESPONSE', raw: many }))).toBe('BAD_INPUT');
+    expect(code(await tester(m, { r: full, k: 'RESPONSE', raw: many }))).toBe('BAD_INPUT');
     // Only the final size counts: 14 expanding headers then one shrinking 3 MiB header fit in either order.
     const short = 'A: 1\r\n'.repeat(14);
     const long = `B: ${'b'.repeat(3 * 1024 * 1024)}\r\n`;
     for (const hs of [short + long, long + short]) {
-      const mixed = await m(TEST, {
+      const mixed = await tester(m, {
         r: full,
         k: 'RESPONSE',
         raw: btoa(`HTTP/1.1 200 OK\r\n${hs}\r\n`),
@@ -421,21 +444,21 @@ describe('match & replace mock', () => {
     const exact = (pad: number) =>
       btoa(`HTTP/1.1 200 OK\r\n\r\n${'b'.repeat(16383)}${'a'.repeat(pad)}`);
     const kib = { ...body, term: 'x'.repeat(1024) };
-    const res = await m(TEST, { r: kib, k: 'RESPONSE', raw: exact(1005) });
+    const res = await tester(m, { r: kib, k: 'RESPONSE', raw: exact(1005) });
     expect(res.error).toBeUndefined();
     const fit = res.data!.testMatchReplace;
     expect(atob(fit.output).length).toBe(16 * 1024 * 1024);
-    expect(code(await m(TEST, { r: kib, k: 'RESPONSE', raw: exact(1006) }))).toBe('BAD_INPUT');
+    expect(code(await tester(m, { r: kib, k: 'RESPONSE', raw: exact(1006) }))).toBe('BAD_INPUT');
     // Same boundary when a zero-padded Content-Length shrinks on rewrite (45-byte head + 16383 KiB + 979).
     const padded = (pad: number) =>
       btoa(
         `HTTP/1.1 200 OK\r\nContent-Length: ${String(16383 + pad).padStart(40, '0')}\r\n\r\n` +
           `${'b'.repeat(16383)}${'a'.repeat(pad)}`,
       );
-    const shrink = await m(TEST, { r: kib, k: 'RESPONSE', raw: padded(979) });
+    const shrink = await tester(m, { r: kib, k: 'RESPONSE', raw: padded(979) });
     expect(shrink.error).toBeUndefined();
     expect(atob(shrink.data!.testMatchReplace.output).length).toBe(16 * 1024 * 1024);
-    expect(code(await m(TEST, { r: kib, k: 'RESPONSE', raw: padded(980) }))).toBe('BAD_INPUT');
+    expect(code(await tester(m, { r: kib, k: 'RESPONSE', raw: padded(980) }))).toBe('BAD_INPUT');
     // 200,000 header lines: more than V8 accepts as spread function arguments.
     const lines = btoa(`HTTP/1.1 200 OK\r\n${'A: 1\r\n'.repeat(200_000)}\r\n`);
     const hdr = {
@@ -444,7 +467,7 @@ describe('match & replace mock', () => {
       matcher: { kind: 'STRING', value: '1' },
       term: '2',
     };
-    const wide = await m(TEST, { r: hdr, k: 'RESPONSE', raw: lines });
+    const wide = await tester(m, { r: hdr, k: 'RESPONSE', raw: lines });
     expect(wide.error).toBeUndefined();
     expect(atob(wide.data!.testMatchReplace.output)).toBe(
       `HTTP/1.1 200 OK\r\n${'A: 2\r\n'.repeat(200_000)}\r\n`,
@@ -452,7 +475,7 @@ describe('match & replace mock', () => {
     // A 64 KiB matcher over 1000 headers: encoded once, not per line (was ~2.5 s).
     const thousand = btoa(`HTTP/1.1 200 OK\r\n${'A: 1\r\n'.repeat(1000)}\r\n`);
     const t0 = performance.now();
-    const big = await m(TEST, {
+    const big = await tester(m, {
       r: { ...hdr, matcher: { kind: 'STRING', value: 'z'.repeat(64 * 1024) } },
       k: 'RESPONSE',
       raw: thousand,
@@ -460,7 +483,7 @@ describe('match & replace mock', () => {
     expect(big.data!.testMatchReplace).toMatchObject({ output: thousand, changed: false });
     expect(performance.now() - t0).toBeLessThan(1000);
     // Base64 as the Go scalar reads it: CR/LF ignored, other whitespace rejected.
-    expect((await m(TEST, { r: body, k: 'RESPONSE', raw: `${resp}\r\n` })).error).toBeUndefined();
-    expect(code(await m(TEST, { r: body, k: 'RESPONSE', raw: `${resp}    ` }))).toBe('BAD_INPUT');
+    expect((await tester(m, { r: body, k: 'RESPONSE', raw: `${resp}\r\n` })).error).toBeUndefined();
+    expect(code(await tester(m, { r: body, k: 'RESPONSE', raw: `${resp}    ` }))).toBe('BAD_INPUT');
   });
 });

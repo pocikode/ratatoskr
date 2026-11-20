@@ -217,7 +217,7 @@ type ComplexityRoot struct {
 		SetReplaySessionColor          func(childComplexity int, id string, color *RequestColor) int
 		SetRequestColor                func(childComplexity int, ids []string, color *RequestColor) int
 		SetRequestNote                 func(childComplexity int, id string, note *string) int
-		TestMatchReplace               func(childComplexity int, rule MatchReplaceRuleInput, kind MatchReplaceMessageKind, raw []byte) int
+		TestMatchReplace               func(childComplexity int, rule MatchReplaceTestRuleInput, kind MatchReplaceMessageKind, raw []byte) int
 		UpdateFilterPreset             func(childComplexity int, id string, name string, alias *string, query string) int
 		UpdateInterceptSettings        func(childComplexity int, input InterceptSettingsInput) int
 		UpdateMatchReplaceRule         func(childComplexity int, id string, input MatchReplaceRuleInput) int
@@ -442,7 +442,7 @@ type MutationResolver interface {
 	MoveMatchReplaceRule(ctx context.Context, id string, collectionID string, index int) (*MatchReplaceRule, error)
 	DeleteMatchReplaceRule(ctx context.Context, id string) (string, error)
 	ImportMatchReplace(ctx context.Context, json string) (int, error)
-	TestMatchReplace(ctx context.Context, rule MatchReplaceRuleInput, kind MatchReplaceMessageKind, raw []byte) (*MatchReplaceTestResult, error)
+	TestMatchReplace(ctx context.Context, rule MatchReplaceTestRuleInput, kind MatchReplaceMessageKind, raw []byte) (*MatchReplaceTestResult, error)
 	CreateReplayCollection(ctx context.Context, name string) (*ReplayCollection, error)
 	RenameReplayCollection(ctx context.Context, id string, name string) (*ReplayCollection, error)
 	DeleteReplayCollection(ctx context.Context, id string) (string, error)
@@ -1551,7 +1551,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.TestMatchReplace(childComplexity, args["rule"].(MatchReplaceRuleInput), args["kind"].(MatchReplaceMessageKind), args["raw"].([]byte)), true
+		return e.ComplexityRoot.Mutation.TestMatchReplace(childComplexity, args["rule"].(MatchReplaceTestRuleInput), args["kind"].(MatchReplaceMessageKind), args["raw"].([]byte)), true
 	case "Mutation.updateFilterPreset":
 		if e.ComplexityRoot.Mutation.UpdateFilterPreset == nil {
 			break
@@ -2336,6 +2336,7 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 			graphql.NewInputUnmarshaler("InterceptSettingsInput", ec.unmarshalInputInterceptSettingsInput),
 			graphql.NewInputUnmarshaler("MatchReplaceMatcherInput", ec.unmarshalInputMatchReplaceMatcherInput),
 			graphql.NewInputUnmarshaler("MatchReplaceRuleInput", ec.unmarshalInputMatchReplaceRuleInput),
+			graphql.NewInputUnmarshaler("MatchReplaceTestRuleInput", ec.unmarshalInputMatchReplaceTestRuleInput),
 			graphql.NewInputUnmarshaler("ReplayConnectionInput", ec.unmarshalInputReplayConnectionInput),
 			graphql.NewInputUnmarshaler("ReplayOptionsInput", ec.unmarshalInputReplayOptionsInput),
 			graphql.NewInputUnmarshaler("RequestSort", ec.unmarshalInputRequestSort),
@@ -3288,7 +3289,8 @@ extend type Subscription {
 # Size budget, so every request fits the 32 MiB API cap: a condition is at most
 # 64 KiB; a project holds at most 1000 rules and 1000 collections, and the UTF-8
 # sum of all its rules' conditions, matcher values and terms is at most 3 MiB.
-# The tester takes at most 12 MiB of ` + "`" + `raw` + "`" + ` and returns at most 16 MiB of ` + "`" + `output` + "`" + `.
+# The tester takes at most 12 MiB of ` + "`" + `raw` + "`" + ` and returns at most 16 MiB of ` + "`" + `output` + "`" + `;
+# its rule input has only the bounded fields it uses.
 #
 # The rules are repeated in the descriptions below so they reach the generated
 # SDL and introspection.
@@ -3514,6 +3516,25 @@ input MatchReplaceRuleInput {
   term: String! = ""
 }
 
+"""
+A draft rule for ` + "`" + `testMatchReplace` + "`" + `: the ` + "`" + `MatchReplaceRuleInput` + "`" + ` fields the
+tester uses. It has no ` + "`" + `name` + "`" + `, ` + "`" + `enabled` + "`" + ` or ` + "`" + `sources` + "`" + `, so their size cannot push
+a tester request past the 32 MiB API cap. Validation as in
+` + "`" + `MatchReplaceRuleInput` + "`" + ` for these fields; the project budget is not checked.
+"""
+input MatchReplaceTestRuleInput {
+  "HTTPQL condition, at most 64 KiB; empty (the default) means always."
+  condition: String! = ""
+  "The part of the message the rule works on."
+  section: MatchReplaceSection!
+  "What the rule does."
+  operation: MatchReplaceOperation!
+  "How the rule finds what it changes."
+  matcher: MatchReplaceMatcherInput!
+  "Replacement text, at most 1 MiB. Default empty."
+  term: String! = ""
+}
+
 "What the tester produced."
 type MatchReplaceTestResult {
   "The message after the rule, at most 16 MiB; the input bytes unchanged when nothing changed."
@@ -3596,9 +3617,8 @@ extend type Mutation {
   """
   importMatchReplace(json: String!): Int!
   """
-  Runs one draft rule (saved or not) on ` + "`" + `raw` + "`" + ` and returns the result. ` + "`" + `name` + "`" + `,
-  ` + "`" + `enabled` + "`" + ` and ` + "`" + `sources` + "`" + ` are not checked or used; everything else is validated
-  as in ` + "`" + `createMatchReplaceRule` + "`" + `. The condition sees only ` + "`" + `raw` + "`" + `: clauses about
+  Runs one draft rule (saved or not) on ` + "`" + `raw` + "`" + ` and returns the result. The rule
+  is validated as in ` + "`" + `createMatchReplaceRule` + "`" + `, without the project budget. The condition sees only ` + "`" + `raw` + "`" + `: clauses about
   the other message are false. Same section, encoding and framing rules as for
   traffic.
 
@@ -3618,8 +3638,8 @@ fill), or an
   an invalid condition.
   """
   testMatchReplace(
-    "The draft rule."
-    rule: MatchReplaceRuleInput!
+    "The draft rule (no name, enabled or sources)."
+    rule: MatchReplaceTestRuleInput!
     "Whether ` + "`" + `raw` + "`" + ` is a request or a response."
     kind: MatchReplaceMessageKind!
     "The message bytes, as pasted or picked from HTTP History; at most 12 MiB."
@@ -5763,8 +5783,8 @@ func (ec *executionContext) field_Mutation_testMatchReplace_args(ctx context.Con
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "rule",
-		func(ctx context.Context, v any) (MatchReplaceRuleInput, error) {
-			return ec.unmarshalNMatchReplaceRuleInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐMatchReplaceRuleInput(ctx, v)
+		func(ctx context.Context, v any) (MatchReplaceTestRuleInput, error) {
+			return ec.unmarshalNMatchReplaceTestRuleInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐMatchReplaceTestRuleInput(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -9838,7 +9858,7 @@ func (ec *executionContext) _Mutation_testMatchReplace(ctx context.Context, fiel
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().TestMatchReplace(ctx, fc.Args["rule"].(MatchReplaceRuleInput), fc.Args["kind"].(MatchReplaceMessageKind), fc.Args["raw"].([]byte))
+			return ec.Resolvers.Mutation().TestMatchReplace(ctx, fc.Args["rule"].(MatchReplaceTestRuleInput), fc.Args["kind"].(MatchReplaceMessageKind), fc.Args["raw"].([]byte))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *MatchReplaceTestResult) graphql.Marshaler {
@@ -15041,6 +15061,83 @@ func UnmarshalMatchReplaceRuleInput(ctx context.Context, raw any) (MatchReplaceR
 	return out, err
 }
 
+func (ec *executionContext) unmarshalInputMatchReplaceTestRuleInput(ctx context.Context, obj any) (MatchReplaceTestRuleInput, error) {
+	var it MatchReplaceTestRuleInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	if _, present := asMap["condition"]; !present {
+		asMap["condition"] = ""
+	}
+	if _, present := asMap["term"]; !present {
+		asMap["term"] = ""
+	}
+
+	fieldsInOrder := [...]string{"condition", "section", "operation", "matcher", "term"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "condition":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("condition"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Condition = data
+		case "section":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("section"))
+			data, err := ec.unmarshalNMatchReplaceSection2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐMatchReplaceSection(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Section = data
+		case "operation":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("operation"))
+			data, err := ec.unmarshalNMatchReplaceOperation2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐMatchReplaceOperation(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Operation = data
+		case "matcher":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("matcher"))
+			data, err := ec.unmarshalNMatchReplaceMatcherInput2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐMatchReplaceMatcherInput(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Matcher = data
+		case "term":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("term"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Term = data
+		}
+	}
+	return it, nil
+}
+
+// UnmarshalMatchReplaceTestRuleInput unmarshals raw into the MatchReplaceTestRuleInput input type, using the
+// unmarshaler bound to ctx's request. Call it from a resolver to decode an input
+// object that was not passed as a field argument.
+//
+// ctx must come from a gqlgen request; outside one there is no unmarshaler to use
+// and the returned error says so.
+func UnmarshalMatchReplaceTestRuleInput(ctx context.Context, raw any) (MatchReplaceTestRuleInput, error) {
+	var out MatchReplaceTestRuleInput
+	err := graphql.UnmarshalNamedInputFromContext(ctx, "MatchReplaceTestRuleInput", raw, &out)
+	return out, err
+}
+
 func (ec *executionContext) unmarshalInputReplayConnectionInput(ctx context.Context, obj any) (ReplayConnectionInput, error) {
 	var it ReplayConnectionInput
 	if obj == nil {
@@ -18618,6 +18715,11 @@ func (ec *executionContext) marshalNMatchReplaceTestResult2ᚖgithubᚗcomᚋpoc
 		return graphql.Null
 	}
 	return ec._MatchReplaceTestResult(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNMatchReplaceTestRuleInput2githubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐMatchReplaceTestRuleInput(ctx context.Context, v any) (MatchReplaceTestRuleInput, error) {
+	res, err := ec.unmarshalInputMatchReplaceTestRuleInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalNPageInfo2ᚖgithubᚗcomᚋpocikodeᚋratatoskrᚋinternalᚋapiᚋgraphqlᚋgeneratedᚐPageInfo(ctx context.Context, sel ast.SelectionSet, v *PageInfo) graphql.Marshaler {

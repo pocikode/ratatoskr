@@ -86,7 +86,7 @@ func (r *mutationResolver) ImportMatchReplace(context.Context, string) (int, err
 }
 
 func (r *mutationResolver) TestMatchReplace(
-	context.Context, generated.MatchReplaceRuleInput, generated.MatchReplaceMessageKind, []byte,
+	context.Context, generated.MatchReplaceTestRuleInput, generated.MatchReplaceMessageKind, []byte,
 ) (*generated.MatchReplaceTestResult, error) {
 	return nil, apperr.ErrNotImplemented
 }
